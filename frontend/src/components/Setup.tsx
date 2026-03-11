@@ -2,14 +2,16 @@ import { useState, useRef, useEffect } from 'preact/hooks';
 import { generateKeyPair, getFingerprint, decryptPrivateKey } from '../lib/crypto';
 import { aesEncrypt, saveAccount } from '../lib/storage';
 import { ApiClient } from '../lib/api';
+import { session } from '../lib/session';
 import QRCode from 'qrcode';
 
 interface Props {
   onComplete: () => void;
   onCancel: () => void;
+  onAuthenticated: () => void;
 }
 
-export function Setup({ onComplete, onCancel }: Props) {
+export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
   const [step, setStep] = useState(1);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -131,13 +133,8 @@ export function Setup({ onComplete, onCancel }: Props) {
       const url = apiUrl.replace(/\/+$/, '');
       const api = new ApiClient(url);
 
-      // Register user on server
-      await api.setup(loginPassword, publicKey, fingerprint);
-
-      // AES encrypt the API URL with login password
+      // Save to IndexedDB first so existing remote users can still be opened locally.
       const encrypted = await aesEncrypt(url, loginPassword);
-
-      // Save to IndexedDB
       await saveAccount({
         fingerprint,
         privateKey,
@@ -147,15 +144,44 @@ export function Setup({ onComplete, onCancel }: Props) {
         apiUrlIv: encrypted.iv,
       });
 
-      // If we want to set up 2FA, we need to login first to get a JWT
       api.fingerprint = fingerprint;
-      const loginResult = await api.login(loginPassword);
-      if (loginResult.token) {
+
+      let loginResult: { token?: string; requires_2fa?: boolean } | null = null;
+      let existingUser = false;
+      try {
+        await api.setup(loginPassword, publicKey, fingerprint);
+        loginResult = await api.login(loginPassword);
+      } catch (e: any) {
+        const msg = e?.message || '';
+        if (!/user already exists/i.test(msg)) {
+          throw e;
+        }
+        existingUser = true;
+        loginResult = await api.login(loginPassword);
+      }
+
+      if (loginResult?.requires_2fa) {
+        session.clear();
+        onComplete();
+        return;
+      }
+
+      if (loginResult?.token) {
         api.token = loginResult.token;
+        if (existingUser) {
+          session.activate({
+            fingerprint,
+            token: loginResult.token,
+            apiUrl: url,
+            publicKey,
+          });
+          onAuthenticated();
+          return;
+        }
         setSetupApi(api);
       }
 
-      // Move to step 4 to offer 2FA setup
+      // Move to step 4 to offer 2FA setup for newly created accounts.
       setStep(4);
     } catch (e: any) {
       setError(e.message || 'Setup failed');

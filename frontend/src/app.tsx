@@ -22,7 +22,7 @@ export function App() {
   const goToMain = useCallback(() => setRoute('main'), []);
 
   if (route === 'setup') {
-    return <Setup onComplete={goToWelcome} onCancel={goToWelcome} />;
+    return <Setup onComplete={goToWelcome} onCancel={goToWelcome} onAuthenticated={goToMain} />;
   }
 
   if (route === 'main' && session.isActive()) {
