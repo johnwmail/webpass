@@ -1,10 +1,13 @@
-.PHONY: build clean stop start restart test
+.PHONY: build clean test run
 
 build:
-	go build -o srv ./cmd/srv
+	go build -o webpass-server ./cmd/srv
 
 clean:
-	rm -f srv
+	rm -f webpass-server
 
 test:
 	go test ./...
+
+run: build
+	./webpass-server

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"flag"
 	"fmt"
 	"os"
@@ -13,18 +14,40 @@ var flagListenAddr = flag.String("listen", ":8000", "address to listen on")
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 }
 
 func run() error {
 	flag.Parse()
-	hostname, err := os.Hostname()
-	if err != nil {
-		hostname = "unknown"
+
+	jwtKey := make([]byte, 32)
+	if key := os.Getenv("JWT_SECRET"); key != "" {
+		jwtKey = []byte(key)
+	} else {
+		if _, err := rand.Read(jwtKey); err != nil {
+			return fmt.Errorf("generate jwt key: %w", err)
+		}
 	}
-	server, err := srv.New("db.sqlite3", hostname)
+
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "db.sqlite3"
+	}
+
+	server, err := srv.New(dbPath, jwtKey)
 	if err != nil {
 		return fmt.Errorf("create server: %w", err)
 	}
+
+	// Serve frontend static files if directory exists
+	staticDir := os.Getenv("STATIC_DIR")
+	if staticDir == "" {
+		staticDir = "frontend/dist"
+	}
+	if info, err := os.Stat(staticDir); err == nil && info.IsDir() {
+		server.StaticDir = staticDir
+	}
+
 	return server.Serve(*flagListenAddr)
 }

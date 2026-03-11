@@ -8,10 +8,28 @@ import (
 	"time"
 )
 
+type Entry struct {
+	ID          int64      `json:"id"`
+	Fingerprint string     `json:"fingerprint"`
+	Path        string     `json:"path"`
+	Content     []byte     `json:"content"`
+	Created     *time.Time `json:"created"`
+	Updated     *time.Time `json:"updated"`
+}
+
 type Migration struct {
 	MigrationNumber int64     `json:"migration_number"`
 	MigrationName   string    `json:"migration_name"`
 	ExecutedAt      time.Time `json:"executed_at"`
+}
+
+type User struct {
+	Fingerprint  string     `json:"fingerprint"`
+	PasswordHash string     `json:"password_hash"`
+	PublicKey    string     `json:"public_key"`
+	TotpSecret   *string    `json:"totp_secret"`
+	TotpEnabled  *int64     `json:"totp_enabled"`
+	Created      *time.Time `json:"created"`
 }
 
 type Visitor struct {
