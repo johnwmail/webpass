@@ -188,7 +188,7 @@ jobs:
         run: |
           response=$(curl -s -X POST http://localhost:8080/api/users \
             -H "Content-Type: application/json" \
-            -d '{"password":"test123","publicKey":"test-key"}')
+            -d '{"password":"test123","public_key":"test-key","fingerprint":"test-fp"}')
           echo "Setup response: $response"
           [[ "$response" == *"fingerprint"* ]] && echo "✓ Setup endpoint passed"
 
