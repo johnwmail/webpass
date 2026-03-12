@@ -90,14 +90,19 @@ export function SettingsModal({ onClose, onLock }: Props) {
   const handleImport = async (e: Event) => {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
-    if (!file || !session.api) return;
+    if (!file || !session.api) {
+      if (!session.api) setError('Not logged in. Please log in first.');
+      return;
+    }
     setImporting(true);
     setError('');
+    console.log('Importing file:', file.name, file.size, 'bytes');
     try {
       const result = await session.api.importArchive(file);
       setSuccess(`Imported ${result.imported} entries`);
       setTimeout(() => setSuccess(''), 3000);
     } catch (err: any) {
+      console.error('Import error:', err);
       setError(err.message || 'Import failed');
     }
     setImporting(false);
@@ -241,14 +246,15 @@ export function SettingsModal({ onClose, onLock }: Props) {
               <button
                 class="btn btn-sm"
                 onClick={() => importFileRef.current?.click()}
-                disabled={importing}
+                disabled={importing || !session.api}
+                title={!session.api ? 'Please log in first' : ''}
               >
                 {importing ? <><span class="spinner" /> Importing...</> : '📥 Import .password-store'}
               </button>
               <input
                 ref={importFileRef}
                 type="file"
-                accept=".tar.gz,.tgz,application/gzip"
+                accept=".tar.gz,.tgz,.password-store.tar.gz,application/gzip,application/x-gzip"
                 style="display: none;"
                 onChange={handleImport}
               />
