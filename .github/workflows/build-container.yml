@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -32,16 +33,24 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Extract metadata (tags, labels)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            ghcr.io/${{ github.repository }}
-            ${{ secrets.DOCKER_USERNAME }}/webpass
-          tags: |
-            type=raw,value=${{ github.ref_name }}
-            type=raw,value=latest
+      - name: Determine image tags and version info
+        id: version
+        run: |
+          BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            # Tag trigger: strip 'v' prefix and add latest
+            TAG_NAME="${{ github.ref_name }}"
+            VERSION_TAG="${TAG_NAME#v}"
+            echo "tags=ghcr.io/${{ github.repository }}:${VERSION_TAG},ghcr.io/${{ github.repository }}:latest,${{ secrets.DOCKER_USERNAME }}/webpass:${VERSION_TAG},${{ secrets.DOCKER_USERNAME }}/webpass:latest" >> $GITHUB_OUTPUT
+            echo "version=${VERSION_TAG}" >> $GITHUB_OUTPUT
+          else
+            # workflow_dispatch: use short SHA, no latest
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            echo "tags=ghcr.io/${{ github.repository }}:sha-${SHORT_SHA},${{ secrets.DOCKER_USERNAME }}/webpass:sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "version=sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
+          fi
+          echo "commit=${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "build_time=${BUILD_TIME}" >> $GITHUB_OUTPUT
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -49,7 +58,13 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.version.outputs.tags }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            BUILD_TIME=${{ steps.version.outputs.build_time }}
+            COMMIT=${{ steps.version.outputs.commit }}
+            FRONTEND_VERSION=${{ steps.version.outputs.version }}
+            FRONTEND_BUILD_TIME=${{ steps.version.outputs.build_time }}
+            FRONTEND_COMMIT=${{ steps.version.outputs.commit }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

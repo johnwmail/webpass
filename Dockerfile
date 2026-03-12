@@ -8,6 +8,11 @@ FROM node:24-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
+# Build arguments for version injection
+ARG FRONTEND_VERSION=vdev
+ARG FRONTEND_BUILD_TIME=unknown
+ARG FRONTEND_COMMIT=unknown
+
 # Copy package files
 COPY frontend/package*.json ./
 
@@ -17,8 +22,11 @@ RUN npm ci --frozen-lockfile
 # Copy frontend source
 COPY frontend/ ./
 
-# Build for production
-RUN npm run build
+# Build for production with version injection
+RUN FRONTEND_VERSION=${FRONTEND_VERSION} \
+    FRONTEND_BUILD_TIME=${FRONTEND_BUILD_TIME} \
+    FRONTEND_COMMIT=${FRONTEND_COMMIT} \
+    npm run build
 
 
 # ============================================
@@ -27,6 +35,11 @@ RUN npm run build
 FROM golang:1.26-alpine AS backend-builder
 
 WORKDIR /app
+
+# Build arguments for version injection
+ARG VERSION=vdev
+ARG BUILD_TIME=unknown
+ARG COMMIT=unknown
 
 # Copy Go modules
 COPY go.mod go.sum ./
@@ -39,7 +52,9 @@ COPY . .
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
 # Build binary (CGO disabled - using pure-Go SQLite)
-RUN CGO_ENABLED=0 GOOS=linux go build -o webpass-server -ldflags="-s -w" ./cmd/srv
+RUN CGO_ENABLED=0 GOOS=linux go build -o webpass-server \
+    -ldflags="-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME} -X main.Commit=${COMMIT}" \
+    ./cmd/srv
 
 
 # ============================================

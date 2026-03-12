@@ -436,13 +436,20 @@ body {
 .app-footer {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
+  padding: 0 16px;
   height: 32px;
   border-top: 1px solid var(--border);
   background: var(--bg-secondary);
   color: var(--text-muted);
   font-size: 12px;
   flex-shrink: 0;
+  gap: 12px;
+}
+
+.footer-version {
+  white-space: nowrap;
+  opacity: 0.7;
 }
 
 /* Sidebar */
@@ -965,6 +972,56 @@ body {
   justify-content: flex-start;
 }
 
+/* Version details */
+.version-details {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.version-block {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  min-width: 0;
+}
+
+.version-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.version-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+  word-break: break-all;
+}
+
+.version-meta {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  margin-top: 2px;
+  word-break: break-all;
+}
+
+.version-warning {
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: var(--warning-bg);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--warning);
+}
+
 /* QR code */
 .qr-container {
   display: flex;
@@ -1080,6 +1137,15 @@ body {
 
   .modal-header h2 {
     font-size: 15px;
+  }
+
+  /* Version details on mobile */
+  .version-value {
+    font-size: 14px;
+  }
+
+  .version-meta {
+    font-size: 10px;
   }
 
   /* Page layouts */
@@ -1310,6 +1376,12 @@ body {
   .app-footer {
     height: 40px;
     font-size: 13px;
+    padding: 0 12px;
+    flex-wrap: wrap;
+  }
+
+  .footer-version {
+    font-size: 11px;
   }
 
   /* Notice/alert */

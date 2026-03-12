@@ -7,6 +7,7 @@ import { GeneratorModal } from './GeneratorModal';
 import { EncryptModal } from './EncryptModal';
 import { SettingsModal } from './SettingsModal';
 import { SessionTimer } from './SessionTimer';
+import { VERSION } from '../lib/version';
 import type { EntryMeta } from '../types';
 
 interface Props {
@@ -275,6 +276,7 @@ export function MainApp({ onLock }: Props) {
       {/* Footer */}
       <footer class="app-footer">
         <SessionTimer onExpired={onLock} />
+        <span class="footer-version" title="Frontend version">WebPass {VERSION}</span>
       </footer>
 
       {/* Context menu */}

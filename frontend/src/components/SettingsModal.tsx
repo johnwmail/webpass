@@ -3,6 +3,7 @@ import { session } from '../lib/session';
 import { getAccount, deleteAccount as deleteAccountFromDB } from '../lib/storage';
 import QRCode from 'qrcode';
 import { GitSync } from './GitSync';
+import { VERSION as FRONTEND_VERSION, COMMIT as FRONTEND_COMMIT, BUILD_TIME as FRONTEND_BUILD_TIME } from '../lib/version';
 
 interface Props {
   onClose: () => void;
@@ -13,6 +14,9 @@ export function SettingsModal({ onClose, onLock }: Props) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Version state
+  const [backendVersion, setBackendVersion] = useState<{ version: string; commit: string; build_time: string } | null>(null);
 
   // 2FA state
   const [totpSecret, setTotpSecret] = useState('');
@@ -33,6 +37,13 @@ export function SettingsModal({ onClose, onLock }: Props) {
   const apiUrl = session.api?.baseUrl || '';
 
   const formatFp = (f: string) => f.toUpperCase().replace(/(.{4})/g, '$1 ').trim();
+
+  // Fetch backend version
+  useEffect(() => {
+    if (session.api) {
+      session.api.fetchVersion().then(setBackendVersion).catch(() => {});
+    }
+  }, []);
 
   // QR code rendering
   useEffect(() => {
@@ -175,6 +186,35 @@ export function SettingsModal({ onClose, onLock }: Props) {
             <div class="settings-row">
               <span class="label-text">API Server</span>
               <span class="value-text" title={apiUrl}>{apiUrl}</span>
+            </div>
+          </div>
+
+          {/* Version info */}
+          <div class="settings-section">
+            <h3>Version</h3>
+            <div class="version-details">
+              <div class="version-block">
+                <div class="version-label">Frontend</div>
+                <div class="version-value">{FRONTEND_VERSION}</div>
+                <div class="version-meta">Commit: {FRONTEND_COMMIT}</div>
+                <div class="version-meta">Built: {FRONTEND_BUILD_TIME}</div>
+              </div>
+              {backendVersion ? (
+                <div class="version-block">
+                  <div class="version-label">Backend</div>
+                  <div class="version-value">{backendVersion.version}</div>
+                  <div class="version-meta">Commit: {backendVersion.commit}</div>
+                  <div class="version-meta">Built: {backendVersion.build_time}</div>
+                  {backendVersion.version !== FRONTEND_VERSION && (
+                    <div class="version-warning">⚠️ Versions differ</div>
+                  )}
+                </div>
+              ) : (
+                <div class="version-block">
+                  <div class="version-label">Backend</div>
+                  <div class="version-value" style="color: var(--text-muted);">Loading...</div>
+                </div>
+              )}
             </div>
           </div>
 

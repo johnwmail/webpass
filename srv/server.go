@@ -23,6 +23,13 @@ import (
 	"srv.exe.dev/db/dbgen"
 )
 
+// Version information injected at build time via ldflags
+var (
+	Version   = "vdev"
+	BuildTime = "unknown"
+	Commit    = "unknown"
+)
+
 // Server is the WebPass API server.
 type Server struct {
 	DB         *sql.DB
@@ -101,6 +108,9 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
+
+	// Version info
+	mux.HandleFunc("GET /api/version", s.handleVersion)
 
 	// Serve frontend SPA if StaticDir is set
 	if s.StaticDir != "" {
@@ -421,6 +431,18 @@ func (s *Server) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOK(w, map[string]bool{"enabled": true})
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/version — get version information
+// ---------------------------------------------------------------------------
+
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	jsonOK(w, map[string]string{
+		"version":    Version,
+		"commit":     Commit,
+		"build_time": BuildTime,
+	})
 }
 
 // ---------------------------------------------------------------------------
