@@ -335,7 +335,7 @@ export class ApiClient {
 
   /** GET /api/version */
   async fetchVersion(): Promise<{ version: string; commit: string; build_time: string }> {
-    const res = await fetch(this.url('/api/version'), { headers: this.headers() });
+    const res = await fetch(this.url('/api/version'));
     if (!res.ok) throw new Error(`Version fetch failed (${res.status})`);
     return res.json();
   }
