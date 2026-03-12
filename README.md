@@ -46,7 +46,7 @@ A web-based password manager with zero-knowledge architecture. All cryptography 
 ### Prerequisites
 
 - Go 1.26+
-- Node.js 20+
+- Node.js 24+
 - npm
 - Docker (for container deployment)
 
