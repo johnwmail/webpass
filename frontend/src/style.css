@@ -996,19 +996,23 @@ body {
   margin-bottom: 8px;
 }
 
-.version-value {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text);
+.version-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   margin-bottom: 4px;
-  word-break: break-all;
 }
 
-.version-meta {
-  font-size: 11px;
-  font-family: var(--font-mono);
-  color: var(--text-dim);
-  margin-top: 2px;
+.version-meta-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  min-width: 60px;
+}
+
+.version-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
   word-break: break-all;
 }
 
@@ -1140,12 +1144,16 @@ body {
   }
 
   /* Version details on mobile */
-  .version-value {
-    font-size: 14px;
+  .version-row {
+    flex-wrap: wrap;
   }
 
-  .version-meta {
-    font-size: 10px;
+  .version-meta-label {
+    min-width: 50px;
+  }
+
+  .version-value {
+    font-size: 13px;
   }
 
   /* Page layouts */

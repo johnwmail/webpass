@@ -200,16 +200,34 @@ export function SettingsModal({ onClose, onLock }: Props) {
             <div class="version-details">
               <div class="version-block">
                 <div class="version-label">Frontend</div>
-                <div class="version-value">{FRONTEND_VERSION}</div>
-                <div class="version-meta">Commit: {FRONTEND_COMMIT}</div>
-                <div class="version-meta">Built: {FRONTEND_BUILD_TIME}</div>
+                <div class="version-row">
+                  <span class="version-meta-label">Version:</span>
+                  <span class="version-value">{FRONTEND_VERSION}</span>
+                </div>
+                <div class="version-row">
+                  <span class="version-meta-label">Commit:</span>
+                  <span class="version-value">{FRONTEND_COMMIT}</span>
+                </div>
+                <div class="version-row">
+                  <span class="version-meta-label">Built:</span>
+                  <span class="version-value">{FRONTEND_BUILD_TIME}</span>
+                </div>
               </div>
               {backendVersion ? (
                 <div class="version-block">
                   <div class="version-label">Backend</div>
-                  <div class="version-value">{backendVersion.version}</div>
-                  <div class="version-meta">Commit: {backendVersion.commit}</div>
-                  <div class="version-meta">Built: {backendVersion.build_time}</div>
+                  <div class="version-row">
+                    <span class="version-meta-label">Version:</span>
+                    <span class="version-value">{backendVersion.version}</span>
+                  </div>
+                  <div class="version-row">
+                    <span class="version-meta-label">Commit:</span>
+                    <span class="version-value">{backendVersion.commit}</span>
+                  </div>
+                  <div class="version-row">
+                    <span class="version-meta-label">Built:</span>
+                    <span class="version-value">{backendVersion.build_time}</span>
+                  </div>
                   {backendVersion.version !== FRONTEND_VERSION && (
                     <div class="version-warning">⚠️ Versions differ</div>
                   )}
@@ -217,7 +235,10 @@ export function SettingsModal({ onClose, onLock }: Props) {
               ) : (
                 <div class="version-block">
                   <div class="version-label">Backend</div>
-                  <div class="version-value" style="color: var(--text-muted);">Loading...</div>
+                  <div class="version-row">
+                    <span class="version-meta-label">Version:</span>
+                    <span class="version-value" style="color: var(--text-muted);">Loading...</span>
+                  </div>
                 </div>
               )}
             </div>
