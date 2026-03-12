@@ -165,10 +165,9 @@ All endpoints require JWT authentication.
 │   ├── index.html
 │   └── package.json
 ├── k8s/                # Kubernetes manifests
-├── docs/               # Documentation
 ├── Dockerfile
 ├── docker-compose.yml
-└── srv.service         # systemd unit file
+└── .github/            # GitHub Actions workflows
 ```
 
 ## 🤝 Contributing

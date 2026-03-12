@@ -46,7 +46,7 @@ spec:
     spec:
       containers:
         - name: webpass
-          image: webpass:latest
+          image: ghcr.io/johnwmail/webpass:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

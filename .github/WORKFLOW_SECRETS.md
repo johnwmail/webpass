@@ -13,37 +13,48 @@ Configure these in your GitHub repository settings:
 
 | Name | Description | Where to Get |
 |------|-------------|--------------|
-| `CONTAINER_REGISTRY_USERNAME` | Username for container registry | Your registry provider (Docker Hub, GHCR, etc.) |
-| `CONTAINER_REGISTRY_PASSWORD` | Password/access token for container registry | Generate a personal access token with `write:packages` scope |
+| `DOCKER_USERNAME` | Docker Hub username | Your Docker Hub account username |
+| `DOCKER_PASSWORD` | Docker Hub access token or password | Docker Hub → Account Settings → Security → New Access Token (or use password) |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API token for Pages deployment | Cloudflare Dashboard → Profile → API Tokens → Create Token (use "Edit Cloudflare Pages" template) |
 | `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare account ID | Cloudflare Dashboard → Workers & Pages → Account details (right sidebar) |
 
+**Note:** `DOCKER_PASSWORD` is used for both Docker Hub and GitHub Container Registry (GHCR). For GHCR, use a GitHub Personal Access Token with `read:packages` and `write:packages` scopes.
+
 ---
 
-## Variables (Required)
+## Variables (Optional)
 
 | Name | Description | Example Value |
 |------|-------------|---------------|
-| `CONTAINER_REGISTRY` | Container registry hostname | `ghcr.io` or `docker.io` |
-| `CONTAINER_IMAGE_NAME` | Full image name (org/repo) | `johnwmail/webpass` |
 | `CLOUDFLARE_PAGES_PROJECT` | Name of your Cloudflare Pages project | `webpass-frontend` |
 
 ---
 
 ## Setup Instructions
 
-### 1. Container Registry (GitHub Container Registry - Recommended)
+### 1. Docker Hub & GitHub Container Registry
 
-1. Go to **GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)**
-2. Generate a new token with scopes: `read:packages`, `write:packages`
+The `build-container.yml` workflow pushes to both registries on version tags.
+
+**For Docker Hub:**
+1. Go to [Docker Hub](https://hub.docker.com/) and create account (if needed)
+2. Generate access token: Account Settings → Security → New Access Token
 3. Set secrets:
-   - `CONTAINER_REGISTRY_USERNAME`: your GitHub username
-   - `CONTAINER_REGISTRY_PASSWORD`: the token you just created
-4. Set variables:
-   - `CONTAINER_REGISTRY`: `ghcr.io`
-   - `CONTAINER_IMAGE_NAME`: `your-username/webpass`
+   - `DOCKER_USERNAME`: your Docker Hub username
+   - `DOCKER_PASSWORD`: the token you created
 
-### 2. Cloudflare Pages
+**For GitHub Container Registry (GHCR):**
+1. Go to **GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)**
+2. Generate token with scopes: `read:packages`, `write:packages`, `delete:packages`
+3. The workflow uses `${{ github.actor }}` as username (your GitHub username)
+4. Set secret:
+   - `DOCKER_PASSWORD`: the GitHub PAT (same secret works for both registries)
+
+**Images will be pushed to:**
+- `ghcr.io/johnwmail/webpass:<version>` and `:latest`
+- `johnwmail/webpass:<version>` and `:latest` (Docker Hub)
+
+### 2. Cloudflare Pages (Optional)
 
 1. **Create a Pages project:**
    - Go to Cloudflare Dashboard → Workers & Pages → Create application → Pages
@@ -71,7 +82,7 @@ Configure these in your GitHub repository settings:
 
 | Workflow | Trigger |
 |----------|---------|
-| `ci.yml` | Every push/PR to `main` or `master` |
+| `ci.yml` | Every push/PR to `main`, manual dispatch |
 | `build-container.yml` | Push tag starting with `v` (e.g., `v0.0.1`) |
 | `deploy.yml` | Push tag starting with `v` (e.g., `v0.0.1`) |
 
@@ -79,13 +90,12 @@ Configure these in your GitHub repository settings:
 
 ## Quick Setup Checklist
 
-- [ ] Create container registry credentials
-- [ ] Add `CONTAINER_REGISTRY_USERNAME` secret
-- [ ] Add `CONTAINER_REGISTRY_PASSWORD` secret
-- [ ] Add `CONTAINER_REGISTRY` variable
-- [ ] Add `CONTAINER_IMAGE_NAME` variable
-- [ ] Create Cloudflare Pages project
-- [ ] Add `CLOUDFLARE_API_TOKEN` secret
-- [ ] Add `CLOUDFLARE_ACCOUNT_ID` secret
-- [ ] Add `CLOUDFLARE_PAGES_PROJECT` variable
+- [ ] Create Docker Hub account (if needed)
+- [ ] Generate GitHub PAT with `read:packages`, `write:packages`
+- [ ] Add `DOCKER_USERNAME` secret (Docker Hub username)
+- [ ] Add `DOCKER_PASSWORD` secret (GitHub PAT or Docker Hub token)
+- [ ] (Optional) Create Cloudflare Pages project
+- [ ] (Optional) Add `CLOUDFLARE_API_TOKEN` secret
+- [ ] (Optional) Add `CLOUDFLARE_ACCOUNT_ID` secret
+- [ ] (Optional) Add `CLOUDFLARE_PAGES_PROJECT` variable
 - [ ] Test with a tag: `git tag v0.0.1 && git push origin v0.0.1`

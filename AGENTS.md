@@ -117,7 +117,6 @@ See [docs/GITSYNC.md](docs/GITSYNC.md) for full documentation.
 See [DEPLOY.md](DEPLOY.md) for:
 - Docker / docker-compose
 - Kubernetes
-- systemd (VM)
 
 ## Testing Checklist
 

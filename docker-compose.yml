@@ -1,6 +1,6 @@
 services:
   webpass:
-    image: webpass:latest
+    image: ghcr.io/johnwmail/webpass:latest
     build:
       context: .
       dockerfile: Dockerfile
