@@ -17,6 +17,7 @@ export function SettingsModal({ onClose, onLock }: Props) {
 
   // Version state
   const [backendVersion, setBackendVersion] = useState<{ version: string; commit: string; build_time: string } | null>(null);
+  const [versionError, setVersionError] = useState<string | null>(null);
 
   // 2FA state
   const [totpSecret, setTotpSecret] = useState('');
@@ -41,7 +42,12 @@ export function SettingsModal({ onClose, onLock }: Props) {
   // Fetch backend version
   useEffect(() => {
     if (session.api) {
-      session.api.fetchVersion().then(setBackendVersion).catch(() => {});
+      session.api.fetchVersion()
+        .then(setBackendVersion)
+        .catch((err) => {
+          console.error('Version fetch error:', err);
+          setVersionError(err.message || 'Failed to fetch version');
+        });
     }
   }, []);
 
@@ -231,6 +237,17 @@ export function SettingsModal({ onClose, onLock }: Props) {
                   {backendVersion.version !== FRONTEND_VERSION && (
                     <div class="version-warning">⚠️ Versions differ</div>
                   )}
+                </div>
+              ) : versionError ? (
+                <div class="version-block">
+                  <div class="version-label">Backend</div>
+                  <div class="version-row">
+                    <span class="version-meta-label">Version:</span>
+                    <span class="version-value" style="color: var(--text-muted);">Unavailable</span>
+                  </div>
+                  <div class="version-error" style="margin-top: 8px; color: var(--danger); font-size: 12px;">
+                    ⚠️ {versionError}
+                  </div>
                 </div>
               ) : (
                 <div class="version-block">
