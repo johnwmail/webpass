@@ -23,7 +23,14 @@ The server is a dumb encrypted-blob store — it never sees plaintext passwords 
 │                                     │
 │  SQLite: encrypted .gpg blobs       │
 │  Auth: bcrypt + JWT (5-min)         │
+│  Git Sync: manual push/pull         │
 │  CORS_ORIGINS env var               │
+└──────────────┬──────────────────────┘
+               │ HTTPS + PAT
+┌──────────────▼──────────────────────┐
+│  Remote Git Repo (GitHub/GitLab)    │
+│  └── .password-store/               │
+│      └── *.gpg (encrypted blobs)    │
 └─────────────────────────────────────┘
 ```
 
@@ -35,8 +42,9 @@ The server is a dumb encrypted-blob store — it never sees plaintext passwords 
 | -------- | ------------------------------------------------ |
 | Frontend | TypeScript + Preact + Vite                       |
 | Crypto   | OpenPGP.js (PGP) + Web Crypto API (PBKDF2 / AES) |
-| Backend  | Go + SQLite                                      |
+| Backend  | Go + SQLite + Git CLI                            |
 | Hosting  | Cloudflare Pages (frontend) + exe.dev VM (API)   |
+| Git Sync | Manual push/pull to any Git repo (GitHub, GitLab, Gitea) |
 
 ---
 
@@ -99,6 +107,26 @@ CREATE TABLE settings (
     value TEXT NOT NULL
 );
 -- settings keys: "password_hash", "public_key"
+
+-- Git Sync configuration (per user)
+CREATE TABLE git_config (
+    fingerprint       TEXT PRIMARY KEY REFERENCES users(fingerprint) ON DELETE CASCADE,
+    repo_url          TEXT NOT NULL,               -- HTTPS URL to git repo
+    encrypted_pat     TEXT NOT NULL,               -- Double-encrypted PAT blob (PGP + password)
+    created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Git Sync operation log
+CREATE TABLE git_sync_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    fingerprint     TEXT NOT NULL REFERENCES users(fingerprint) ON DELETE CASCADE,
+    operation       TEXT NOT NULL,                 -- 'push', 'pull'
+    status          TEXT NOT NULL,                 -- 'success', 'failed'
+    message         TEXT,                          -- Error or commit message
+    entries_changed INTEGER DEFAULT 0,
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
 ---
@@ -107,15 +135,33 @@ CREATE TABLE settings (
 
 All endpoints under `/api/`. JWT required for all except setup and login.
 
+### Authentication & Users
+
 | Method | Path                | Auth | Description                          |
 | ------ | ------------------- | ---- | ------------------------------------ |
 | POST   | `/api/setup`        | No   | First-time: set password + public key |
 | POST   | `/api/login`        | No   | Verify password → return JWT         |
-| GET    | `/api/entries`      | JWT  | List all entry paths (tree)          |
-| GET    | `/api/entries/*path` | JWT  | Download encrypted .gpg blob         |
-| PUT    | `/api/entries/*path` | JWT  | Upload encrypted .gpg blob           |
-| DELETE | `/api/entries/*path` | JWT  | Delete entry                         |
-| POST   | `/api/entries/move` | JWT  | Rename/move entry `{ from, to }`     |
+| GET    | `/api/users/:fp`    | JWT  | Get user info by fingerprint         |
+
+### Entries (Password Store)
+
+| Method | Path                    | Auth | Description                          |
+| ------ | ----------------------- | ---- | ------------------------------------ |
+| GET    | `/api/entries`          | JWT  | List all entry paths (tree)          |
+| GET    | `/api/entries/*path`    | JWT  | Download encrypted .gpg blob         |
+| PUT    | `/api/entries/*path`    | JWT  | Upload encrypted .gpg blob           |
+| DELETE | `/api/entries/*path`    | JWT  | Delete entry                         |
+| POST   | `/api/entries/move`     | JWT  | Rename/move entry `{ from, to }`     |
+
+### Git Sync
+
+| Method | Path                          | Auth | Description                              |
+| ------ | ----------------------------- | ---- | ---------------------------------------- |
+| GET    | `/api/git/status`             | JWT  | Get sync status (repo URL, last sync)    |
+| POST   | `/api/git/config`             | JWT  | Configure git sync `{ repo_url, encrypted_pat }` |
+| POST   | `/api/git/push`               | JWT  | Manual push to remote (optional `{ token }`) |
+| POST   | `/api/git/pull`               | JWT  | Manual pull from remote (optional `{ token }`) |
+| GET    | `/api/git/log`                | JWT  | Get sync operation history (last 50)     |
 
 ### CORS
 
@@ -137,7 +183,8 @@ CORS_ORIGINS=https://your-project.pages.dev,https://webpass.example.com
 | **View Entry** | Decrypt + display, copy-to-clipboard with 45s auto-clear       |
 | **Add/Edit**   | Single-line or multi-line input, encrypt client-side, upload   |
 | **Generator**  | Random password generator (configurable length, symbols toggle) |
-| **Key Export**  | Export/import AES-wrapped private key (for backup or new browser) |
+| **Key Export** | Export/import AES-wrapped private key (for backup or new browser) |
+| **Settings**   | Account info, Git Sync config, key management, API URL         |
 
 ---
 
@@ -156,11 +203,11 @@ CORS_ORIGINS=https://your-project.pages.dev,https://webpass.example.com
 
 | #   | Phase               | Deliverable                                          |
 | --- | ------------------- | ---------------------------------------------------- |
-| 1   | Go backend          | SQLite schema, auth (bcrypt + JWT), CRUD API, CORS, systemd |
+| 1   | Go backend          | SQLite schema, auth (bcrypt + JWT), CRUD API, CORS |
 | 2   | Frontend scaffold   | Vite + Preact project, routing, login & setup screens |
 | 3   | Crypto core         | OpenPGP.js keygen, PBKDF2/AES wrap/unwrap, encrypt/decrypt round-trip |
 | 4   | CRUD UI             | Tree view, add/edit/delete entries, clipboard, password generator |
-| 5   | Deploy              | Cloudflare Pages config (wrangler), systemd on VM    |
+| 5   | Deploy              | Cloudflare Pages config (wrangler), Docker container    |
 
 ---
 
@@ -456,6 +503,11 @@ Single clean page. Password input + two buttons.
 │  [ Export Private Key (encrypted)] │
 │  [ Import Private Key ]            │
 │                                    │
+│ Git Sync                           │
+│  Repo: https://github.com/...      │
+│  Last synced: 3 hours ago          │
+│  [ Configure ]  [ Push ]  [ Pull ] │
+│                                    │
 │ Data                               │
 │  [ Export All (.tar.gz) ]          │
 │  [ Import .password-store ]        │
@@ -475,12 +527,12 @@ Single clean page. Password input + two buttons.
 
 | #   | Phase               | Deliverable                                                    |
 | --- | ------------------- | -------------------------------------------------------------- |
-| 1   | Go backend          | SQLite schema, multi-user auth (bcrypt + JWT), CRUD API, CORS, import/export, systemd |
+| 1   | Go backend          | SQLite schema, multi-user auth (bcrypt + JWT), CRUD API, CORS, import/export |
 | 2   | Frontend scaffold   | Vite + Preact, routing, welcome/login/setup screens            |
 | 3   | Crypto core         | OpenPGP.js keygen/import, PBKDF2/AES wrap/unwrap, encrypt/decrypt |
 | 4   | CRUD UI             | Tree view, entry detail, add/edit/delete, clipboard, search    |
 | 5   | Generator + Settings | Password generator modal, key export/import, data export/import |
-| 6   | Polish + Deploy     | Mobile responsive, session timer, Cloudflare Pages, systemd    |
+| 6   | Polish + Deploy     | Mobile responsive, session timer, Docker container    |
 
 ---
 
@@ -558,13 +610,14 @@ CREATE TABLE entries (
 
 | #   | Phase               | Deliverable                                                    |
 | --- | ------------------- | -------------------------------------------------------------- |
-| 1   | Go backend          | SQLite schema, multi-user auth (bcrypt + JWT + TOTP), CRUD API, CORS, systemd |
+| 1   | Go backend          | SQLite schema, multi-user auth (bcrypt + JWT + TOTP), CRUD API, CORS |
 | 2   | Frontend scaffold   | Vite + Preact, routing, welcome/login/setup (with 2FA) screens |
 | 3   | Crypto core         | OpenPGP.js keygen/import, PBKDF2/AES wrap/unwrap, encrypt/decrypt, IndexedDB (key + API URL) |
 | 4   | CRUD UI             | Tree view, entry detail, add/edit/delete, clipboard, search    |
 | 5   | Generator + Settings| Password generator modal, key management, API URL config       |
 | 6   | Import/Export       | tar/zip .password-store import/export, key export/import       |
-| 7   | Polish + Deploy     | Mobile responsive, session timer, Cloudflare Pages, systemd    |
+| 7   | Git Sync            | Backend Git service, double-encrypted PAT, manual push/pull UI |
+| 8   | Polish + Deploy     | Mobile responsive, session timer, Docker container    |
 
 ---
 
@@ -694,11 +747,15 @@ Note: login password and PGP passphrase CAN be the same (user's choice), but we 
 
 ## Documentation
 
-- `README.md` — project overview, setup guide, architecture, deployment
-- `docs/usage.md` — end-user guide: setup, login, managing entries, encrypt/decrypt
-- `docs/security.md` — security model, threat analysis, what's stored where
-- `docs/api.md` — full API reference with examples
-- `docs/development.md` — local dev setup, testing, contributing
+| Document | Status | Description |
+|----------|--------|-------------|
+| `README.md` | ✅ Complete | Project overview, setup guide, architecture, deployment |
+| `GITSYNC.md` | ✅ Complete | Git Sync feature guide: setup, push/pull, conflict resolution |
+| `DEPLOY.md` | ✅ Complete | Detailed deployment instructions (Docker, K8s) |
+| `SECURITY.md` | ✅ Complete | Security policy and vulnerability reporting |
+| `CONTRIBUTING.md` | ✅ Complete | Contribution guidelines |
+| `docs/usage.md` | 📝 TODO | End-user guide: setup, login, managing entries |
+| `docs/api.md` | 📝 TODO | Full API reference with examples |
 
 ## Testing
 
@@ -706,10 +763,21 @@ Tests are built alongside each phase:
 
 | Layer | What | Tool |
 |-------|------|------|
-| Go backend | API endpoints, auth flow, CRUD, import/export, 2FA | `go test` |
+| Go backend | API endpoints, auth flow, CRUD, import/export, 2FA, Git sync | `go test` |
 | Frontend crypto | Key generation, AES wrap/unwrap, PGP encrypt/decrypt round-trips | Vitest |
 | Frontend flows | Setup wizard, login, session timeout, entry CRUD | Vitest + Testing Library |
 | Integration | Full flow: setup → login → create entry → decrypt | Playwright (future) |
+
+---
+
+## Prerequisites
+
+| Dependency | Required For | Notes |
+|------------|--------------|-------|
+| Go 1.26+ | Backend server | |
+| Node.js 20+ | Frontend build | |
+| Docker | Container runtime | Git CLI included in container image |
+| SQLite | Database | Embedded (pure-Go, no CGO needed) |
 
 ---
 
@@ -782,17 +850,18 @@ Header bar adds `[Encrypt]` button:
 
 | #   | Phase               | Deliverable                                                    |
 | --- | ------------------- | -------------------------------------------------------------- |
-| 1   | Go backend          | SQLite schema, multi-user auth (bcrypt + JWT + TOTP), CRUD API, CORS, systemd |
+| 1   | Go backend          | SQLite schema, multi-user auth (bcrypt + JWT + TOTP), CRUD API, CORS |
 | 2   | Frontend scaffold   | Vite + Preact, routing, welcome/login/setup (with 2FA) screens |
 | 3   | Crypto core         | OpenPGP.js keygen/import, PBKDF2/AES wrap/unwrap, encrypt/decrypt, IndexedDB |
 | 4   | CRUD UI             | Tree view, entry detail, add/edit/delete, clipboard, search    |
 | 5   | Generator + Encrypt | Password generator modal, encrypt/decrypt text tool            |
 | 6   | Settings            | Key management, API URL config, 2FA management                 |
 | 7   | Import/Export       | tar/zip .password-store import/export, key export/import       |
-| 8   | Polish + Deploy     | Mobile responsive, session timer, docs, Cloudflare Pages, systemd |
+| 8   | Polish + Deploy     | Mobile responsive, session timer, docs, Docker container |
 
 ---
 
 ## Open Questions
 
-Look really good, pleae go ahead to build , thank you.
+_(none remaining — ready to build)_
+

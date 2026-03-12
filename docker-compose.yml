@@ -1,0 +1,41 @@
+services:
+  webpass:
+    image: webpass:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: webpass
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Generate with: openssl rand -hex 32
+      - JWT_SECRET=${JWT_SECRET:-change-me-to-random-32-byte-hex}
+      - DB_PATH=/data/db/db.sqlite3
+      - STATIC_DIR=/app/frontend/dist
+      - GIT_REPO_ROOT=/data/git-repos
+      # CORS origins (comma-separated)
+      # - CORS_ORIGINS=https://webpass.example.com,https://webpass.pages.dev
+      # Disable frontend if deploying separately (optional)
+      # - DISABLE_FRONTEND=0
+    volumes:
+      - webpass-data:/data
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - webpass-network
+
+volumes:
+  webpass-data:
+    driver: local
+
+networks:
+  webpass-network:
+    driver: bridge

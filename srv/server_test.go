@@ -21,14 +21,18 @@ import (
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.sqlite3")
-	t.Cleanup(func() { os.Remove(dbPath) })
+	t.Cleanup(func() { _ = os.Remove(dbPath) })
+
+	// Set temp git repo root for tests
+	gitRepoRoot := filepath.Join(t.TempDir(), "git-repos")
+	t.Setenv("GIT_REPO_ROOT", gitRepoRoot)
 
 	key := []byte("test-secret-key-32-bytes-long!!!") // exactly 32 bytes
 	srv, err := New(dbPath, key)
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
-	t.Cleanup(func() { srv.DB.Close() })
+	t.Cleanup(func() { _ = srv.DB.Close() })
 	return srv
 }
 
@@ -84,7 +88,7 @@ func TestFullCRUDFlow(t *testing.T) {
 	resp = doReq(t, ts, "GET", "/api/users/"+fp+"/entries/Email/gmail", "", token)
 	expectStatus(t, resp, http.StatusOK)
 	gotBlob, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if string(gotBlob) != "encrypted-blob-data" {
 		t.Fatalf("expected blob 'encrypted-blob-data', got %q", string(gotBlob))
 	}
@@ -97,7 +101,7 @@ func TestFullCRUDFlow(t *testing.T) {
 	resp = doReq(t, ts, "GET", "/api/users/"+fp+"/entries/Email/gmail-moved", "", token)
 	expectStatus(t, resp, http.StatusOK)
 	gotBlob, _ = io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if string(gotBlob) != "encrypted-blob-data" {
 		t.Fatalf("moved entry has wrong content: %q", string(gotBlob))
 	}
@@ -277,7 +281,7 @@ func TestExportImport(t *testing.T) {
 	resp = doReq(t, ts, "GET", "/api/users/exp1/export", "", token)
 	expectStatus(t, resp, http.StatusOK)
 	exportData, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if len(exportData) == 0 {
 		t.Fatal("export returned empty data")
@@ -343,7 +347,7 @@ func TestExportImport(t *testing.T) {
 	resp = doReq(t, ts, "GET", "/api/users/imp1/entries/Email/gmail", "", token2)
 	expectStatus(t, resp, http.StatusOK)
 	gotBlob, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if string(gotBlob) != "blob1" {
 		t.Fatalf("imported blob mismatch: got %q", string(gotBlob))
 	}
@@ -415,7 +419,7 @@ func TestUpsertEntryUpdates(t *testing.T) {
 	resp = doReq(t, ts, "GET", "/api/users/upd1/entries/test", "", token)
 	expectStatus(t, resp, http.StatusOK)
 	got, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if string(got) != "v2" {
 		t.Fatalf("expected v2, got %q", string(got))
 	}
@@ -490,5 +494,5 @@ func decodeJSON(t *testing.T, resp *http.Response, v any) {
 	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
 		t.Fatalf("decode json: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 }

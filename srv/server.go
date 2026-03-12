@@ -25,10 +25,11 @@ import (
 
 // Server is the WebPass API server.
 type Server struct {
-	DB        *sql.DB
-	Q         *dbgen.Queries
-	JWTKey    []byte
-	StaticDir string // path to frontend dist/ directory (optional)
+	DB         *sql.DB
+	Q          *dbgen.Queries
+	JWTKey     []byte
+	StaticDir  string // path to frontend dist/ directory (optional)
+	GitService *GitService
 }
 
 // New creates a new Server, opening the database and running migrations.
@@ -40,11 +41,24 @@ func New(dbPath string, jwtKey []byte) (*Server, error) {
 	if err := db.RunMigrations(wdb); err != nil {
 		return nil, fmt.Errorf("run migrations: %w", err)
 	}
-	return &Server{
+
+	s := &Server{
 		DB:     wdb,
 		Q:      dbgen.New(wdb),
 		JWTKey: jwtKey,
-	}, nil
+	}
+
+	// Initialize Git service
+	repoRoot := os.Getenv("GIT_REPO_ROOT")
+	if repoRoot == "" {
+		repoRoot = "/data/git-repos"
+	}
+	if err := os.MkdirAll(repoRoot, 0700); err != nil {
+		return nil, fmt.Errorf("create repo root: %w", err)
+	}
+	s.GitService = NewGitService(dbPath, dbgen.New(wdb), repoRoot)
+
+	return s, nil
 }
 
 // Serve starts the HTTP server.
@@ -69,6 +83,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/users/{fp}/entries/move", s.requireAuth(s.handleMoveEntry))
 	mux.HandleFunc("GET /api/users/{fp}/export", s.requireAuth(s.handleExport))
 	mux.HandleFunc("POST /api/users/{fp}/import", s.requireAuth(s.handleImport))
+	// Git sync routes
+	mux.HandleFunc("GET /api/users/{fp}/git/status", s.requireAuth(s.handleGitStatus))
+	mux.HandleFunc("POST /api/users/{fp}/git/config", s.requireAuth(s.handleGitConfig))
+	mux.HandleFunc("POST /api/users/{fp}/git/session", s.requireAuth(s.handleGitSession))
+	mux.HandleFunc("POST /api/users/{fp}/git/push", s.requireAuth(s.handleGitPush))
+	mux.HandleFunc("POST /api/users/{fp}/git/pull", s.requireAuth(s.handleGitPull))
+	mux.HandleFunc("POST /api/users/{fp}/git/toggle-sync", s.requireAuth(s.handleGitToggleSync))
+	mux.HandleFunc("GET /api/users/{fp}/git/log", s.requireAuth(s.handleGitLog))
 	// Wildcard entry routes — {path...} captures the rest
 	mux.HandleFunc("GET /api/users/{fp}/entries/{path...}", s.requireAuth(s.handleGetEntry))
 	mux.HandleFunc("PUT /api/users/{fp}/entries/{path...}", s.requireAuth(s.handlePutEntry))
@@ -77,7 +99,7 @@ func (s *Server) Handler() http.Handler {
 	// Health check
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
 	// Serve frontend SPA if StaticDir is set
@@ -205,12 +227,12 @@ func (s *Server) verifyToken(r *http.Request) (string, error) {
 func jsonError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
 func jsonOK(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 // fingerprintFromKey computes a short fingerprint from a public key string.
@@ -448,7 +470,7 @@ func (s *Server) handleGetEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Write(entry.Content)
+	_, _ = w.Write(entry.Content)
 }
 
 // ---------------------------------------------------------------------------
@@ -482,6 +504,7 @@ func (s *Server) handlePutEntry(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -505,6 +528,7 @@ func (s *Server) handleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -556,9 +580,9 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", "attachment; filename=\"password-store.tar.gz\"")
 
 	gw := gzip.NewWriter(w)
-	defer gw.Close()
+	defer func() { _ = gw.Close() }()
 	tw := tar.NewWriter(gw)
-	defer tw.Close()
+	defer func() { _ = tw.Close() }()
 
 	for _, e := range entries {
 		hdr := &tar.Header{
@@ -592,7 +616,7 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "invalid gzip", http.StatusBadRequest)
 		return
 	}
-	defer gr.Close()
+	defer func() { _ = gr.Close() }()
 
 	tr := tar.NewReader(gr)
 	var count int
@@ -637,4 +661,175 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonOK(w, map[string]int{"imported": count})
+}
+
+// ---------------------------------------------------------------------------
+// Git Sync Handlers
+// ---------------------------------------------------------------------------
+
+// GET /api/users/{fp}/git/status — get git sync status
+func (s *Server) handleGitStatus(w http.ResponseWriter, r *http.Request) {
+	fp := r.PathValue("fp")
+
+	status, err := s.GitService.GetStatus(r.Context(), fp)
+	if err != nil {
+		slog.Error("get git status", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	jsonOK(w, status)
+}
+
+// POST /api/users/{fp}/git/config — configure git sync
+func (s *Server) handleGitConfig(w http.ResponseWriter, r *http.Request) {
+	fp := r.PathValue("fp")
+
+	var body struct {
+		RepoURL      string `json:"repo_url"`
+		EncryptedPAT string `json:"encrypted_pat"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	if body.RepoURL == "" {
+		jsonError(w, "repo_url required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.GitService.Configure(r.Context(), fp, body.RepoURL, body.EncryptedPAT); err != nil {
+		slog.Error("configure git", "error", err)
+		jsonError(w, "config failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	jsonOK(w, map[string]string{"status": "configured"})
+}
+
+// POST /api/users/{fp}/git/session — set session token (called after login)
+func (s *Server) handleGitSession(w http.ResponseWriter, r *http.Request) {
+	fp := r.PathValue("fp")
+
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	if body.Token == "" {
+		jsonError(w, "token required", http.StatusBadRequest)
+		return
+	}
+
+	s.GitService.SetSessionToken(fp, body.Token)
+	jsonOK(w, map[string]string{"status": "ok"})
+}
+
+// POST /api/users/{fp}/git/push — push to remote
+func (s *Server) handleGitPush(w http.ResponseWriter, r *http.Request) {
+	fp := r.PathValue("fp")
+
+	var body struct {
+		Token string `json:"token"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	// Try to get token from session cache
+	token := body.Token
+	if token == "" {
+		token, _ = s.GitService.getSessionToken(fp)
+	}
+
+	if token == "" {
+		jsonError(w, "git token required (provide in request or login first)", http.StatusBadRequest)
+		return
+	}
+
+	result, err := s.GitService.Push(r.Context(), fp, token)
+	if err != nil {
+		slog.Error("git push", "error", err)
+		jsonError(w, "push failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	jsonOK(w, result)
+}
+
+// POST /api/users/{fp}/git/pull — pull from remote
+func (s *Server) handleGitPull(w http.ResponseWriter, r *http.Request) {
+	fp := r.PathValue("fp")
+
+	var body struct {
+		Token string `json:"token"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	// Try to get token from session cache
+	token := body.Token
+	if token == "" {
+		token, _ = s.GitService.getSessionToken(fp)
+	}
+
+	if token == "" {
+		jsonError(w, "git token required (provide in request or login first)", http.StatusBadRequest)
+		return
+	}
+
+	result, err := s.GitService.Pull(r.Context(), fp, token)
+	if err != nil {
+		slog.Error("git pull", "error", err)
+		jsonError(w, "pull failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	jsonOK(w, result)
+}
+
+// POST /api/users/{fp}/git/toggle-sync — deprecated, kept for compatibility
+func (s *Server) handleGitToggleSync(w http.ResponseWriter, r *http.Request) {
+	// This endpoint is deprecated - manual sync only
+	jsonOK(w, map[string]string{"status": "deprecated", "message": "manual sync only"})
+}
+
+// GET /api/users/{fp}/git/log — get sync log
+func (s *Server) handleGitLog(w http.ResponseWriter, r *http.Request) {
+	fp := r.PathValue("fp")
+
+	logs, err := s.Q.ListGitSyncLog(r.Context(), fp)
+	if err != nil {
+		slog.Error("get git log", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	type logEntry struct {
+		ID             int64     `json:"id"`
+		Operation      string    `json:"operation"`
+		Status         string    `json:"status"`
+		Message        string    `json:"message"`
+		EntriesChanged int64     `json:"entries_changed"`
+		CreatedAt      time.Time `json:"created_at"`
+	}
+
+	entries := make([]logEntry, len(logs))
+	for i, log := range logs {
+		msg := ""
+		if log.Message.Valid {
+			msg = log.Message.String
+		}
+		entries[i] = logEntry{
+			ID:             log.ID,
+			Operation:      log.Operation,
+			Status:         log.Status,
+			Message:        msg,
+			EntriesChanged: log.EntriesChanged,
+			CreatedAt:      log.CreatedAt,
+		}
+	}
+
+	jsonOK(w, map[string]any{"logs": entries})
 }

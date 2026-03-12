@@ -192,4 +192,144 @@ export class ApiClient {
     if (!res.ok) throw new Error(`Import failed (${res.status})`);
     return res.json();
   }
+
+  // ---------------------------------------------------------------------------
+  // Git Sync API
+  // ---------------------------------------------------------------------------
+
+  /** GET /api/users/:fp/git/status */
+  async getGitStatus(): Promise<{
+    configured: boolean;
+    repo_url?: string;
+    has_encrypted_pat?: boolean;
+    success_count: number;
+    failed_count: number;
+  }> {
+    const res = await fetch(
+      this.url(`/api/users/${this.fingerprint}/git/status`),
+      { headers: this.headers() }
+    );
+    if (!res.ok) throw new Error(`Git status failed (${res.status})`);
+    return res.json();
+  }
+
+  /** POST /api/users/:fp/git/config */
+  async configureGit(
+    repoUrl: string,
+    encryptedPat: string
+  ): Promise<{ status: string }> {
+    const res = await fetch(
+      this.url(`/api/users/${this.fingerprint}/git/config`),
+      {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ repo_url: repoUrl, encrypted_pat: encryptedPat }),
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || `Git config failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  /** POST /api/users/:fp/git/session — set git token for this session */
+  async setGitSession(token: string): Promise<{ status: string }> {
+    const res = await fetch(
+      this.url(`/api/users/${this.fingerprint}/git/session`),
+      {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ token }),
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || `Git session failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  /** POST /api/users/:fp/git/push */
+  async gitPush(token?: string): Promise<{
+    status: string;
+    operation: string;
+    message: string;
+  }> {
+    const res = await fetch(
+      this.url(`/api/users/${this.fingerprint}/git/push`),
+      {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ token: token || '' }),
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || `Git push failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  /** POST /api/users/:fp/git/pull */
+  async gitPull(token?: string): Promise<{
+    status: string;
+    operation: string;
+    entries_changed?: number;
+    message: string;
+    conflicts?: Array<{
+      path: string;
+      local_modified: boolean;
+      remote_modified: boolean;
+    }>;
+  }> {
+    const res = await fetch(
+      this.url(`/api/users/${this.fingerprint}/git/pull`),
+      {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ token: token || '' }),
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || `Git pull failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  /** POST /api/users/:fp/git/toggle-sync — deprecated */
+  async toggleGitSync(): Promise<{ status: string }> {
+    const res = await fetch(
+      this.url(`/api/users/${this.fingerprint}/git/toggle-sync`),
+      {
+        method: 'POST',
+        headers: this.headers(),
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || `Toggle sync failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  /** GET /api/users/:fp/git/log */
+  async getGitLog(): Promise<{
+    logs: Array<{
+      id: number;
+      operation: string;
+      status: string;
+      message: string;
+      entries_changed: number;
+      created_at: string;
+    }>;
+  }> {
+    const res = await fetch(
+      this.url(`/api/users/${this.fingerprint}/git/log`),
+      { headers: this.headers() }
+    );
+    if (!res.ok) throw new Error(`Git log failed (${res.status})`);
+    return res.json();
+  }
 }

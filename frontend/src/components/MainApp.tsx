@@ -183,16 +183,16 @@ export function MainApp({ onLock }: Props) {
         </div>
         <div class="app-header-right">
           <button class="btn btn-ghost btn-sm" onClick={() => setShowEncrypt(true)} title="Encrypt/Decrypt">
-            🔒 Encrypt
+            🔒<span> Encrypt</span>
           </button>
           <button class="btn btn-ghost btn-sm" onClick={() => setShowGenerator(true)} title="Password Generator">
-            🎲 Generate
+            🎲<span> Generate</span>
           </button>
           <button class="btn btn-ghost btn-icon" onClick={() => setShowSettings(true)} title="Settings">
             ⚙️
           </button>
-          <button class="btn btn-ghost btn-icon" onClick={onLock} title="Lock">
-            🔒
+          <button class="btn btn-ghost btn-icon" onClick={onLock} title="Lock Session">
+            🚪
           </button>
         </div>
       </header>

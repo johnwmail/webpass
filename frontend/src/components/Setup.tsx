@@ -50,6 +50,14 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
   // Token for authed TOTP calls
   const [setupApi, setSetupApi] = useState<ApiClient | null>(null);
 
+  // Set default API URL to same origin as frontend
+  useEffect(() => {
+    // Use the current origin (protocol + host) as the default API URL
+    // This works when frontend and backend are on the same domain
+    const defaultUrl = window.location.origin;
+    setApiUrl(defaultUrl);
+  }, []);
+
   const formatFp = (fp: string) => fp.toUpperCase().replace(/(.{4})/g, '$1 ').trim();
 
   // Test API connection
@@ -57,7 +65,21 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
     setUrlTesting(true);
     setError('');
     try {
-      const url = apiUrl.replace(/\/+$/, '');
+      // Validate URL format first
+      let url = apiUrl.replace(/\/+$/, '');
+      
+      // Check if URL has a valid protocol
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        throw new Error('URL must start with http:// or https://');
+      }
+      
+      // Validate URL structure
+      try {
+        new URL(url);
+      } catch {
+        throw new Error('Invalid URL format');
+      }
+      
       const res = await fetch(`${url}/api/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -70,7 +92,12 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
         throw new Error(`Unexpected status: ${res.status}`);
       }
     } catch (e: any) {
-      setError(`Cannot reach server: ${e.message}`);
+      // Distinguish between network errors and validation errors
+      if (e.message.includes('http') || e.message.includes('network') || e.message.includes('fetch')) {
+        setError(`Cannot reach server: ${e.message}`);
+      } else {
+        setError(e.message);
+      }
     }
     setUrlTesting(false);
   };

@@ -1,0 +1,60 @@
+# Git attributes for line endings and binary files
+# https://git-scm.com/docs/gitattributes
+
+# Set default behavior to LF on checkout
+* text=auto eol=lf
+
+# Explicitly declare text files
+*.go text
+*.ts text
+*.tsx text
+*.js text
+*.jsx text
+*.html text
+*.css text
+*.scss text
+*.json text
+*.md text
+*.yaml text
+*.yml text
+*.sql text
+*.sh text eol=lf
+*.toml text
+*.env.example text
+Makefile text
+Dockerfile text
+Dockerfile.dev text
+.dockerignore text
+.gitignore text
+.editorconfig text
+.golangci.yml text
+LICENSE text
+CONTRIBUTING.md text
+SECURITY.md text
+README.md text
+
+# Force binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.zip binary
+*.tar.gz binary
+*.tgz binary
+
+# Go binaries
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+
+# Database files (should be ignored, but just in case)
+*.sqlite3 binary
+*.db binary

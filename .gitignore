@@ -1,0 +1,129 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+webpass-server
+bin/
+
+# Database files (SQLite)
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+*.db
+*.db-shm
+*.db-wal
+
+# Test binary, test coverage, output
+*.test
+*.out
+*.cover
+coverage.txt
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Environment files
+.env
+.env.local
+.env.*.local
+.envrc
+*.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*~
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+frontend/.eslintcache
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+.temp/
+.cache/
+
+# Build artifacts
+build/
+dist/
+*.tgz
+*.tar.gz
+
+# Dependency directories
+vendor/
+
+# Kubernetes secrets (use sealed-secrets or external-secrets)
+k8s/*secret*.yaml
+k8s/*configmap*.yaml
+!k8s/deployment.yaml
+
+# Docker
+docker-compose.override.yml
+.docker/
+
+# Certificates
+*.pem
+*.key
+*.crt
+*.cer
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Editor directories and files
+.project
+.classpath
+.settings/
+*.iml
+
+# Local development
+.local/
+.devcontainer/
+*.local
+
+# Test data
+test-data/
+fixtures/
+
+# sqlc generated code (if regenerating locally)
+# db/dbgen/
+
+# Git repos (local git sync storage)
+.git-repos/
+
+# Session data
+sessions/
+*.session

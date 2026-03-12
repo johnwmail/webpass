@@ -1,0 +1,11 @@
+# Cloudflare Pages configuration
+name = "webpass"
+compatibility_date = "2024-01-01"
+
+[build]
+command = "npm run build"
+publish_dir = "dist"
+
+[vars]
+# API server URL - change this to your actual API endpoint
+API_URL = "https://webpass.exe.xyz:8000"

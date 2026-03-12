@@ -1,0 +1,145 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: webpass
+  labels:
+    name: webpass
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: webpass-secrets
+  namespace: webpass
+type: Opaque
+stringData:
+  # Generate a random 32-byte key: openssl rand -hex 32
+  JWT_SECRET: "change-me-to-random-32-byte-hex-string"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: webpass-data
+  namespace: webpass
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webpass
+  namespace: webpass
+  labels:
+    app: webpass
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webpass
+  template:
+    metadata:
+      labels:
+        app: webpass
+    spec:
+      containers:
+        - name: webpass
+          image: webpass:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: DB_PATH
+              value: /data/db/db.sqlite3
+            - name: STATIC_DIR
+              value: /app/frontend/dist
+            - name: GIT_REPO_ROOT
+              value: /data/git-repos
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: webpass-secrets
+                  key: JWT_SECRET
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 8080
+        runAsGroup: 8080
+        fsGroup: 8080
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: webpass-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webpass
+  namespace: webpass
+spec:
+  selector:
+    app: webpass
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+  type: ClusterIP
+---
+# Optional: Ingress for external access
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: webpass
+#   namespace: webpass
+#   annotations:
+#     kubernetes.io/ingress.class: nginx
+#     cert-manager.io/cluster-issuer: letsencrypt-prod
+#     nginx.ingress.kubernetes.io/ssl-redirect: "true"
+# spec:
+#   rules:
+#     - host: webpass.example.com
+#       http:
+#         paths:
+#           - path: /
+#             pathType: Prefix
+#             backend:
+#               service:
+#                 name: webpass
+#                 port:
+#                   number: 80
+#   tls:
+#     - hosts:
+#         - webpass.example.com
+#       secretName: webpass-tls

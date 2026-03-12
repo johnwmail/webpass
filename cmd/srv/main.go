@@ -9,7 +9,7 @@ import (
 	"srv.exe.dev/srv"
 )
 
-var flagListenAddr = flag.String("listen", ":8000", "address to listen on")
+var flagListenAddr = flag.String("listen", ":8080", "address to listen on")
 
 func main() {
 	if err := run(); err != nil {
@@ -32,7 +32,7 @@ func run() error {
 
 	dbPath := os.Getenv("DB_PATH")
 	if dbPath == "" {
-		dbPath = "db.sqlite3"
+		dbPath = "/data/db/db.sqlite3"
 	}
 
 	server, err := srv.New(dbPath, jwtKey)
@@ -40,14 +40,25 @@ func run() error {
 		return fmt.Errorf("create server: %w", err)
 	}
 
-	// Serve frontend static files if directory exists
+	// Serve frontend static files if directory exists and not disabled
 	staticDir := os.Getenv("STATIC_DIR")
 	if staticDir == "" {
 		staticDir = "frontend/dist"
 	}
-	if info, err := os.Stat(staticDir); err == nil && info.IsDir() {
-		server.StaticDir = staticDir
+
+	// Check if frontend serving is disabled
+	disableFrontend := os.Getenv("DISABLE_FRONTEND")
+	if disableFrontend == "" || disableFrontend == "0" || disableFrontend == "false" {
+		if info, err := os.Stat(staticDir); err == nil && info.IsDir() {
+			server.StaticDir = staticDir
+		}
 	}
 
-	return server.Serve(*flagListenAddr)
+	// Allow PORT env var to override default listen address
+	listenAddr := *flagListenAddr
+	if port := os.Getenv("PORT"); port != "" {
+		listenAddr = ":" + port
+	}
+
+	return server.Serve(listenAddr)
 }

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'preact/hooks';
 import { session } from '../lib/session';
 import { getAccount, deleteAccount as deleteAccountFromDB } from '../lib/storage';
 import QRCode from 'qrcode';
+import { GitSync } from './GitSync';
 
 interface Props {
   onClose: () => void;
@@ -24,6 +25,9 @@ export function SettingsModal({ onClose, onLock }: Props) {
 
   // Import state
   const [importing, setImporting] = useState(false);
+
+  // Git sync state
+  const [showGitSync, setShowGitSync] = useState(false);
 
   const fp = session.fingerprint || '';
   const apiUrl = session.api?.baseUrl || '';
@@ -211,6 +215,17 @@ export function SettingsModal({ onClose, onLock }: Props) {
             </div>
           </div>
 
+          {/* Git Sync */}
+          <div class="settings-section">
+            <h3>🔄 Git Sync</h3>
+            <p class="help-text" style="margin-bottom: 12px;">
+              Sync your encrypted passwords to a private Git repository.
+            </p>
+            <button class="btn btn-sm" onClick={() => setShowGitSync(true)}>
+              {showGitSync ? 'Configuring...' : '⚙️ Configure Git Sync'}
+            </button>
+          </div>
+
           {/* 2FA */}
           <div class="settings-section">
             <h3>Two-Factor Authentication</h3>
@@ -285,6 +300,12 @@ export function SettingsModal({ onClose, onLock }: Props) {
           </div>
         </div>
       </div>
+
+      {/* Git Sync Modal */}
+      {showGitSync && <GitSync onClose={() => setShowGitSync(false)} onSuccess={() => {
+        // Refresh entries after successful sync
+        window.location.reload();
+      }} />}
     </div>
   );
 }
