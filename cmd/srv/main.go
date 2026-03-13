@@ -93,6 +93,11 @@ func run() error {
 		return fmt.Errorf("create server: %w", err)
 	}
 
+	// Pass version info to server
+	server.Version = Version
+	server.BuildTime = BuildTime
+	server.Commit = Commit
+
 	// Serve frontend static files if directory exists and not disabled
 	if disableFrontend == "" || disableFrontend == "0" || disableFrontend == "false" {
 		if info, err := os.Stat(staticDir); err == nil && info.IsDir() {

@@ -25,13 +25,6 @@ import (
 	"srv.exe.dev/db/dbgen"
 )
 
-// Version information injected at build time via ldflags
-var (
-	Version   = "vdev"
-	BuildTime = "unknown"
-	Commit    = "unknown"
-)
-
 // Server is the WebPass API server.
 type Server struct {
 	DB         *sql.DB
@@ -39,6 +32,10 @@ type Server struct {
 	JWTKey     []byte
 	StaticDir  string // path to frontend dist/ directory (optional)
 	GitService *GitService
+	// Version info (set from main package)
+	Version   string
+	BuildTime string
+	Commit    string
 }
 
 // New creates a new Server, opening the database and running migrations.
@@ -442,9 +439,9 @@ func (s *Server) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]string{
-		"version":    Version,
-		"commit":     Commit,
-		"build_time": BuildTime,
+		"version":    s.Version,
+		"commit":     s.Commit,
+		"build_time": s.BuildTime,
 	})
 }
 
