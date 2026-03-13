@@ -24,10 +24,20 @@ jobs:
       - name: Install dependencies
         run: cd frontend && npm ci
 
+      - name: Set short SHA for non-tag builds
+        id: version
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            echo "version=sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build frontend
         run: cd frontend && npm run build
         env:
-          FRONTEND_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('sha-{0}', github.sha) }}
+          FRONTEND_VERSION: ${{ steps.version.outputs.version }}
           FRONTEND_COMMIT: ${{ github.sha }}
           FRONTEND_BUILD_TIME: ${{ github.event.head_commit.timestamp || github.event.repository.updated_at }}
 
