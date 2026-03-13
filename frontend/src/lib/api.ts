@@ -178,6 +178,8 @@ export class ApiClient {
 
   /** POST /api/users/:fp/import */
   async importArchive(file: File | Blob): Promise<{ imported: number }> {
+    console.log('[API] importArchive called, file size:', file.size, 'type:', file.type);
+    console.log('[API] Import URL:', this.url(`/api/users/${this.fingerprint}/import`));
     const res = await fetch(
       this.url(`/api/users/${this.fingerprint}/import`),
       {
@@ -189,8 +191,43 @@ export class ApiClient {
         body: file,
       }
     );
-    if (!res.ok) throw new Error(`Import failed (${res.status})`);
-    return res.json();
+    console.log('[API] Import response status:', res.status, res.ok);
+    if (!res.ok) {
+      const errorText = await res.text().catch(() => 'unknown');
+      console.error('[API] Import failed, response:', errorText);
+      throw new Error(`Import failed (${res.status})`);
+    }
+    const result = await res.json();
+    console.log('[API] Import result:', result);
+    return result;
+  }
+
+  /** POST /api/users/:fp/import — batch import with JSON array */
+  async importBatch(entries: Array<{ path: string; content: string }>): Promise<{ 
+    imported: number; 
+    overwritten?: number;
+    errors?: Array<{ path: string; error: string }>;
+  }> {
+    console.log('[API] importBatch called, entries:', entries.length);
+    const res = await fetch(
+      this.url(`/api/users/${this.fingerprint}/import`),
+      {
+        method: 'POST',
+        headers: {
+          ...this.headers(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(entries),
+      }
+    );
+    if (!res.ok) {
+      const errorText = await res.text().catch(() => 'unknown');
+      console.error('[API] Import batch failed, response:', errorText);
+      throw new Error(`Import failed (${res.status})`);
+    }
+    const result = await res.json();
+    console.log('[API] Import batch result:', result);
+    return result;
   }
 
   // ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ export async function generateKeyPair(passphrase: string): Promise<{
 }> {
   const { privateKey, publicKey } = await openpgp.generateKey({
     type: 'ecc',
-    curve: 'curve25519',
+    curve: 'curve25519Legacy',  // openpgp v6 renamed curve25519 to curve25519Legacy
     userIDs: [{ name: 'WebPass User' }],
     passphrase,
     format: 'armored',
@@ -33,6 +33,47 @@ export async function decryptPrivateKey(
 ): Promise<openpgp.PrivateKey> {
   const privateKey = await openpgp.readPrivateKey({ armoredKey });
   return openpgp.decryptKey({ privateKey, passphrase });
+}
+
+/**
+ * Import and decrypt external private key from file
+ * 
+ * SECURITY: The decrypted key is returned but should NEVER be persisted.
+ * Caller must clear it from memory after use (set to null).
+ * 
+ * @param armoredKey - Armored PGP private key (from .asc or .pgp file)
+ * @param passphrase - Passphrase to decrypt the key
+ * @returns Decrypted private key (MUST be cleared from memory after use)
+ */
+export async function importPrivateKey(
+  armoredKey: string,
+  passphrase: string
+): Promise<openpgp.PrivateKey> {
+  // Read and parse the armored key
+  const privateKey = await openpgp.readPrivateKey({ armoredKey });
+  
+  // Decrypt with passphrase
+  const decryptedKey = await openpgp.decryptKey({ privateKey, passphrase });
+  
+  return decryptedKey;
+}
+
+/**
+ * Clear sensitive data from memory
+ * 
+ * Note: JavaScript doesn't provide guaranteed memory clearing,
+ * but this helps by nullifying references and suggesting GC.
+ */
+export function clearSensitiveData(...sensitiveVars: unknown[]): void {
+  // Nullify all passed variables
+  for (let i = 0; i < sensitiveVars.length; i++) {
+    sensitiveVars[i] = null;
+  }
+  
+  // Suggest garbage collection (if available in environment)
+  if (typeof globalThis.gc === 'function') {
+    globalThis.gc();
+  }
 }
 
 /** Encrypt text with public key → armored PGP message */

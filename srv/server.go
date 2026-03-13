@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -627,15 +628,130 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/users/{fp}/import — import tar.gz
+// POST /api/users/{fp}/import — import tar.gz or JSON batch
 // ---------------------------------------------------------------------------
 
+// handleImport supports two formats:
+// 1. Content-Type: application/gzip — binary tar.gz (legacy, for WebPass-to-WebPass)
+// 2. Content-Type: application/json — JSON array [{path, content}] (new, for import with re-encryption)
 func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fp")
+	contentType := r.Header.Get("Content-Type")
 
+	// Check content type to determine format
+	if strings.HasPrefix(contentType, "application/json") {
+		// New JSON batch format (client-side decrypted and re-encrypted)
+		s.handleImportJSON(w, r, fp)
+	} else {
+		// Legacy tar.gz format (server-side parsing, no re-encryption)
+		s.handleImportTarGz(w, r, fp)
+	}
+}
+
+// handleImportJSON handles JSON batch import (new format)
+func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request, fp string) {
+	var entries []struct {
+		Path    string `json:"path"`
+		Content any    `json:"content"` // Support both string (armored/base64) and []byte
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&entries); err != nil {
+		slog.Error("import JSON decode", "error", err)
+		jsonError(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var count int
+	var overwritten int
+	var errors []map[string]interface{}
+
+	for _, e := range entries {
+		// Check if entry already exists (for overwrite count)
+		existing, err := s.Q.GetEntry(r.Context(), dbgen.GetEntryParams{
+			Fingerprint: fp,
+			Path:        e.Path,
+		})
+		if err == nil && existing.Path != "" {
+			overwritten++
+		}
+
+		// Convert content to bytes (support multiple formats)
+		content, err := parseImportContent(e.Content)
+		if err != nil {
+			slog.Error("import content parse", "error", err, "path", e.Path)
+			errors = append(errors, map[string]interface{}{
+				"path":  e.Path,
+				"error": "Invalid content format: " + err.Error(),
+			})
+			continue
+		}
+
+		if err := s.Q.UpsertEntry(r.Context(), dbgen.UpsertEntryParams{
+			Fingerprint: fp,
+			Path:        e.Path,
+			Content:     content,
+		}); err != nil {
+			slog.Error("import upsert", "error", err, "path", e.Path)
+			errors = append(errors, map[string]interface{}{
+				"path":  e.Path,
+				"error": err.Error(),
+			})
+		} else {
+			count++
+		}
+	}
+
+	// Return partial success (always 200, even with errors)
+	jsonOK(w, map[string]interface{}{
+		"imported":    count,
+		"overwritten": overwritten,
+		"errors":      errors,
+	})
+}
+
+// parseImportContent converts import content from various formats to bytes
+// Supports:
+// - Base64 string (preferred)
+// - Armored PGP text (-----BEGIN PGP MESSAGE-----)
+// - Raw bytes
+func parseImportContent(content any) ([]byte, error) {
+	switch v := content.(type) {
+	case string:
+		// Check if it's armored PGP
+		if strings.HasPrefix(v, "-----BEGIN PGP MESSAGE-----") {
+			// Armored PGP text - decode from base64 internally
+			// Remove armor headers and footers
+			lines := strings.Split(v, "\n")
+			var base64Lines []string
+			inBody := false
+			for _, line := range lines {
+				if strings.HasPrefix(line, "-----BEGIN") || strings.HasPrefix(line, "-----END") {
+					inBody = true
+					continue
+				}
+				if inBody && line != "" {
+					base64Lines = append(base64Lines, line)
+				}
+			}
+			base64Data := strings.Join(base64Lines, "")
+			return base64.StdEncoding.DecodeString(base64Data)
+		}
+		// Assume it's base64-encoded binary
+		return base64.StdEncoding.DecodeString(v)
+	case []byte:
+		// Raw bytes - return as-is
+		return v, nil
+	default:
+		return nil, fmt.Errorf("unsupported content type: %T", content)
+	}
+}
+
+// handleImportTarGz handles legacy tar.gz import (original behavior)
+func (s *Server) handleImportTarGz(w http.ResponseWriter, r *http.Request, fp string) {
 	gr, err := gzip.NewReader(r.Body)
 	if err != nil {
-		jsonError(w, "invalid gzip", http.StatusBadRequest)
+		slog.Error("import gzip decode", "error", err)
+		jsonError(w, "invalid gzip: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	defer func() { _ = gr.Close() }()

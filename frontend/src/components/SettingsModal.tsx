@@ -3,6 +3,7 @@ import { session } from '../lib/session';
 import { getAccount, deleteAccount as deleteAccountFromDB } from '../lib/storage';
 import QRCode from 'qrcode';
 import { GitSync } from './GitSync';
+import { ImportDialog } from './ImportDialog';
 import { VERSION as FRONTEND_VERSION, COMMIT as FRONTEND_COMMIT, BUILD_TIME as FRONTEND_BUILD_TIME } from '../lib/version';
 
 interface Props {
@@ -29,7 +30,7 @@ export function SettingsModal({ onClose, onLock }: Props) {
   const qrRef = useRef<HTMLCanvasElement>(null);
 
   // Import state
-  const [importing, setImporting] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   // Git sync state
   const [showGitSync, setShowGitSync] = useState(false);
@@ -92,27 +93,14 @@ export function SettingsModal({ onClose, onLock }: Props) {
     }
   };
 
-  // Import archive
-  const handleImport = async (e: Event) => {
-    const input = e.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file || !session.api) {
-      if (!session.api) setError('Not logged in. Please log in first.');
-      return;
-    }
-    setImporting(true);
-    setError('');
-    console.log('Importing file:', file.name, file.size, 'bytes');
-    try {
-      const result = await session.api.importArchive(file);
-      setSuccess(`Imported ${result.imported} entries`);
-      setTimeout(() => setSuccess(''), 3000);
-    } catch (err: any) {
-      console.error('Import error:', err);
-      setError(err.message || 'Import failed');
-    }
-    setImporting(false);
-    input.value = '';
+  // Import archive - now opens ImportDialog
+  const handleImportClick = () => {
+    setShowImport(true);
+  };
+
+  const handleImportSuccess = (imported: number) => {
+    setSuccess(`Imported ${imported} entries`);
+    setTimeout(() => setSuccess(''), 5000);
   };
 
   // Setup 2FA
@@ -161,6 +149,12 @@ export function SettingsModal({ onClose, onLock }: Props) {
     }
   };
 
+  // Logout (clear session without deleting account)
+  const handleLogout = () => {
+    session.clear();
+    onLock();
+  };
+
   const downloadBlob = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -169,8 +163,6 @@ export function SettingsModal({ onClose, onLock }: Props) {
     a.click();
     URL.revokeObjectURL(url);
   };
-
-  const importFileRef = useRef<HTMLInputElement>(null);
 
   return (
     <div class="modal-overlay" onClick={onClose}>
@@ -283,19 +275,12 @@ export function SettingsModal({ onClose, onLock }: Props) {
               </button>
               <button
                 class="btn btn-sm"
-                onClick={() => importFileRef.current?.click()}
-                disabled={importing || !session.api}
+                onClick={handleImportClick}
+                disabled={!session.api}
                 title={!session.api ? 'Please log in first' : ''}
               >
-                {importing ? <><span class="spinner" /> Importing...</> : '📥 Import .password-store'}
+                📥 Import .password-store
               </button>
-              <input
-                ref={importFileRef}
-                type="file"
-                accept=".tar.gz,.tgz,.password-store.tar.gz,application/gzip,application/x-gzip"
-                style="display: none;"
-                onChange={handleImport}
-              />
             </div>
           </div>
 
@@ -363,6 +348,20 @@ export function SettingsModal({ onClose, onLock }: Props) {
             )}
           </div>
 
+          {/* Session */}
+          <div class="settings-section">
+            <h3>Session</h3>
+            <p class="help-text" style="margin-bottom: 12px;">
+              Manage your current session.
+            </p>
+            <button
+              class="btn btn-sm"
+              onClick={handleLogout}
+            >
+              🚪 Logout
+            </button>
+          </div>
+
           {/* Danger Zone */}
           <div class="settings-section">
             <h3 style="color: var(--danger);">Danger Zone</h3>
@@ -390,6 +389,14 @@ export function SettingsModal({ onClose, onLock }: Props) {
         // Refresh entries after successful sync
         window.location.reload();
       }} />}
+
+      {/* Import Dialog */}
+      {showImport && (
+        <ImportDialog
+          onClose={() => setShowImport(false)}
+          onSuccess={handleImportSuccess}
+        />
+      )}
     </div>
   );
 }
