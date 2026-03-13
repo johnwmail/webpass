@@ -26,6 +26,10 @@ jobs:
 
       - name: Build frontend
         run: cd frontend && npm run build
+        env:
+          FRONTEND_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'preview' }}
+          FRONTEND_COMMIT: ${{ github.sha }}
+          FRONTEND_BUILD_TIME: ${{ github.event.head_commit.timestamp || github.event.repository.updated_at }}
 
       - name: Install Wrangler CLI
         run: npm install -g wrangler
