@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -93,6 +94,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/users/{fp}/import", s.requireAuth(s.handleImport))
 	// Git sync routes
 	mux.HandleFunc("GET /api/users/{fp}/git/status", s.requireAuth(s.handleGitStatus))
+	mux.HandleFunc("GET /api/users/{fp}/git/config", s.requireAuth(s.handleGitGetConfig))
 	mux.HandleFunc("POST /api/users/{fp}/git/config", s.requireAuth(s.handleGitConfig))
 	mux.HandleFunc("POST /api/users/{fp}/git/session", s.requireAuth(s.handleGitSession))
 	mux.HandleFunc("POST /api/users/{fp}/git/push", s.requireAuth(s.handleGitPush))
@@ -817,6 +819,34 @@ func (s *Server) handleGitStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonOK(w, status)
+}
+
+// GET /api/users/{fp}/git/config — get git config (including encrypted_pat)
+func (s *Server) handleGitGetConfig(w http.ResponseWriter, r *http.Request) {
+	fp := r.PathValue("fp")
+
+	config, err := s.Q.GetGitConfig(r.Context(), fp)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			jsonOK(w, map[string]interface{}{
+				"configured":      false,
+				"repo_url":        "",
+				"encrypted_pat":   "",
+				"has_encrypted_pat": false,
+			})
+			return
+		}
+		slog.Error("get git config", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	jsonOK(w, map[string]interface{}{
+		"configured":        true,
+		"repo_url":          config.RepoURL,
+		"encrypted_pat":     config.EncryptedPat,
+		"has_encrypted_pat": config.EncryptedPat != "",
+	})
 }
 
 // POST /api/users/{fp}/git/config — configure git sync

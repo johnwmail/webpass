@@ -2,7 +2,7 @@ import { useState, useEffect } from 'preact/hooks';
 import * as openpgp from 'openpgp';
 import { session } from '../lib/session';
 import { getPublicKey, getDecryptedPrivateKey } from '../lib/storage';
-import { encryptPAT, decryptPAT } from '../lib/crypto';
+import { encryptPAT, decryptPAT, decryptPrivateKey } from '../lib/crypto';
 
 interface GitStatus {
   configured: boolean;
@@ -53,6 +53,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
   // Config form
   const [repoUrl, setRepoUrl] = useState('');
   const [pat, setPat] = useState('');
+  const [encryptedPat, setEncryptedPat] = useState('');
   const [configuring, setConfiguring] = useState(false);
 
   // Password prompt for encryption/decryption
@@ -75,6 +76,12 @@ export function GitSync({ onClose, onSuccess }: Props) {
       setStatus(s);
       if (s.configured && s.repo_url) {
         setRepoUrl(s.repo_url);
+      }
+      
+      // Fetch encrypted_pat from config endpoint
+      const config = await session.api.getGitConfig();
+      if (config.configured && config.encrypted_pat) {
+        setEncryptedPat(config.encrypted_pat);
       }
     } catch (e: any) {
       setError(e.message || 'Failed to load status');
@@ -180,14 +187,28 @@ export function GitSync({ onClose, onSuccess }: Props) {
         return;
       }
 
-      // Get encrypted PAT from server status (we need to fetch it separately)
-      // For now, we'll prompt user to enter PAT directly if not cached
-      // TODO: Fetch encrypted_pat from a dedicated endpoint
+      // Get encrypted PAT from server and decrypt it
+      if (!encryptedPat) {
+        setError('PAT not configured. Please reconfigure Git sync.');
+        setLoading(false);
+        return;
+      }
 
-      // For MVP: use PAT from config or prompt
-      const patToUse = pat || await promptForPatDirectly();
+      // Get armored private key from storage
+      const armoredPrivateKey = await getDecryptedPrivateKey(fp, password);
+      if (!armoredPrivateKey) {
+        setError('Failed to get private key. Check password.');
+        setLoading(false);
+        return;
+      }
+
+      // Decrypt the private key with the password
+      const privateKey = await decryptPrivateKey(armoredPrivateKey, password);
+
+      // Decrypt PAT: password + PGP
+      const patToUse = await decryptPAT(encryptedPat, privateKey, password);
       if (!patToUse) {
-        setError('PAT required');
+        setError('Failed to decrypt PAT. Check password.');
         setLoading(false);
         return;
       }
@@ -225,10 +246,28 @@ export function GitSync({ onClose, onSuccess }: Props) {
         return;
       }
 
-      // Get PAT (same as push)
-      const patToUse = pat || await promptForPatDirectly();
+      // Get encrypted PAT from server and decrypt it
+      if (!encryptedPat) {
+        setError('PAT not configured. Please reconfigure Git sync.');
+        setLoading(false);
+        return;
+      }
+
+      // Get armored private key from storage
+      const armoredPrivateKey = await getDecryptedPrivateKey(fp, password);
+      if (!armoredPrivateKey) {
+        setError('Failed to get private key. Check password.');
+        setLoading(false);
+        return;
+      }
+
+      // Decrypt the private key with the password
+      const privateKey = await decryptPrivateKey(armoredPrivateKey, password);
+
+      // Decrypt PAT: password + PGP
+      const patToUse = await decryptPAT(encryptedPat, privateKey, password);
       if (!patToUse) {
-        setError('PAT required');
+        setError('Failed to decrypt PAT. Check password.');
         setLoading(false);
         return;
       }
@@ -254,14 +293,6 @@ export function GitSync({ onClose, onSuccess }: Props) {
     }
     setLoading(false);
     setShowPasswordPrompt(false);
-  };
-
-  // Simple prompt for PAT (fallback if not stored)
-  const promptForPatDirectly = (): Promise<string | null> => {
-    return new Promise((resolve) => {
-      const patInput = prompt('Enter your Git PAT (Personal Access Token):');
-      resolve(patInput);
-    });
   };
 
   const handleResolveConflicts = async (resolution: 'local' | 'remote' | 'skip') => {

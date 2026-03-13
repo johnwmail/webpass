@@ -250,6 +250,21 @@ export class ApiClient {
     return res.json();
   }
 
+  /** GET /api/users/:fp/git/config */
+  async getGitConfig(): Promise<{
+    configured: boolean;
+    repo_url: string;
+    encrypted_pat: string;
+    has_encrypted_pat: boolean;
+  }> {
+    const res = await fetch(
+      this.url(`/api/users/${this.fingerprint}/git/config`),
+      { headers: this.headers() }
+    );
+    if (!res.ok) throw new Error(`Git config fetch failed (${res.status})`);
+    return res.json();
+  }
+
   /** POST /api/users/:fp/git/config */
   async configureGit(
     repoUrl: string,
