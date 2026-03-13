@@ -46,12 +46,12 @@ jobs:
             # Tag trigger: strip 'v' prefix and add latest
             TAG_NAME="${{ github.ref_name }}"
             VERSION_TAG="${TAG_NAME#v}"
-            echo "tags=ghcr.io/${{ github.repository }}:${VERSION_TAG},ghcr.io/${{ github.repository }}:latest,docker.io/${{ github.actor }}/webpass:${VERSION_TAG},docker.io/${{ github.actor }}/webpass:latest" >> $GITHUB_OUTPUT
+            echo "tags=ghcr.io/${{ github.repository }}:${VERSION_TAG},ghcr.io/${{ github.repository }}:latest,docker.io/${{ github.repository }}:${VERSION_TAG},docker.io/${{ github.repository }}:latest" >> $GITHUB_OUTPUT
             echo "version=${VERSION_TAG}" >> $GITHUB_OUTPUT
           else
             # workflow_dispatch: use short SHA, no latest
             SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-            echo "tags=ghcr.io/${{ github.repository }}:sha-${SHORT_SHA},docker.io/${{ github.actor }}/webpass:sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "tags=ghcr.io/${{ github.repository }}:sha-${SHORT_SHA},docker.io/${{ github.repository }}:sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
             echo "version=sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
           fi
           echo "commit=${{ github.sha }}" >> $GITHUB_OUTPUT
