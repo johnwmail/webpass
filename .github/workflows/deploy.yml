@@ -3,7 +3,7 @@ name: Deploy Frontend
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
 
 jobs:
@@ -19,7 +19,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '24'
+          node-version: "24"
 
       - name: Install dependencies
         run: cd frontend && npm ci
@@ -27,7 +27,7 @@ jobs:
       - name: Build frontend
         run: cd frontend && npm run build
         env:
-          FRONTEND_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'preview' }}
+          FRONTEND_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('sha-{0}', github.sha) }}
           FRONTEND_COMMIT: ${{ github.sha }}
           FRONTEND_BUILD_TIME: ${{ github.event.head_commit.timestamp || github.event.repository.updated_at }}
 
