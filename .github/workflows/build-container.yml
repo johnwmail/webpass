@@ -46,11 +46,11 @@ jobs:
         run: |
           BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           if [[ "${{ github.event_name }}" == "push" ]]; then
-            # Tag trigger: strip 'v' prefix and add latest
+            # Tag trigger: keep 'v' prefix for Go convention
             TAG_NAME="${{ github.ref_name }}"
             VERSION_TAG="${TAG_NAME#v}"
             echo "tags=ghcr.io/${{ github.repository }}:${VERSION_TAG},ghcr.io/${{ github.repository }}:latest,docker.io/${{ github.repository }}:${VERSION_TAG},docker.io/${{ github.repository }}:latest" >> $GITHUB_OUTPUT
-            echo "version=${VERSION_TAG}" >> $GITHUB_OUTPUT
+            echo "version=${TAG_NAME}" >> $GITHUB_OUTPUT
           else
             # workflow_dispatch: use short SHA
             SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)

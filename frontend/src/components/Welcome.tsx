@@ -3,6 +3,7 @@ import type { Account } from '../types';
 import { listAccounts, getAccount, aesDecrypt } from '../lib/storage';
 import { ApiClient } from '../lib/api';
 import { session } from '../lib/session';
+import { Footer } from './Footer';
 
 interface Props {
   onSetup: () => void;
@@ -25,7 +26,7 @@ export function Welcome({ onSetup, onLogin }: Props) {
         setAccounts(accs);
         if (accs.length === 1) setSelectedFp(accs[0].fingerprint);
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoadingAccounts(false));
   }, []);
 
@@ -207,6 +208,7 @@ export function Welcome({ onSetup, onLogin }: Props) {
           </form>
         </div>
       </div>
+      <Footer />
     </div>
   );
 }

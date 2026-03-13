@@ -59,7 +59,7 @@ export function SettingsModal({ onClose, onLock }: Props) {
         width: 200,
         margin: 2,
         color: { dark: '#000000', light: '#ffffff' },
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }, [totpUrl]);
 
@@ -226,8 +226,8 @@ export function SettingsModal({ onClose, onLock }: Props) {
                     <span class="version-meta-label">Built:</span>
                     <span class="version-value">{backendVersion.build_time}</span>
                   </div>
-                  {backendVersion.version !== FRONTEND_VERSION && (
-                    <div class="version-warning">⚠️ Versions differ</div>
+                  {backendVersion.commit !== FRONTEND_COMMIT && (
+                    <div class="version-warning" title="Commit hashes differ">⚠️ Versions differ</div>
                   )}
                 </div>
               ) : versionError ? (

@@ -26,23 +26,54 @@
   --transition: 150ms ease;
 }
 
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
-div, section, article, header, footer, nav, main, aside, figure, figcaption,
-details, summary, h1, h2, h3, h4, h5, h6, p, ul, ol, li, form, fieldset,
-blockquote, pre, hr, table, address {
+div,
+section,
+article,
+header,
+footer,
+nav,
+main,
+aside,
+figure,
+figcaption,
+details,
+summary,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+ul,
+ol,
+li,
+form,
+fieldset,
+blockquote,
+pre,
+hr,
+table,
+address {
   display: block;
 }
 
-ul, ol {
+ul,
+ol {
   list-style: none;
 }
 
-html, body, #app {
+html,
+body,
+#app {
   height: 100%;
   width: 100%;
 }
@@ -61,13 +92,16 @@ body {
 ::-webkit-scrollbar {
   width: 8px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: var(--border);
   border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: var(--border-light);
 }
@@ -91,13 +125,16 @@ body {
   white-space: nowrap;
   text-decoration: none;
 }
+
 .btn:hover {
   background: var(--bg-tertiary);
   border-color: var(--border-light);
 }
+
 .btn:active {
   transform: scale(0.98);
 }
+
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -108,6 +145,7 @@ body {
   border-color: var(--accent);
   color: #fff;
 }
+
 .btn-primary:hover {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
@@ -118,6 +156,7 @@ body {
   border-color: var(--danger);
   color: var(--danger);
 }
+
 .btn-danger:hover {
   background: var(--danger);
   color: #fff;
@@ -128,6 +167,7 @@ body {
   border-color: var(--success);
   color: var(--success);
 }
+
 .btn-success:hover {
   background: var(--success);
   color: #fff;
@@ -138,6 +178,7 @@ body {
   border-color: transparent;
   color: var(--text-muted);
 }
+
 .btn-ghost:hover {
   background: var(--bg-tertiary);
   color: var(--text);
@@ -155,7 +196,8 @@ body {
 }
 
 /* Inputs */
-.input, .textarea {
+.input,
+.textarea {
   width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--border);
@@ -167,13 +209,18 @@ body {
   transition: border-color var(--transition);
   outline: none;
 }
-.input:focus, .textarea:focus {
+
+.input:focus,
+.textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-bg);
 }
-.input::placeholder, .textarea::placeholder {
+
+.input::placeholder,
+.textarea::placeholder {
   color: var(--text-dim);
 }
+
 .input-mono {
   font-family: var(--font-mono);
   font-size: 13px;
@@ -269,13 +316,25 @@ body {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes slideUp {
-  from { transform: translateY(10px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 /* Layout: Welcome */
@@ -285,6 +344,14 @@ body {
   justify-content: center;
   min-height: 100vh;
   padding: 20px;
+  position: relative;
+}
+
+.welcome-page .app-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
 }
 
 .welcome-container {
@@ -327,6 +394,14 @@ body {
   justify-content: center;
   min-height: 100vh;
   padding: 20px;
+  position: relative;
+}
+
+.setup-page .app-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
 }
 
 .setup-container {
@@ -896,7 +971,9 @@ body {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Copied toast */
@@ -917,13 +994,25 @@ body {
 }
 
 @keyframes toastIn {
-  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 
 @keyframes toastOut {
-  from { opacity: 1; }
-  to { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
 }
 
 /* Settings sections */
@@ -1055,6 +1144,7 @@ body {
 
 /* Mobile responsive */
 @media (max-width: 768px) {
+
   /* Increase base font size slightly for better readability */
   body {
     font-size: 15px;

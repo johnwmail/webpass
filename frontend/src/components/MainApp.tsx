@@ -7,14 +7,14 @@ import { GeneratorModal } from './GeneratorModal';
 import { EncryptModal } from './EncryptModal';
 import { SettingsModal } from './SettingsModal';
 import { SessionTimer } from './SessionTimer';
-import { VERSION } from '../lib/version';
+import { Footer } from './Footer';
 import type { EntryMeta } from '../types';
 
 interface Props {
   onLock: () => void;
 }
 
-type RightPanel = 
+type RightPanel =
   | { type: 'empty' }
   | { type: 'detail'; path: string }
   | { type: 'new'; folderPrefix: string }
@@ -273,11 +273,7 @@ export function MainApp({ onLock }: Props) {
         </main>
       </div>
 
-      {/* Footer */}
-      <footer class="app-footer">
-        <SessionTimer onExpired={onLock} />
-        <span class="footer-version" title="Frontend version">WebPass {VERSION}</span>
-      </footer>
+      <Footer onSessionExpired={onLock} />
 
       {/* Context menu */}
       {contextMenu && (

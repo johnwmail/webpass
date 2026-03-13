@@ -4,6 +4,7 @@ import { aesEncrypt, saveAccount } from '../lib/storage';
 import { ApiClient } from '../lib/api';
 import { session } from '../lib/session';
 import QRCode from 'qrcode';
+import { Footer } from './Footer';
 
 interface Props {
   onComplete: () => void;
@@ -67,19 +68,19 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
     try {
       // Validate URL format first
       let url = apiUrl.replace(/\/+$/, '');
-      
+
       // Check if URL has a valid protocol
       if (!url.startsWith('http://') && !url.startsWith('https://')) {
         throw new Error('URL must start with http:// or https://');
       }
-      
+
       // Validate URL structure
       try {
         new URL(url);
       } catch {
         throw new Error('Invalid URL format');
       }
-      
+
       const res = await fetch(`${url}/api/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -148,7 +149,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
         width: 200,
         margin: 2,
         color: { dark: '#000000', light: '#ffffff' },
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }, [totpUrl]);
 
@@ -603,6 +604,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
           )}
         </div>
       </div>
+      <Footer />
     </div>
   );
 }
