@@ -33,7 +33,7 @@ jobs:
         id: check-project
         run: |
           echo "Checking if Cloudflare Pages project exists..."
-          if wrangler pages project list --account-id ${{ secrets.CLOUDFLARE_ACCOUNT_ID }} | grep -q "${{ vars.CLOUDFLARE_PAGES_PROJECT }}"; then
+          if wrangler pages project list 2>/dev/null | grep -q "${{ vars.CLOUDFLARE_PAGES_PROJECT }}"; then
             echo "project_exists=true" >> $GITHUB_OUTPUT
           else
             echo "project_exists=false" >> $GITHUB_OUTPUT
@@ -46,7 +46,7 @@ jobs:
         if: steps.check-project.outputs.project_exists == 'false'
         run: |
           echo "Creating Cloudflare Pages project: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}"
-          wrangler pages project create ${{ vars.CLOUDFLARE_PAGES_PROJECT }} --account-id ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wrangler pages project create ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -55,5 +55,6 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy frontend/dist --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
