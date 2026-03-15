@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect, useRef } from 'preact/hooks';
 import * as openpgp from 'openpgp';
 import { session } from '../lib/session';
 import { getPublicKey, getDecryptedPrivateKey } from '../lib/storage';
@@ -63,8 +63,8 @@ export function GitSync({ onClose, onSuccess }: Props) {
   const [passphraseForPat, setPassphraseForPat] = useState('');
   const [pendingAction, setPendingAction] = useState<'configure' | 'push' | 'pull' | null>(null);
 
-  // Password promise resolver
-  const [passwordResolver, setPasswordResolver] = useState<((pwd: string | null) => void) | null>(null);
+  // Use ref for promise resolver to avoid stale closures
+  const passwordResolverRef = useRef<((pwd: string | null) => void) | null>(null);
 
   const fp = session.fingerprint || '';
 
@@ -115,7 +115,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
 
     // Return a promise that resolves when user clicks OK or Cancel
     return new Promise((resolve) => {
-      setPasswordResolver(() => resolve);
+      passwordResolverRef.current = resolve;
     });
   };
 
@@ -468,8 +468,8 @@ export function GitSync({ onClose, onSuccess }: Props) {
                         setShowPassphrasePrompt(false);
                         setPassphraseForPat('');
                         setPendingAction(null);
-                        passwordResolver?.(null);
-                        setPasswordResolver(null);
+                        passwordResolverRef.current?.(null);
+                        passwordResolverRef.current = null;
                       }}
                     >
                       Cancel
@@ -481,8 +481,8 @@ export function GitSync({ onClose, onSuccess }: Props) {
                         setShowPassphrasePrompt(false);
                         setPassphraseForPat('');
                         setPendingAction(null);
-                        passwordResolver?.(pwd);
-                        setPasswordResolver(null);
+                        passwordResolverRef.current?.(pwd);
+                        passwordResolverRef.current = null;
                       }}
                       disabled={!passphraseForPat}
                     >
