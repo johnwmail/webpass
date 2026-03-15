@@ -236,9 +236,27 @@ export async function savePrivateKey(fingerprint: string, privateKey: string): P
 export async function getDecryptedPrivateKey(fingerprint: string, passphrase: string): Promise<string | null> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(KEYS_STORE_NAME, 'readonly');
-    const req = tx.objectStore(KEYS_STORE_NAME).get(fingerprint);
-    req.onsuccess = () => resolve(req.result?.privateKey || null);
-    req.onerror = () => reject(req.error);
+    // Try KEYS_STORE first
+    const tx1 = db.transaction(KEYS_STORE_NAME, 'readonly');
+    const req1 = tx1.objectStore(KEYS_STORE_NAME).get(fingerprint);
+    req1.onsuccess = () => {
+      if (req1.result?.privateKey) {
+        resolve(req1.result.privateKey);
+        return;
+      }
+      
+      // Fall back to ACCOUNTS_STORE
+      const tx2 = db.transaction(STORE_NAME, 'readonly');
+      const req2 = tx2.objectStore(STORE_NAME).get(fingerprint);
+      req2.onsuccess = () => resolve(req2.result?.privateKey || null);
+      req2.onerror = () => reject(req2.error);
+    };
+    req1.onerror = () => {
+      // If KEYS_STORE doesn't exist or error, try ACCOUNTS_STORE
+      const tx2 = db.transaction(STORE_NAME, 'readonly');
+      const req2 = tx2.objectStore(STORE_NAME).get(fingerprint);
+      req2.onsuccess = () => resolve(req2.result?.privateKey || null);
+      req2.onerror = () => reject(req2.error);
+    };
   });
 }
