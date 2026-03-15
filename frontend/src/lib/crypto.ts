@@ -151,7 +151,7 @@ export async function encryptForRecipient(
 }
 
 // ---------------------------------------------------------------------------
-// PBKDF2 + AES-GCM helpers for PAT encryption
+// PBKDF2 + AES-GCM helpers (not used for PAT - PAT uses PGP-only encryption)
 // ---------------------------------------------------------------------------
 
 /** Derive AES key from password using PBKDF2 */
@@ -242,55 +242,22 @@ export function base64ToArrayBuffer(base64: string): Uint8Array {
 }
 
 /**
- * Double-encrypt PAT:
- * 1. PAT → PGP encrypt → pat.pgp
- * 2. pat.pgp → password encrypt (PBKDF2 + AES-GCM) → final blob
- * Returns: JSON string with encrypted data
+ * Encrypt PAT with PGP public key (single encryption).
+ * Returns: armored PGP message
  */
 export async function encryptPAT(
   pat: string,
-  publicKeyArmored: string,
-  password: string
+  publicKeyArmored: string
 ): Promise<string> {
-  // Step 1: PGP encrypt
-  const pgpEncrypted = await encryptBinary(pat, publicKeyArmored);
-  
-  // Step 2: Password encrypt
-  const salt = generateSalt();
-  const key = await deriveKey(password, salt);
-  const { ciphertext, iv } = await aesGcmEncrypt(
-    arrayBufferToBase64(pgpEncrypted),
-    key
-  );
-  
-  // Return as JSON
-  return JSON.stringify({
-    salt: arrayBufferToBase64(salt),
-    iv: arrayBufferToBase64(iv),
-    ciphertext: arrayBufferToBase64(ciphertext),
-  });
+  return await encryptText(pat, publicKeyArmored);
 }
 
 /**
- * Double-decrypt PAT:
- * 1. blob → password decrypt (PBKDF2 + AES-GCM) → pat.pgp
- * 2. pat.pgp → PGP decrypt → PAT (plaintext)
+ * Decrypt PAT with PGP private key (single decryption).
  */
 export async function decryptPAT(
   encryptedBlob: string,
-  privateKey: openpgp.PrivateKey,
-  password: string
+  privateKey: openpgp.PrivateKey
 ): Promise<string> {
-  const data = JSON.parse(encryptedBlob);
-  const salt = base64ToArrayBuffer(data.salt);
-  const iv = base64ToArrayBuffer(data.iv);
-  const ciphertext = base64ToArrayBuffer(data.ciphertext);
-  
-  // Step 1: Password decrypt
-  const key = await deriveKey(password, salt);
-  const pgpEncryptedBase64 = await aesGcmDecrypt(ciphertext, iv, key);
-  const pgpEncrypted = base64ToArrayBuffer(pgpEncryptedBase64);
-  
-  // Step 2: PGP decrypt
-  return await decryptBinary(pgpEncrypted, privateKey);
+  return await decryptMessage(encryptedBlob, privateKey);
 }

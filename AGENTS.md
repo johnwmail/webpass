@@ -6,7 +6,7 @@ WebPass is a zero-knowledge password manager with:
 - **Frontend**: Preact + TypeScript SPA (client-side PGP encryption)
 - **Backend**: Go HTTP API with SQLite storage
 - **Security**: All crypto in browser; server stores only encrypted blobs
-- **Git Sync**: Manual push/pull to any Git repository (double-encrypted PAT)
+- **Git Sync**: Manual push/pull to any Git repository (PGP-encrypted PAT)
 
 ## Code Layout
 
@@ -97,7 +97,7 @@ make db-generate
 
 Manual push/pull sync to any Git repository (GitHub, GitLab, Gitea):
 
-- **Double-encrypted PAT**: PAT → PGP encrypt → password encrypt → stored in `git_config.encrypted_pat`
+- **PGP-encrypted PAT**: PAT → PGP encrypt → stored in `git_config.encrypted_pat`
 - **Manual sync only**: User clicks Push/Pull buttons in Settings
 - **Zero-knowledge**: Server stores encrypted blob, can't decrypt
 - **Conflict detection**: Shows UI dialog if local and remote both modified

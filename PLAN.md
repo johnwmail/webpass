@@ -112,7 +112,7 @@ CREATE TABLE settings (
 CREATE TABLE git_config (
     fingerprint       TEXT PRIMARY KEY REFERENCES users(fingerprint) ON DELETE CASCADE,
     repo_url          TEXT NOT NULL,               -- HTTPS URL to git repo
-    encrypted_pat     TEXT NOT NULL,               -- Double-encrypted PAT blob (PGP + password)
+    encrypted_pat     TEXT NOT NULL,               -- PGP-encrypted PAT blob
     created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -616,7 +616,7 @@ CREATE TABLE entries (
 | 4   | CRUD UI             | Tree view, entry detail, add/edit/delete, clipboard, search    |
 | 5   | Generator + Settings| Password generator modal, key management, API URL config       |
 | 6   | Import/Export       | tar/zip .password-store import/export, key export/import       |
-| 7   | Git Sync            | Backend Git service, double-encrypted PAT, manual push/pull UI |
+| 7   | Git Sync            | Backend Git service, PGP-encrypted PAT, manual push/pull UI |
 | 8   | Polish + Deploy     | Mobile responsive, session timer, Docker container    |
 
 ---

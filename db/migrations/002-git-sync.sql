@@ -1,12 +1,12 @@
 -- Git sync configuration and tracking
 --
 -- Git configuration per user
--- Note: Git PAT token is double-encrypted (PGP + password) and stored in encrypted_pat column.
+-- Note: Git PAT token is PGP-encrypted with user's public key and stored in encrypted_pat column.
 -- Server receives plaintext token per-request for git operations (cached 5-min).
 CREATE TABLE IF NOT EXISTS git_config (
     fingerprint       TEXT PRIMARY KEY REFERENCES users(fingerprint) ON DELETE CASCADE,
     repo_url          TEXT NOT NULL,           -- HTTPS URL to git repo
-    encrypted_pat     TEXT NOT NULL DEFAULT '',-- Double-encrypted PAT blob (PGP + password)
+    encrypted_pat     TEXT NOT NULL DEFAULT '',-- PGP-encrypted PAT blob
     created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

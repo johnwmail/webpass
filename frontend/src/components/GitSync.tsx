@@ -56,9 +56,9 @@ export function GitSync({ onClose, onSuccess }: Props) {
   const [encryptedPat, setEncryptedPat] = useState('');
   const [configuring, setConfiguring] = useState(false);
 
-  // Password prompt for encryption/decryption
-  const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
-  const [passwordForPat, setPasswordForPat] = useState('');
+  // Passphrase prompt for PGP key decryption
+  const [showPassphrasePrompt, setShowPassphrasePrompt] = useState(false);
+  const [passphraseForPat, setPassphraseForPat] = useState('');
   const [pendingAction, setPendingAction] = useState<'configure' | 'push' | 'pull' | null>(null);
 
   const fp = session.fingerprint || '';
@@ -102,28 +102,28 @@ export function GitSync({ onClose, onSuccess }: Props) {
     loadStatus();
   }, []);
 
-  // Show password prompt and wait for user input
-  const promptForPassword = async (action: 'configure' | 'push' | 'pull'): Promise<string | null> => {
+  // Show passphrase prompt and wait for user input
+  const promptForPassphrase = async (action: 'configure' | 'push' | 'pull'): Promise<string | null> => {
     setPendingAction(action);
-    setPasswordForPat('');
-    setShowPasswordPrompt(true);
-    
+    setPassphraseForPat('');
+    setShowPassphrasePrompt(true);
+
     // Wait for user to submit or cancel
     return new Promise((resolve) => {
-      const checkPassword = setInterval(() => {
-        if (!showPasswordPrompt) {
-          clearInterval(checkPassword);
-          if (passwordForPat) {
-            resolve(passwordForPat);
+      const checkPassphrase = setInterval(() => {
+        if (!showPassphrasePrompt) {
+          clearInterval(checkPassphrase);
+          if (passphraseForPat) {
+            resolve(passphraseForPat);
           } else {
             resolve(null);
           }
         }
       }, 100);
-      
+
       // Timeout after 5 minutes
       setTimeout(() => {
-        setShowPasswordPrompt(false);
+        setShowPassphrasePrompt(false);
         resolve(null);
       }, 300000);
     });
@@ -141,20 +141,12 @@ export function GitSync({ onClose, onSuccess }: Props) {
     try {
       if (!session.api) throw new Error('Not logged in');
 
-      // Get password to encrypt PAT
-      const password = await promptForPassword('configure');
-      if (!password) {
-        setError('Password required to encrypt PAT');
-        setConfiguring(false);
-        return;
-      }
-
       // Get public key for PGP encryption
       const publicKey = await getPublicKey(fp);
       if (!publicKey) throw new Error('Public key not found');
 
-      // Double-encrypt PAT: PGP + password
-      const encryptedPat = await encryptPAT(pat, publicKey, password);
+      // Encrypt PAT with PGP public key
+      const encryptedPat = await encryptPAT(pat, publicKey);
 
       // Configure server
       await session.api.configureGit(repoUrl, encryptedPat);
@@ -168,7 +160,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
       setError(e.message || 'Configuration failed');
     }
     setConfiguring(false);
-    setShowPasswordPrompt(false);
+    setShowPassphrasePrompt(false);
   };
 
   const handlePush = async () => {
@@ -179,15 +171,15 @@ export function GitSync({ onClose, onSuccess }: Props) {
       if (!session.api) throw new Error('Not logged in');
       if (!status?.configured) throw new Error('Git sync not configured');
 
-      // Get password to decrypt PAT
-      const password = await promptForPassword('push');
-      if (!password) {
-        setError('Password required to decrypt PAT');
+      // Get passphrase to decrypt private key
+      const passphrase = await promptForPassphrase('push');
+      if (!passphrase) {
+        setError('Passphrase required to decrypt private key');
         setLoading(false);
         return;
       }
 
-      // Get encrypted PAT from server and decrypt it
+      // Get encrypted PAT from server
       if (!encryptedPat) {
         setError('PAT not configured. Please reconfigure Git sync.');
         setLoading(false);
@@ -195,20 +187,20 @@ export function GitSync({ onClose, onSuccess }: Props) {
       }
 
       // Get armored private key from storage
-      const armoredPrivateKey = await getDecryptedPrivateKey(fp, password);
+      const armoredPrivateKey = await getDecryptedPrivateKey(fp, passphrase);
       if (!armoredPrivateKey) {
-        setError('Failed to get private key. Check password.');
+        setError('Failed to get private key. Check passphrase.');
         setLoading(false);
         return;
       }
 
-      // Decrypt the private key with the password
-      const privateKey = await decryptPrivateKey(armoredPrivateKey, password);
+      // Decrypt the private key with the passphrase
+      const privateKey = await decryptPrivateKey(armoredPrivateKey, passphrase);
 
-      // Decrypt PAT: password + PGP
-      const patToUse = await decryptPAT(encryptedPat, privateKey, password);
+      // Decrypt PAT with PGP private key
+      const patToUse = await decryptPAT(encryptedPat, privateKey);
       if (!patToUse) {
-        setError('Failed to decrypt PAT. Check password.');
+        setError('Failed to decrypt PAT. Check passphrase.');
         setLoading(false);
         return;
       }
@@ -226,7 +218,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
       setError(e.message || 'Push failed');
     }
     setLoading(false);
-    setShowPasswordPrompt(false);
+    setShowPassphrasePrompt(false);
   };
 
   const handlePull = async () => {
@@ -238,15 +230,15 @@ export function GitSync({ onClose, onSuccess }: Props) {
       if (!session.api) throw new Error('Not logged in');
       if (!status?.configured) throw new Error('Git sync not configured');
 
-      // Get password to decrypt PAT
-      const password = await promptForPassword('pull');
-      if (!password) {
-        setError('Password required to decrypt PAT');
+      // Get passphrase to decrypt private key
+      const passphrase = await promptForPassphrase('pull');
+      if (!passphrase) {
+        setError('Passphrase required to decrypt private key');
         setLoading(false);
         return;
       }
 
-      // Get encrypted PAT from server and decrypt it
+      // Get encrypted PAT from server
       if (!encryptedPat) {
         setError('PAT not configured. Please reconfigure Git sync.');
         setLoading(false);
@@ -254,20 +246,20 @@ export function GitSync({ onClose, onSuccess }: Props) {
       }
 
       // Get armored private key from storage
-      const armoredPrivateKey = await getDecryptedPrivateKey(fp, password);
+      const armoredPrivateKey = await getDecryptedPrivateKey(fp, passphrase);
       if (!armoredPrivateKey) {
-        setError('Failed to get private key. Check password.');
+        setError('Failed to get private key. Check passphrase.');
         setLoading(false);
         return;
       }
 
-      // Decrypt the private key with the password
-      const privateKey = await decryptPrivateKey(armoredPrivateKey, password);
+      // Decrypt the private key with the passphrase
+      const privateKey = await decryptPrivateKey(armoredPrivateKey, passphrase);
 
-      // Decrypt PAT: password + PGP
-      const patToUse = await decryptPAT(encryptedPat, privateKey, password);
+      // Decrypt PAT with PGP private key
+      const patToUse = await decryptPAT(encryptedPat, privateKey);
       if (!patToUse) {
-        setError('Failed to decrypt PAT. Check password.');
+        setError('Failed to decrypt PAT. Check passphrase.');
         setLoading(false);
         return;
       }
@@ -292,7 +284,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
       setError(e.message || 'Pull failed');
     }
     setLoading(false);
-    setShowPasswordPrompt(false);
+    setShowPassphrasePrompt(false);
   };
 
   const handleResolveConflicts = async (resolution: 'local' | 'remote' | 'skip') => {
@@ -331,7 +323,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
               <h3>Configure Git Sync</h3>
               <p class="help-text" style="margin-bottom: 16px;">
                 Sync your password store to a private Git repository.
-                Your PAT will be double-encrypted (PGP + password) and stored securely.
+                Your PAT will be encrypted with your PGP public key and stored securely.
               </p>
 
               <div class="input-group" style="flex-direction: column; gap: 12px;">
@@ -357,7 +349,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
                     style="width: 100%; margin-top: 4px;"
                   />
                   <p class="help-text" style="font-size: 11px; margin-top: 4px;">
-                    PAT will be encrypted with your PGP key, then encrypted with your login password.
+                    PAT will be encrypted with your PGP public key.
                     Server stores the encrypted blob but cannot decrypt it.
                   </p>
                 </div>
@@ -395,7 +387,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
               <div class="settings-section">
                 <h3>Actions</h3>
                 <p class="help-text" style="margin-bottom: 12px;">
-                  Manual push/pull only. You will be prompted for your login password to decrypt the PAT.
+                  Manual push/pull only. You will be prompted for your PGP passphrase to decrypt the PAT.
                 </p>
                 <div class="settings-buttons">
                   <button
@@ -459,23 +451,23 @@ export function GitSync({ onClose, onSuccess }: Props) {
             </>
           )}
 
-          {/* Password Prompt Modal */}
-          {showPasswordPrompt && (
+          {/* Passphrase Prompt Modal */}
+          {showPassphrasePrompt && (
             <div class="modal-overlay">
               <div class="modal" style="max-width: 400px;">
                 <div class="modal-header">
-                  <h2>🔐 Enter Password</h2>
+                  <h2>🔐 Enter PGP Passphrase</h2>
                 </div>
                 <div class="modal-body">
                   <p class="help-text" style="margin-bottom: 16px;">
-                    Enter your login password to {pendingAction === 'configure' ? 'encrypt' : 'decrypt'} the PAT.
+                    Enter your PGP passphrase to {pendingAction === 'configure' ? 'encrypt' : 'decrypt'} the PAT.
                   </p>
                   <input
                     class="input"
                     type="password"
-                    placeholder="Login password"
-                    value={passwordForPat}
-                    onInput={(e) => setPasswordForPat((e.target as HTMLInputElement).value)}
+                    placeholder="PGP passphrase"
+                    value={passphraseForPat}
+                    onInput={(e) => setPassphraseForPat((e.target as HTMLInputElement).value)}
                     style="width: 100%; margin-bottom: 16px;"
                     autoFocus
                   />
@@ -483,8 +475,8 @@ export function GitSync({ onClose, onSuccess }: Props) {
                     <button
                       class="btn btn-ghost"
                       onClick={() => {
-                        setShowPasswordPrompt(false);
-                        setPasswordForPat('');
+                        setShowPassphrasePrompt(false);
+                        setPassphraseForPat('');
                         setPendingAction(null);
                       }}
                     >
@@ -493,10 +485,10 @@ export function GitSync({ onClose, onSuccess }: Props) {
                     <button
                       class="btn btn-primary"
                       onClick={() => {
-                        setShowPasswordPrompt(false);
-                        // Password is stored in state, action will continue
+                        setShowPassphrasePrompt(false);
+                        // Passphrase is stored in state, action will continue
                       }}
-                      disabled={!passwordForPat}
+                      disabled={!passphraseForPat}
                     >
                       OK
                     </button>

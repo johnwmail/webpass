@@ -92,7 +92,7 @@ WebPass implements several security measures:
 ### Data Protection
 
 - SQLite with file permissions
-- Encrypted git sync (double-encrypted PAT)
+- Encrypted git sync (PGP-encrypted PAT)
 - Secure session management
 - Input validation on all endpoints
 

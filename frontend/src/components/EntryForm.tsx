@@ -61,8 +61,7 @@ export function EntryForm({ editPath, folderPrefix, onSave, onCancel }: Props) {
   };
 
   // Save (encrypt + upload)
-  const handleSave = async (passphrase: string) => {
-    setShowPassphrasePrompt(false);
+  const handleSave = async () => {
     setSaving(true);
     setError('');
     try {
@@ -71,9 +70,6 @@ export function EntryForm({ editPath, folderPrefix, onSave, onCancel }: Props) {
       const account = await getAccount(fp);
       if (!account) throw new Error('Account not found');
 
-      // Verify passphrase works
-      await decryptPrivateKey(account.privateKey, passphrase);
-
       // Build entry content: first line = password, rest = notes
       let content = password;
       if (notes.trim()) {
@@ -81,7 +77,7 @@ export function EntryForm({ editPath, folderPrefix, onSave, onCancel }: Props) {
       }
       content += '\n';
 
-      // Encrypt with public key
+      // Encrypt with public key (no passphrase needed for encryption)
       const encrypted = await encryptBinary(content, account.publicKey);
 
       // Build path
@@ -107,8 +103,13 @@ export function EntryForm({ editPath, folderPrefix, onSave, onCancel }: Props) {
       setError('Entry name is required');
       return;
     }
-    // Show passphrase prompt for save
-    setShowPassphrasePrompt(true);
+    // For new entries: save directly (no passphrase needed)
+    // For editing existing: need passphrase to decrypt first
+    if (needsDecryptForEdit) {
+      setShowPassphrasePrompt(true);
+    } else {
+      handleSave();
+    }
   };
 
   const isEditing = !!editPath;
@@ -117,12 +118,8 @@ export function EntryForm({ editPath, folderPrefix, onSave, onCancel }: Props) {
     <div class="entry-form">
       {showPassphrasePrompt && (
         <PassphrasePrompt
-          message={
-            needsDecryptForEdit
-              ? 'Enter passphrase to decrypt entry for editing.'
-              : 'Enter passphrase to encrypt and save.'
-          }
-          onSubmit={needsDecryptForEdit ? handleDecryptForEdit : handleSave}
+          message="Enter passphrase to decrypt entry for editing."
+          onSubmit={handleDecryptForEdit}
           onCancel={() => setShowPassphrasePrompt(false)}
         />
       )}
