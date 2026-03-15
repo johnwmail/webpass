@@ -7,7 +7,10 @@ import { session } from './lib/session';
 type Route = 'welcome' | 'setup' | 'main';
 
 export function App() {
-  const [route, setRoute] = useState<Route>('welcome');
+  const [route, setRoute] = useState<Route>(
+    // Check if session is active on initial load
+    session.isActive() ? 'main' : 'welcome'
+  );
   const [, setTick] = useState(0);
 
   useEffect(() => {
