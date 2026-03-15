@@ -45,6 +45,8 @@ type Conflict struct {
 	Path           string `json:"path"`
 	LocalModified  bool   `json:"local_modified"`
 	RemoteModified bool   `json:"remote_modified"`
+	LocalTime      string `json:"local_time,omitempty"`      // RFC3339 format
+	RemoteTime     string `json:"remote_time,omitempty"`     // RFC3339 format
 }
 
 // PullResult represents the result of a pull operation
@@ -366,11 +368,29 @@ func (g *GitService) detectConflicts(repoDir string) ([]Conflict, error) {
 		}
 		// If file has local modifications (M or M in status), it's a potential conflict
 		if len(statusOutput) > 0 {
-			conflicts = append(conflicts, Conflict{
+			conflict := Conflict{
 				Path:           strings.TrimPrefix(file, ".password-store/"),
 				LocalModified:  true,
 				RemoteModified: true,
-			})
+			}
+			
+			// Get local commit time
+			localTimeCmd := exec.Command("git", "log", "-1", "--format=%cI", "--", file)
+			localTimeCmd.Dir = repoDir
+			localTimeOutput, err := localTimeCmd.Output()
+			if err == nil {
+				conflict.LocalTime = strings.TrimSpace(string(localTimeOutput))
+			}
+			
+			// Get remote commit time
+			remoteTimeCmd := exec.Command("git", "log", "origin/main", "-1", "--format=%cI", "--", file)
+			remoteTimeCmd.Dir = repoDir
+			remoteTimeOutput, err := remoteTimeCmd.Output()
+			if err == nil {
+				conflict.RemoteTime = strings.TrimSpace(string(remoteTimeOutput))
+			}
+			
+			conflicts = append(conflicts, conflict)
 		}
 	}
 

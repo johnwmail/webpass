@@ -25,6 +25,8 @@ interface Conflict {
   path: string;
   local_modified: boolean;
   remote_modified: boolean;
+  local_time?: string;    // RFC3339 timestamp
+  remote_time?: string;   // RFC3339 timestamp
 }
 
 interface PullResult {
@@ -501,7 +503,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
           {/* Conflict Dialog */}
           {showConflictDialog && (
             <div class="modal-overlay" onClick={() => setShowConflictDialog(false)}>
-              <div class="modal" style="max-width: 500px;" onClick={(e) => e.stopPropagation()}>
+              <div class="modal" style="max-width: 600px;" onClick={(e) => e.stopPropagation()}>
                 <div class="modal-header">
                   <h2>⚠️ Sync Conflicts</h2>
                   <button class="btn btn-ghost btn-icon" onClick={() => setShowConflictDialog(false)}>✕</button>
@@ -509,11 +511,22 @@ export function GitSync({ onClose, onSuccess }: Props) {
                 <div class="modal-body">
                   <p class="help-text" style="margin-bottom: 16px;">
                     {conflicts.length} file(s) have conflicting changes on local and remote.
+                    Choose which version to keep.
                   </p>
-                  <div style="max-height: 200px; overflow-y: auto; margin-bottom: 16px;">
+                  <div style="max-height: 250px; overflow-y: auto; margin-bottom: 16px;">
                     {conflicts.map((c, i) => (
-                      <div key={i} class="settings-row" style="padding: 8px 0; border-bottom: 1px solid #eee;">
-                        <span class="value-text" style="font-size: 12px;">{c.path}</span>
+                      <div key={i} style="margin-bottom: 12px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
+                        <div style="font-weight: 600; margin-bottom: 8px; font-size: 13px;">{c.path}</div>
+                        <div style="display: flex; gap: 16px; font-size: 12px;">
+                          <div style="flex: 1;">
+                            <div style="color: #666; margin-bottom: 4px;">Local (Your Device)</div>
+                            <div>{c.local_time ? new Date(c.local_time).toLocaleString() : 'Unknown'}</div>
+                          </div>
+                          <div style="flex: 1;">
+                            <div style="color: #666; margin-bottom: 4px;">Remote (Backup)</div>
+                            <div>{c.remote_time ? new Date(c.remote_time).toLocaleString() : 'Unknown'}</div>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>

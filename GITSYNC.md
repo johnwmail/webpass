@@ -597,15 +597,24 @@ To view sync history:
 
 #### "CONFLICT: X entries have local changes that conflict with remote"
 
-**Cause**: Both local database and remote repository have unpushed changes.
+**Cause**: Both local database and remote repository have unpushed changes to the same entry.
+
+**What Happens**:
+- Git sync detects the conflict before merging
+- Shows a dialog with conflicting files
+- Displays commit timestamps for both local and remote versions
+- Waits for user to choose which version to keep
 
 **Solution**:
 1. Review the conflicting files in the conflict dialog
-2. Choose one of:
+2. Compare timestamps to see which version is more recent
+3. Choose one of:
    - **Keep Local (Push)**: Overwrite remote with your local changes
    - **Keep Remote (Pull)**: Overwrite local with remote changes
-   - **Skip**: Cancel the sync operation
-3. After resolution, perform the sync operation again
+   - **Skip**: Cancel the sync operation (no changes made)
+4. After resolution, perform the sync operation again
+
+**Note**: Git uses commit history (not file timestamps) to detect conflicts. The displayed times are commit timestamps, which help you decide which version to keep.
 
 ---
 
@@ -737,6 +746,44 @@ Users manually push when ready. No debouncing needed.
 - Log all errors to `git_sync_log` table
 - No automatic retry (user can click Pull/Push again)
 - Conflict errors: show dialog with resolution options
+
+---
+
+### [✓] Conflict Resolution
+
+**Decision**: Detect conflicts and show UI dialog with timestamps; user chooses which version to keep.
+
+**Implementation**:
+- Before pulling, run `git status --porcelain` to detect local modifications
+- For each conflicting file:
+  - Get local commit time: `git log -1 --format=%cI -- <file>`
+  - Get remote commit time: `git log origin/main -1 --format=%cI -- <file>`
+  - Display both times in UI (converted to local timezone)
+- User chooses: Keep Local, Keep Remote, or Skip
+
+**Conflict Detection Flow**:
+```
+1. User clicks "Pull"
+2. Client decrypts PAT, sends to server
+3. Server: git fetch origin
+4. Server: detectConflicts() → check for local modifications
+5. If conflicts found:
+   - Get commit timestamps for both sides
+   - Return conflict list to client
+   - Abort pull (don't merge yet)
+6. Client shows conflict dialog with timestamps
+7. User chooses which version to keep
+8. Based on choice:
+   - Keep Local → User clicks "Push" to overwrite remote
+   - Keep Remote → User clicks "Pull" again (with --strategy-option=theirs)
+   - Skip → Operation cancelled
+```
+
+**Safety**:
+- Pull never automatically overwrites local changes
+- Push never automatically overwrites remote changes
+- User explicitly chooses which version to keep
+- Deleted entries are NOT removed (safety net)
 
 ---
 
