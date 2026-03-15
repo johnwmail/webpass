@@ -63,6 +63,9 @@ export function GitSync({ onClose, onSuccess }: Props) {
   const [passphraseForPat, setPassphraseForPat] = useState('');
   const [pendingAction, setPendingAction] = useState<'configure' | 'push' | 'pull' | null>(null);
 
+  // Password promise resolver
+  const [passwordResolver, setPasswordResolver] = useState<((pwd: string | null) => void) | null>(null);
+
   const fp = session.fingerprint || '';
 
   const formatTime = (iso?: string) => {
@@ -79,7 +82,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
       if (s.configured && s.repo_url) {
         setRepoUrl(s.repo_url);
       }
-      
+
       // Fetch encrypted_pat from config endpoint
       const config = await session.api.getGitConfig();
       if (config.configured && config.encrypted_pat) {
@@ -110,24 +113,9 @@ export function GitSync({ onClose, onSuccess }: Props) {
     setPassphraseForPat('');
     setShowPassphrasePrompt(true);
 
-    // Wait for user to submit or cancel
+    // Return a promise that resolves when user clicks OK or Cancel
     return new Promise((resolve) => {
-      const checkPassphrase = setInterval(() => {
-        if (!showPassphrasePrompt) {
-          clearInterval(checkPassphrase);
-          if (passphraseForPat) {
-            resolve(passphraseForPat);
-          } else {
-            resolve(null);
-          }
-        }
-      }, 100);
-
-      // Timeout after 5 minutes
-      setTimeout(() => {
-        setShowPassphrasePrompt(false);
-        resolve(null);
-      }, 300000);
+      setPasswordResolver(() => resolve);
     });
   };
 
@@ -480,6 +468,8 @@ export function GitSync({ onClose, onSuccess }: Props) {
                         setShowPassphrasePrompt(false);
                         setPassphraseForPat('');
                         setPendingAction(null);
+                        passwordResolver?.(null);
+                        setPasswordResolver(null);
                       }}
                     >
                       Cancel
@@ -487,8 +477,12 @@ export function GitSync({ onClose, onSuccess }: Props) {
                     <button
                       class="btn btn-primary"
                       onClick={() => {
+                        const pwd = passphraseForPat;
                         setShowPassphrasePrompt(false);
-                        // Passphrase is stored in state, action will continue
+                        setPassphraseForPat('');
+                        setPendingAction(null);
+                        passwordResolver?.(pwd);
+                        setPasswordResolver(null);
                       }}
                       disabled={!passphraseForPat}
                     >
