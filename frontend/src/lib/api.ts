@@ -20,13 +20,13 @@ export class ApiClient {
     return `${this.baseUrl}${path}`;
   }
 
-  /** POST /api/users — create user */
+  /** POST /api — create user */
   async setup(
     password: string,
     publicKey: string,
     fingerprint: string
   ): Promise<{ fingerprint: string }> {
-    const res = await fetch(this.url('/api/users'), {
+    const res = await fetch(this.url('/api'), {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify({ password, public_key: publicKey, fingerprint }),
@@ -38,11 +38,11 @@ export class ApiClient {
     return res.json();
   }
 
-  /** POST /api/users/:fp/login */
+  /** POST /api/:fp/login */
   async login(
     password: string
   ): Promise<{ token?: string; requires_2fa?: boolean }> {
-    const res = await fetch(this.url(`/api/users/${this.fingerprint}/login`), {
+    const res = await fetch(this.url(`/api/${this.fingerprint}/login`), {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify({ password }),
@@ -54,13 +54,13 @@ export class ApiClient {
     return res.json();
   }
 
-  /** POST /api/users/:fp/login/2fa */
+  /** POST /api/:fp/login/2fa */
   async login2fa(
     password: string,
     code: string
   ): Promise<{ token: string }> {
     const res = await fetch(
-      this.url(`/api/users/${this.fingerprint}/login/2fa`),
+      this.url(`/api/${this.fingerprint}/login/2fa`),
       {
         method: 'POST',
         headers: this.headers(),
@@ -74,10 +74,10 @@ export class ApiClient {
     return res.json();
   }
 
-  /** GET /api/users/:fp/entries */
+  /** GET /api/:fp/entries */
   async listEntries(): Promise<EntryMeta[]> {
     const res = await fetch(
-      this.url(`/api/users/${this.fingerprint}/entries`),
+      this.url(`/api/${this.fingerprint}/entries`),
       { headers: this.headers() }
     );
     if (!res.ok) throw new Error(`List entries failed (${res.status})`);
@@ -85,10 +85,10 @@ export class ApiClient {
     return data.entries || [];
   }
 
-  /** GET /api/users/:fp/entries/:path — returns raw binary blob */
+  /** GET /api/:fp/entries/:path — returns raw binary blob */
   async getEntry(path: string): Promise<Uint8Array> {
     const res = await fetch(
-      this.url(`/api/users/${this.fingerprint}/entries/${path}`),
+      this.url(`/api/${this.fingerprint}/entries/${path}`),
       { headers: this.headers() }
     );
     if (!res.ok) throw new Error(`Get entry failed (${res.status})`);
@@ -96,10 +96,10 @@ export class ApiClient {
     return new Uint8Array(buf);
   }
 
-  /** PUT /api/users/:fp/entries/:path */
+  /** PUT /api/:fp/entries/:path */
   async putEntry(path: string, content: Uint8Array): Promise<void> {
     const res = await fetch(
-      this.url(`/api/users/${this.fingerprint}/entries/${path}`),
+      this.url(`/api/${this.fingerprint}/entries/${path}`),
       {
         method: 'PUT',
         headers: {
@@ -112,10 +112,10 @@ export class ApiClient {
     if (!res.ok) throw new Error(`Put entry failed (${res.status})`);
   }
 
-  /** DELETE /api/users/:fp/entries/:path */
+  /** DELETE /api/:fp/entries/:path */
   async deleteEntry(path: string): Promise<void> {
     const res = await fetch(
-      this.url(`/api/users/${this.fingerprint}/entries/${path}`),
+      this.url(`/api/${this.fingerprint}/entries/${path}`),
       {
         method: 'DELETE',
         headers: this.headers(),
@@ -124,10 +124,10 @@ export class ApiClient {
     if (!res.ok) throw new Error(`Delete entry failed (${res.status})`);
   }
 
-  /** POST /api/users/:fp/entries/move */
+  /** POST /api/:fp/entries/move */
   async moveEntry(from: string, to: string): Promise<void> {
     const res = await fetch(
-      this.url(`/api/users/${this.fingerprint}/entries/move`),
+      this.url(`/api/${this.fingerprint}/entries/move`),
       {
         method: 'POST',
         headers: this.headers(),
@@ -137,10 +137,10 @@ export class ApiClient {
     if (!res.ok) throw new Error(`Move entry failed (${res.status})`);
   }
 
-  /** POST /api/users/:fp/totp/setup */
+  /** POST /api/:fp/totp/setup */
   async setupTOTP(): Promise<{ secret: string; url: string }> {
     const res = await fetch(
-      this.url(`/api/users/${this.fingerprint}/totp/setup`),
+      this.url(`/api/${this.fingerprint}/totp/setup`),
       {
         method: 'POST',
         headers: this.headers(),
@@ -150,10 +150,10 @@ export class ApiClient {
     return res.json();
   }
 
-  /** POST /api/users/:fp/totp/confirm */
+  /** POST /api/:fp/totp/confirm */
   async confirmTOTP(secret: string, code: string): Promise<void> {
     const res = await fetch(
-      this.url(`/api/users/${this.fingerprint}/totp/confirm`),
+      this.url(`/api/${this.fingerprint}/totp/confirm`),
       {
         method: 'POST',
         headers: this.headers(),
@@ -166,22 +166,22 @@ export class ApiClient {
     }
   }
 
-  /** GET /api/users/:fp/export */
+  /** GET /api/:fp/export */
   async exportAll(): Promise<Blob> {
     const res = await fetch(
-      this.url(`/api/users/${this.fingerprint}/export`),
+      this.url(`/api/${this.fingerprint}/export`),
       { headers: this.headers() }
     );
     if (!res.ok) throw new Error(`Export failed (${res.status})`);
     return res.blob();
   }
 
-  /** POST /api/users/:fp/import */
+  /** POST /api/:fp/import */
   async importArchive(file: File | Blob): Promise<{ imported: number }> {
     console.log('[API] importArchive called, file size:', file.size, 'type:', file.type);
-    console.log('[API] Import URL:', this.url(`/api/users/${this.fingerprint}/import`));
+    console.log('[API] Import URL:', this.url(`/api/${this.fingerprint}/import`));
     const res = await fetch(
-      this.url(`/api/users/${this.fingerprint}/import`),
+      this.url(`/api/${this.fingerprint}/import`),
       {
         method: 'POST',
         headers: {
@@ -202,7 +202,7 @@ export class ApiClient {
     return result;
   }
 
-  /** POST /api/users/:fp/import — batch import with JSON array */
+  /** POST /api/:fp/import — batch import with JSON array */
   async importBatch(entries: Array<{ path: string; content: string }>): Promise<{ 
     imported: number; 
     overwritten?: number;
@@ -210,7 +210,7 @@ export class ApiClient {
   }> {
     console.log('[API] importBatch called, entries:', entries.length);
     const res = await fetch(
-      this.url(`/api/users/${this.fingerprint}/import`),
+      this.url(`/api/${this.fingerprint}/import`),
       {
         method: 'POST',
         headers: {
@@ -234,7 +234,7 @@ export class ApiClient {
   // Git Sync API
   // ---------------------------------------------------------------------------
 
-  /** GET /api/users/:fp/git/status */
+  /** GET /api/:fp/git/status */
   async getGitStatus(): Promise<{
     configured: boolean;
     repo_url?: string;
@@ -243,14 +243,14 @@ export class ApiClient {
     failed_count: number;
   }> {
     const res = await fetch(
-      this.url(`/api/users/${this.fingerprint}/git/status`),
+      this.url(`/api/${this.fingerprint}/git/status`),
       { headers: this.headers() }
     );
     if (!res.ok) throw new Error(`Git status failed (${res.status})`);
     return res.json();
   }
 
-  /** GET /api/users/:fp/git/config */
+  /** GET /api/:fp/git/config */
   async getGitConfig(): Promise<{
     configured: boolean;
     repo_url: string;
@@ -258,20 +258,20 @@ export class ApiClient {
     has_encrypted_pat: boolean;
   }> {
     const res = await fetch(
-      this.url(`/api/users/${this.fingerprint}/git/config`),
+      this.url(`/api/${this.fingerprint}/git/config`),
       { headers: this.headers() }
     );
     if (!res.ok) throw new Error(`Git config fetch failed (${res.status})`);
     return res.json();
   }
 
-  /** POST /api/users/:fp/git/config */
+  /** POST /api/:fp/git/config */
   async configureGit(
     repoUrl: string,
     encryptedPat: string
   ): Promise<{ status: string }> {
     const res = await fetch(
-      this.url(`/api/users/${this.fingerprint}/git/config`),
+      this.url(`/api/${this.fingerprint}/git/config`),
       {
         method: 'POST',
         headers: this.headers(),
@@ -285,10 +285,10 @@ export class ApiClient {
     return res.json();
   }
 
-  /** POST /api/users/:fp/git/session — set git token for this session */
+  /** POST /api/:fp/git/session — set git token for this session */
   async setGitSession(token: string): Promise<{ status: string }> {
     const res = await fetch(
-      this.url(`/api/users/${this.fingerprint}/git/session`),
+      this.url(`/api/${this.fingerprint}/git/session`),
       {
         method: 'POST',
         headers: this.headers(),
@@ -302,14 +302,14 @@ export class ApiClient {
     return res.json();
   }
 
-  /** POST /api/users/:fp/git/push */
+  /** POST /api/:fp/git/push */
   async gitPush(token?: string): Promise<{
     status: string;
     operation: string;
     message: string;
   }> {
     const res = await fetch(
-      this.url(`/api/users/${this.fingerprint}/git/push`),
+      this.url(`/api/${this.fingerprint}/git/push`),
       {
         method: 'POST',
         headers: this.headers(),
@@ -323,7 +323,7 @@ export class ApiClient {
     return res.json();
   }
 
-  /** POST /api/users/:fp/git/pull */
+  /** POST /api/:fp/git/pull */
   async gitPull(token?: string): Promise<{
     status: string;
     operation: string;
@@ -336,7 +336,7 @@ export class ApiClient {
     }>;
   }> {
     const res = await fetch(
-      this.url(`/api/users/${this.fingerprint}/git/pull`),
+      this.url(`/api/${this.fingerprint}/git/pull`),
       {
         method: 'POST',
         headers: this.headers(),
@@ -350,10 +350,10 @@ export class ApiClient {
     return res.json();
   }
 
-  /** POST /api/users/:fp/git/toggle-sync — deprecated */
+  /** POST /api/:fp/git/toggle-sync — deprecated */
   async toggleGitSync(): Promise<{ status: string }> {
     const res = await fetch(
-      this.url(`/api/users/${this.fingerprint}/git/toggle-sync`),
+      this.url(`/api/${this.fingerprint}/git/toggle-sync`),
       {
         method: 'POST',
         headers: this.headers(),
@@ -366,7 +366,7 @@ export class ApiClient {
     return res.json();
   }
 
-  /** GET /api/users/:fp/git/log */
+  /** GET /api/:fp/git/log */
   async getGitLog(): Promise<{
     logs: Array<{
       id: number;
@@ -378,7 +378,7 @@ export class ApiClient {
     }>;
   }> {
     const res = await fetch(
-      this.url(`/api/users/${this.fingerprint}/git/log`),
+      this.url(`/api/${this.fingerprint}/git/log`),
       { headers: this.headers() }
     );
     if (!res.ok) throw new Error(`Git log failed (${res.status})`);

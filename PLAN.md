@@ -141,7 +141,7 @@ All endpoints under `/api/`. JWT required for all except setup and login.
 | ------ | ------------------- | ---- | ------------------------------------ |
 | POST   | `/api/setup`        | No   | First-time: set password + public key |
 | POST   | `/api/login`        | No   | Verify password → return JWT         |
-| GET    | `/api/users/:fp`    | JWT  | Get user info by fingerprint         |
+| GET    | `/api/{fingerprint}`    | JWT  | Get user info by fingerprint         |
 
 ### Entries (Password Store)
 
@@ -243,14 +243,14 @@ Browser stores (IndexedDB, per fingerprint):
 | Method | Path                                    | Auth | Description                            |
 | ------ | --------------------------------------- | ---- | -------------------------------------- |
 | POST   | `/api/users`                            | No   | Setup: create user `{ password, publicKey }` → returns `{ fingerprint }` |
-| POST   | `/api/users/:fp/login`                  | No   | Verify password → return JWT (5-min)   |
-| GET    | `/api/users/:fp/entries`                | JWT  | List all entry paths                   |
-| GET    | `/api/users/:fp/entries/*path`          | JWT  | Download encrypted .gpg blob           |
-| PUT    | `/api/users/:fp/entries/*path`          | JWT  | Upload encrypted .gpg blob             |
-| DELETE | `/api/users/:fp/entries/*path`          | JWT  | Delete entry                           |
-| POST   | `/api/users/:fp/entries/move`           | JWT  | Rename/move `{ from, to }`             |
-| POST   | `/api/users/:fp/import`                 | JWT  | Import tar/zip of .password-store      |
-| GET    | `/api/users/:fp/export`                 | JWT  | Export tar/zip of .password-store      |
+| POST   | `/api/{fingerprint}/login`                  | No   | Verify password → return JWT (5-min)   |
+| GET    | `/api/{fingerprint}/entries`                | JWT  | List all entry paths                   |
+| GET    | `/api/{fingerprint}/entries/*path`          | JWT  | Download encrypted .gpg blob           |
+| PUT    | `/api/{fingerprint}/entries/*path`          | JWT  | Upload encrypted .gpg blob             |
+| DELETE | `/api/{fingerprint}/entries/*path`          | JWT  | Delete entry                           |
+| POST   | `/api/{fingerprint}/entries/move`           | JWT  | Rename/move `{ from, to }`             |
+| POST   | `/api/{fingerprint}/import`                 | JWT  | Import tar/zip of .password-store      |
+| GET    | `/api/{fingerprint}/export`                 | JWT  | Export tar/zip of .password-store      |
 
 ### Updated Data Model
 
@@ -566,10 +566,10 @@ One password to rule them all. Simpler and more secure.
 Login flow with 2FA enabled:
 
 1. Client: decrypt PGP key locally (password check)
-2. POST /api/users/:fp/login { password }
+2. POST /api/{fingerprint}/login { password }
    → server: bcrypt OK → returns { requires_2fa: true }
 3. Client: prompt for TOTP code
-4. POST /api/users/:fp/login/2fa { totp_code }
+4. POST /api/{fingerprint}/login/2fa { totp_code }
    → server: verify TOTP → returns JWT (5-min)
 5. App unlocked
 
@@ -697,13 +697,13 @@ User enters login password
        └── OK → we have the API URL
                    │
                    ▼
-            2. POST /api/users/:fp/login { password }
+            2. POST /api/{fingerprint}/login { password }
                → server: bcrypt OK
                → if 2FA enabled: { requires_2fa: true }
                    │
                    ▼
             3. (if 2FA) Enter TOTP code
-               POST /api/users/:fp/login/2fa { totp_code }
+               POST /api/{fingerprint}/login/2fa { totp_code }
                → returns JWT (5-min)
                    │
                    ▼

@@ -78,30 +78,30 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
 	// Public routes
-	mux.HandleFunc("POST /api/users", s.handleCreateUser)
-	mux.HandleFunc("POST /api/users/{fp}/login", s.handleLogin)
-	mux.HandleFunc("POST /api/users/{fp}/login/2fa", s.handleLogin2FA)
+	mux.HandleFunc("POST /api", s.handleCreateUser)
+	mux.HandleFunc("POST /api/{fingerprint}/login", s.handleLogin)
+	mux.HandleFunc("POST /api/{fingerprint}/login/2fa", s.handleLogin2FA)
 
 	// Authenticated routes
-	mux.HandleFunc("POST /api/users/{fp}/totp/setup", s.requireAuth(s.handleTOTPSetup))
-	mux.HandleFunc("POST /api/users/{fp}/totp/confirm", s.requireAuth(s.handleTOTPConfirm))
-	mux.HandleFunc("GET /api/users/{fp}/entries", s.requireAuth(s.handleListEntries))
-	mux.HandleFunc("POST /api/users/{fp}/entries/move", s.requireAuth(s.handleMoveEntry))
-	mux.HandleFunc("GET /api/users/{fp}/export", s.requireAuth(s.handleExport))
-	mux.HandleFunc("POST /api/users/{fp}/import", s.requireAuth(s.handleImport))
+	mux.HandleFunc("POST /api/{fingerprint}/totp/setup", s.requireAuth(s.handleTOTPSetup))
+	mux.HandleFunc("POST /api/{fingerprint}/totp/confirm", s.requireAuth(s.handleTOTPConfirm))
+	mux.HandleFunc("GET /api/{fingerprint}/entries", s.requireAuth(s.handleListEntries))
+	mux.HandleFunc("POST /api/{fingerprint}/entries/move", s.requireAuth(s.handleMoveEntry))
+	mux.HandleFunc("GET /api/{fingerprint}/export", s.requireAuth(s.handleExport))
+	mux.HandleFunc("POST /api/{fingerprint}/import", s.requireAuth(s.handleImport))
 	// Git sync routes
-	mux.HandleFunc("GET /api/users/{fp}/git/status", s.requireAuth(s.handleGitStatus))
-	mux.HandleFunc("GET /api/users/{fp}/git/config", s.requireAuth(s.handleGitGetConfig))
-	mux.HandleFunc("POST /api/users/{fp}/git/config", s.requireAuth(s.handleGitConfig))
-	mux.HandleFunc("POST /api/users/{fp}/git/session", s.requireAuth(s.handleGitSession))
-	mux.HandleFunc("POST /api/users/{fp}/git/push", s.requireAuth(s.handleGitPush))
-	mux.HandleFunc("POST /api/users/{fp}/git/pull", s.requireAuth(s.handleGitPull))
-	mux.HandleFunc("POST /api/users/{fp}/git/toggle-sync", s.requireAuth(s.handleGitToggleSync))
-	mux.HandleFunc("GET /api/users/{fp}/git/log", s.requireAuth(s.handleGitLog))
+	mux.HandleFunc("GET /api/{fingerprint}/git/status", s.requireAuth(s.handleGitStatus))
+	mux.HandleFunc("GET /api/{fingerprint}/git/config", s.requireAuth(s.handleGitGetConfig))
+	mux.HandleFunc("POST /api/{fingerprint}/git/config", s.requireAuth(s.handleGitConfig))
+	mux.HandleFunc("POST /api/{fingerprint}/git/session", s.requireAuth(s.handleGitSession))
+	mux.HandleFunc("POST /api/{fingerprint}/git/push", s.requireAuth(s.handleGitPush))
+	mux.HandleFunc("POST /api/{fingerprint}/git/pull", s.requireAuth(s.handleGitPull))
+	mux.HandleFunc("POST /api/{fingerprint}/git/toggle-sync", s.requireAuth(s.handleGitToggleSync))
+	mux.HandleFunc("GET /api/{fingerprint}/git/log", s.requireAuth(s.handleGitLog))
 	// Wildcard entry routes — {path...} captures the rest
-	mux.HandleFunc("GET /api/users/{fp}/entries/{path...}", s.requireAuth(s.handleGetEntry))
-	mux.HandleFunc("PUT /api/users/{fp}/entries/{path...}", s.requireAuth(s.handlePutEntry))
-	mux.HandleFunc("DELETE /api/users/{fp}/entries/{path...}", s.requireAuth(s.handleDeleteEntry))
+	mux.HandleFunc("GET /api/{fingerprint}/entries/{path...}", s.requireAuth(s.handleGetEntry))
+	mux.HandleFunc("PUT /api/{fingerprint}/entries/{path...}", s.requireAuth(s.handlePutEntry))
+	mux.HandleFunc("DELETE /api/{fingerprint}/entries/{path...}", s.requireAuth(s.handleDeleteEntry))
 
 	// Health check
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -190,7 +190,7 @@ func (s *Server) createToken(fingerprint string) (string, error) {
 // matches the {fp} path variable.
 func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		fp := r.PathValue("fp")
+		fp := r.PathValue("fingerprint")
 		tokenFP, err := s.verifyToken(r)
 		if err != nil {
 			jsonError(w, "unauthorized", http.StatusUnauthorized)
@@ -305,7 +305,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	fp := r.PathValue("fp")
+	fp := r.PathValue("fingerprint")
 	var body struct {
 		Password string `json:"password"`
 	}
@@ -344,7 +344,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleLogin2FA(w http.ResponseWriter, r *http.Request) {
-	fp := r.PathValue("fp")
+	fp := r.PathValue("fingerprint")
 	var body struct {
 		Password string `json:"password"`
 		TOTPCode string `json:"totp_code"`
@@ -384,7 +384,7 @@ func (s *Server) handleLogin2FA(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleTOTPSetup(w http.ResponseWriter, r *http.Request) {
-	fp := r.PathValue("fp")
+	fp := r.PathValue("fingerprint")
 	key, err := totp.Generate(totp.GenerateOpts{
 		Issuer:      "WebPass",
 		AccountName: fp,
@@ -405,7 +405,7 @@ func (s *Server) handleTOTPSetup(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
-	fp := r.PathValue("fp")
+	fp := r.PathValue("fingerprint")
 	var body struct {
 		Secret string `json:"secret"`
 		Code   string `json:"code"`
@@ -450,7 +450,7 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleListEntries(w http.ResponseWriter, r *http.Request) {
-	fp := r.PathValue("fp")
+	fp := r.PathValue("fingerprint")
 	entries, err := s.Q.ListEntries(r.Context(), fp)
 	if err != nil {
 		slog.Error("list entries", "error", err)
@@ -475,7 +475,7 @@ func (s *Server) handleListEntries(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleGetEntry(w http.ResponseWriter, r *http.Request) {
-	fp := r.PathValue("fp")
+	fp := r.PathValue("fingerprint")
 	path := r.PathValue("path")
 	if path == "" {
 		jsonError(w, "path required", http.StatusBadRequest)
@@ -500,7 +500,7 @@ func (s *Server) handleGetEntry(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (s *Server) handlePutEntry(w http.ResponseWriter, r *http.Request) {
-	fp := r.PathValue("fp")
+	fp := r.PathValue("fingerprint")
 	path := r.PathValue("path")
 	if path == "" {
 		jsonError(w, "path required", http.StatusBadRequest)
@@ -535,7 +535,7 @@ func (s *Server) handlePutEntry(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleDeleteEntry(w http.ResponseWriter, r *http.Request) {
-	fp := r.PathValue("fp")
+	fp := r.PathValue("fingerprint")
 	path := r.PathValue("path")
 	if path == "" {
 		jsonError(w, "path required", http.StatusBadRequest)
@@ -559,7 +559,7 @@ func (s *Server) handleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleMoveEntry(w http.ResponseWriter, r *http.Request) {
-	fp := r.PathValue("fp")
+	fp := r.PathValue("fingerprint")
 	var body struct {
 		From string `json:"from"`
 		To   string `json:"to"`
@@ -590,7 +590,7 @@ func (s *Server) handleMoveEntry(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
-	fp := r.PathValue("fp")
+	fp := r.PathValue("fingerprint")
 	entries, err := s.Q.ListEntriesContent(r.Context(), fp)
 	if err != nil {
 		slog.Error("export entries", "error", err)
@@ -634,7 +634,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 // 1. Content-Type: application/gzip — binary tar.gz (legacy, for WebPass-to-WebPass)
 // 2. Content-Type: application/json — JSON array [{path, content}] (new, for import with re-encryption)
 func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
-	fp := r.PathValue("fp")
+	fp := r.PathValue("fingerprint")
 	contentType := r.Header.Get("Content-Type")
 
 	// Check content type to determine format
@@ -806,7 +806,7 @@ func (s *Server) handleImportTarGz(w http.ResponseWriter, r *http.Request, fp st
 
 // GET /api/users/{fp}/git/status — get git sync status
 func (s *Server) handleGitStatus(w http.ResponseWriter, r *http.Request) {
-	fp := r.PathValue("fp")
+	fp := r.PathValue("fingerprint")
 
 	status, err := s.GitService.GetStatus(r.Context(), fp)
 	if err != nil {
@@ -820,7 +820,7 @@ func (s *Server) handleGitStatus(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/users/{fp}/git/config — get git config (including encrypted_pat)
 func (s *Server) handleGitGetConfig(w http.ResponseWriter, r *http.Request) {
-	fp := r.PathValue("fp")
+	fp := r.PathValue("fingerprint")
 
 	config, err := s.Q.GetGitConfig(r.Context(), fp)
 	if err != nil {
@@ -848,7 +848,7 @@ func (s *Server) handleGitGetConfig(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/users/{fp}/git/config — configure git sync
 func (s *Server) handleGitConfig(w http.ResponseWriter, r *http.Request) {
-	fp := r.PathValue("fp")
+	fp := r.PathValue("fingerprint")
 
 	var body struct {
 		RepoURL      string `json:"repo_url"`
@@ -875,7 +875,7 @@ func (s *Server) handleGitConfig(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/users/{fp}/git/session — set session token (called after login)
 func (s *Server) handleGitSession(w http.ResponseWriter, r *http.Request) {
-	fp := r.PathValue("fp")
+	fp := r.PathValue("fingerprint")
 
 	var body struct {
 		Token string `json:"token"`
@@ -896,7 +896,7 @@ func (s *Server) handleGitSession(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/users/{fp}/git/push — push to remote
 func (s *Server) handleGitPush(w http.ResponseWriter, r *http.Request) {
-	fp := r.PathValue("fp")
+	fp := r.PathValue("fingerprint")
 
 	var body struct {
 		Token string `json:"token"`
@@ -926,7 +926,7 @@ func (s *Server) handleGitPush(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/users/{fp}/git/pull — pull from remote
 func (s *Server) handleGitPull(w http.ResponseWriter, r *http.Request) {
-	fp := r.PathValue("fp")
+	fp := r.PathValue("fingerprint")
 
 	var body struct {
 		Token string `json:"token"`
@@ -962,7 +962,7 @@ func (s *Server) handleGitToggleSync(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/users/{fp}/git/log — get sync log
 func (s *Server) handleGitLog(w http.ResponseWriter, r *http.Request) {
-	fp := r.PathValue("fp")
+	fp := r.PathValue("fingerprint")
 
 	logs, err := s.Q.ListGitSyncLog(r.Context(), fp)
 	if err != nil {

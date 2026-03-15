@@ -150,12 +150,12 @@ All endpoints require JWT authentication.
 
 | Method | Path                          | Body                                      | Description                              |
 |--------|-------------------------------|-------------------------------------------|------------------------------------------|
-| GET    | `/api/users/:fp/git/status`   | —                                         | Get sync status (repo URL, has encrypted PAT) |
-| POST   | `/api/users/:fp/git/config`   | `{ repo_url, encrypted_pat }`             | Configure git sync (PGP-encrypted PAT) |
-| POST   | `/api/users/:fp/git/session`  | `{ token }`                               | Set plaintext git token for current session |
-| POST   | `/api/users/:fp/git/push`     | `{ token? }`                              | Manual push to remote                    |
-| POST   | `/api/users/:fp/git/pull`     | `{ token? }`                              | Manual pull from remote + merge          |
-| GET    | `/api/users/:fp/git/log`      | —                                         | Get sync operation history (last 50)     |
+| GET    | `/api/{fingerprint}/git/status`   | —                                         | Get sync status (repo URL, has encrypted PAT) |
+| POST   | `/api/{fingerprint}/git/config`   | `{ repo_url, encrypted_pat }`             | Configure git sync (PGP-encrypted PAT) |
+| POST   | `/api/{fingerprint}/git/session`  | `{ token }`                               | Set plaintext git token for current session |
+| POST   | `/api/{fingerprint}/git/push`     | `{ token? }`                              | Manual push to remote                    |
+| POST   | `/api/{fingerprint}/git/pull`     | `{ token? }`                              | Manual pull from remote + merge          |
+| GET    | `/api/{fingerprint}/git/log`      | —                                         | Get sync operation history (last 50)     |
 
 ### Token Delivery
 
@@ -701,7 +701,7 @@ To enable verbose logging for Git operations:
 **Options**:
 1. **Upload tar.gz** — user exports from `pass`, uploads to server
 2. **Manual clone** — user clones repo, copies files, server detects
-3. **Server-side import** — add `/api/users/:fp/git/import` endpoint
+3. **Server-side import** — add `/api/{fingerprint}/git/import` endpoint
 
 **Recommendation**: Option 1 for now (use existing `/import` endpoint).
 

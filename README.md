@@ -116,19 +116,19 @@ All endpoints require JWT authentication.
 | Method | Path                      | Auth  | Description                           |
 | ------ | ------------------------- | ----- | ------------------------------------- |
 | POST   | `/api/users`              | No    | Create user (first-time setup)        |
-| POST   | `/api/users/:fp/login`    | No    | Login → returns JWT or 2FA challenge  |
-| POST   | `/api/users/:fp/login/2fa`| No    | Complete 2FA login                    |
-| GET    | `/api/users/:fp/entries`  | JWT   | List all entry paths                  |
-| GET    | `/api/users/:fp/entries/*`| JWT   | Download encrypted blob               |
-| PUT    | `/api/users/:fp/entries/*`| JWT   | Upload encrypted blob                 |
-| DELETE | `/api/users/:fp/entries/*`| JWT   | Delete entry                          |
-| POST   | `/api/users/:fp/entries/move` | JWT | Rename/move entry                   |
-| GET    | `/api/users/:fp/export`   | JWT   | Export all entries as `.tar.gz`       |
-| POST   | `/api/users/:fp/import`   | JWT   | Import `.tar.gz` password store       |
-| GET    | `/api/users/:fp/git/status` | JWT | Get git sync status                 |
-| POST   | `/api/users/:fp/git/config` | JWT | Configure git sync                  |
-| POST   | `/api/users/:fp/git/push`   | JWT | Manual push to remote               |
-| POST   | `/api/users/:fp/git/pull`   | JWT | Manual pull from remote             |
+| POST   | `/api/{fingerprint}/login`    | No    | Login → returns JWT or 2FA challenge  |
+| POST   | `/api/{fingerprint}/login/2fa`| No    | Complete 2FA login                    |
+| GET    | `/api/{fingerprint}/entries`  | JWT   | List all entry paths                  |
+| GET    | `/api/{fingerprint}/entries/*`| JWT   | Download encrypted blob               |
+| PUT    | `/api/{fingerprint}/entries/*`| JWT   | Upload encrypted blob                 |
+| DELETE | `/api/{fingerprint}/entries/*`| JWT   | Delete entry                          |
+| POST   | `/api/{fingerprint}/entries/move` | JWT | Rename/move entry                   |
+| GET    | `/api/{fingerprint}/export`   | JWT   | Export all entries as `.tar.gz`       |
+| POST   | `/api/{fingerprint}/import`   | JWT   | Import `.tar.gz` password store       |
+| GET    | `/api/{fingerprint}/git/status` | JWT | Get git sync status                 |
+| POST   | `/api/{fingerprint}/git/config` | JWT | Configure git sync                  |
+| POST   | `/api/{fingerprint}/git/push`   | JWT | Manual push to remote               |
+| POST   | `/api/{fingerprint}/git/pull`   | JWT | Manual pull from remote             |
 
 📖 See [GITSYNC.md](GITSYNC.md) for detailed git sync documentation.
 
