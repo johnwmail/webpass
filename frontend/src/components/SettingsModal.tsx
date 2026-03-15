@@ -386,11 +386,8 @@ export function SettingsModal({ onClose, onLock }: Props) {
 
       {/* Git Sync Modal */}
       {showGitSync && <GitSync onClose={() => setShowGitSync(false)} onSuccess={() => {
-        // Refresh entries after successful sync
-        // Add small delay to ensure session is persisted
-        setTimeout(() => {
-          window.location.reload();
-        }, 500);
+        // No reload needed - just close the modal
+        setShowGitSync(false);
       }} />}
 
       {/* Import Dialog */}

@@ -112,10 +112,12 @@ export function GitSync({ onClose, onSuccess }: Props) {
     setPendingAction(action);
     setPassphraseForPat('');
     setShowPassphrasePrompt(true);
+    console.log('[GitSync] promptForPassphrase called, modal shown');
 
     // Return a promise that resolves when user clicks OK or Cancel
     return new Promise((resolve) => {
       passwordResolverRef.current = resolve;
+      console.log('[GitSync] Promise resolver set');
     });
   };
 
@@ -154,6 +156,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
   };
 
   const handlePush = async () => {
+    console.log('[GitSync] handlePush called');
     setLoading(true);
     setError('');
 
@@ -162,7 +165,9 @@ export function GitSync({ onClose, onSuccess }: Props) {
       if (!status?.configured) throw new Error('Git sync not configured');
 
       // Get passphrase to decrypt private key
+      console.log('[GitSync] Calling promptForPassphrase');
       const passphrase = await promptForPassphrase('push');
+      console.log('[GitSync] promptForPassphrase returned:', passphrase ? '***' : 'null');
       if (!passphrase) {
         setError('Passphrase required to decrypt private key');
         setLoading(false);
@@ -478,11 +483,17 @@ export function GitSync({ onClose, onSuccess }: Props) {
                       class="btn btn-primary"
                       onClick={() => {
                         const pwd = passphraseForPat;
+                        console.log('[GitSync] OK clicked, passphrase length:', pwd?.length);
                         setShowPassphrasePrompt(false);
                         setPassphraseForPat('');
                         setPendingAction(null);
-                        passwordResolverRef.current?.(pwd);
-                        passwordResolverRef.current = null;
+                        if (passwordResolverRef.current) {
+                          console.log('[GitSync] Resolving promise');
+                          passwordResolverRef.current(pwd);
+                          passwordResolverRef.current = null;
+                        } else {
+                          console.log('[GitSync] No resolver found!');
+                        }
                       }}
                       disabled={!passphraseForPat}
                     >
