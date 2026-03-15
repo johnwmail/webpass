@@ -205,31 +205,150 @@ Git token can be provided in two ways:
 |-------------------|-----------------------------------------------------|
 | **Settings → Git Sync** | Configure repo URL, PAT, view sync status, manual push/pull buttons |
 
-### Git Sync UI Components
+---
 
-**Settings Page:**
-- Repo URL input (for initial setup)
-- PAT input (for initial setup)
-- **Push** button (disabled during operation)
-- **Pull** button (disabled during operation)
-- Sync status: "Last synced: 3 hours ago" or "Never synced"
-- Sync log viewer (last 10 operations, expandable)
+## Setup & Configuration Guide
 
-**Setup Flow:**
-```
-1. User enters repo URL + PAT
-2. Client: PAT → PGP encrypt (public key) → blob
-3. POST /git/config { repo_url, encrypted_pat }
-4. Done — ready for manual push/pull
-```
+### Prerequisites
 
-**Manual Sync Flow:**
-```
-1. User clicks "Pull" or "Push"
-2. Client: blob → PGP decrypt (private key) → plaintext PAT
-3. POST /git/pull or /git/push { token }
-4. Show toast: success or error
-```
+Before configuring Git sync, ensure you have:
+
+1. **A private Git repository** created on your preferred hosting service:
+   - GitHub: `https://github.com/username/password-store.git`
+   - GitLab: `https://gitlab.com/username/password-store.git`
+   - Gitea/Forgejo: `https://gitea.example.com/username/password-store.git`
+
+2. **A Personal Access Token (PAT)** with appropriate permissions:
+   - **GitHub**: Settings → Developer settings → Personal access tokens → Tokens (classic)
+     - Scope: `repo` (full control of private repositories)
+   - **GitLab**: Settings → Access Tokens
+     - Scope: `api`, `write_repository`
+   - **Gitea**: Settings → Applications → Generate New Token
+     - Scope: `write:repository`
+
+3. **Your PGP keypair** already set up in WebPass (from initial account setup)
+
+---
+
+### Step-by-Step Configuration
+
+#### Step 1: Open Git Sync Settings
+
+1. Log in to WebPass
+2. Click **Settings** (⚙️) in the top-right corner
+3. Scroll to **Git Sync** section
+
+#### Step 2: Enter Repository URL
+
+1. In the **Repository URL** field, enter your private Git repo URL:
+   ```
+   https://github.com/username/password-store.git
+   ```
+
+2. Ensure the URL uses **HTTPS** (not SSH) — SSH is not yet supported
+
+#### Step 3: Enter Personal Access Token
+
+1. In the **Personal Access Token** field, paste your PAT:
+   - GitHub tokens start with `ghp_`
+   - GitLab tokens are plain strings
+   - Gitea tokens are plain strings
+
+2. **Security note**: The PAT will be encrypted with your PGP public key before being sent to the server
+
+#### Step 4: Save Configuration
+
+1. Click **✓ Configure** button
+2. The client will:
+   - Encrypt your PAT using your PGP public key
+   - Send the encrypted blob to the server
+   - Server stores it in `git_config.encrypted_pat`
+   - Server clones your repository to `.git-repos/:fingerprint/`
+
+3. On success, you'll see:
+   - Repository URL displayed
+   - Sync history: ✅ 0 / ❌ 0
+   - **Push** and **Pull** buttons enabled
+
+---
+
+### Initial Push (First Sync)
+
+After configuration, perform an initial push to seed your remote repository:
+
+1. Click **⬆️ Push Now**
+2. You'll be prompted for your **PGP passphrase** (to decrypt the PAT)
+3. Enter your passphrase and click **OK**
+4. The client will:
+   - Decrypt the PAT from the server using your PGP private key
+   - Send the plaintext PAT to the server (over HTTPS)
+   - Server exports all entries to `.password-store/` directory
+   - Server commits and pushes to remote
+
+5. On success:
+   - Toast notification: "Pushed to remote"
+   - Sync history updates: ✅ 1 / ❌ 0
+
+---
+
+### Manual Sync Operations
+
+#### Pull (Download from Remote)
+
+Use **Pull** to download changes from your remote repository:
+
+1. Click **⬇️ Pull Now**
+2. Enter your **PGP passphrase** when prompted
+3. Server fetches from remote and merges into local database
+4. On success: "Pulled X entries from remote"
+
+**When to Pull:**
+- After setting up a new device
+- After manually adding commits to the remote repository
+- To recover from data loss
+
+#### Push (Upload to Remote)
+
+Use **Push** to upload local changes to your remote repository:
+
+1. Click **⬆️ Push Now**
+2. Enter your **PGP passphrase** when prompted
+3. Server commits current state and pushes to remote
+4. On success: "Pushed to remote"
+
+**When to Push:**
+- After adding/editing/deleting entries
+- Before switching devices
+- As a backup before major changes
+
+---
+
+### Update Configuration
+
+To change your repository URL or PAT:
+
+1. Go to **Settings → Git Sync**
+2. Scroll to **Update Configuration** section
+3. Enter new **Repository URL** (if changing)
+4. Enter new **PAT** (leave blank to keep current)
+5. Click **💾 Update Config**
+6. Enter your **PGP passphrase** to encrypt the new PAT
+
+---
+
+### View Sync Logs
+
+To view sync history:
+
+1. Click **📋 View Logs**
+2. See last 50 sync operations with:
+   - Operation type (PUSH/PULL)
+   - Status (✅ success / ❌ failed)
+   - Timestamp
+   - Message or error details
+   - Number of entries changed
+
+---
 
 ---
 
@@ -254,63 +373,110 @@ Git token can be provided in two ways:
 
 ---
 
-## Auth & Session Flow
+## Technical Flows
 
-## Auth & Session Flow
-
-### Initial Setup (Git Sync Configuration)
+### Configuration Flow
 
 ```
-1. User opens Settings → Git Sync (already logged in)
-2. Enters repo URL + PAT (Personal Access Token)
-3. Client: PAT → PGP encrypt (public key) → encrypted blob
-4. POST /git/config { repo_url, encrypted_pat: "<blob>" }
-5. Server: store encrypted_pat in git_config table
-6. Server: git clone <repo_url> → .git-repos/:fingerprint/
-7. Done — ready for manual push/pull
+┌─────────────┐      ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
+│   User      │      │   Client    │      │   Server    │      │   Git       │
+│   (Browser) │      │   (SPA)     │      │   (Go API)  │      │   Remote    │
+└──────┬──────┘      └──────┬──────┘      └──────┬──────┘      └──────┬──────┘
+       │                    │                    │                    │
+       │ 1. Enter URL + PAT │                    │                    │
+       │───────────────────>│                    │                    │
+       │                    │                    │                    │
+       │                    │ 2. PGP encrypt PAT │                    │
+       │                    │    (public key)    │                    │
+       │                    │                    │                    │
+       │ 3. POST /git/config│                    │                    │
+       │    { repo_url,     │                    │                    │
+       │      encrypted_pat }                    │                    │
+       │───────────────────>│                    │                    │
+       │                    │                    │                    │
+       │                    │ 4. Store in DB     │                    │
+       │                    │───────────────────>│                    │
+       │                    │                    │                    │
+       │                    │                    │ 5. git clone       │
+       │                    │                    │───────────────────>│
+       │                    │                    │                    │
+       │ 6. Configured!     │                    │                    │
+       │<───────────────────│                    │                    │
+       │                    │                    │                    │
 ```
 
-### Manual Pull/Push (Decryption Flow)
+### Push Flow
 
 ```
-User clicks "Pull" or "Push" button
-       │
-       ▼
-1. Client: fetch encrypted_pat from server
-       │
-       ▼
-2. Client: blob → PGP decrypt (private key + passphrase) → PAT (plaintext)
-       │
-       ▼
-3. POST /git/pull or /git/push { token: "ghp_..." }
-   (plaintext PAT over HTTPS)
-       │
-       ▼
-4. Server: cache token for 5-min session (optional)
-       │
-       ▼
-5. Server: execute git pull/push
-       │
-       ├── Success → return status
-       │
-       └── Fail → return error (conflict, auth, network)
-       │
-       ▼
-6. UI: show toast (success/error)
+┌─────────────┐      ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
+│   User      │      │   Client    │      │   Server    │      │   Git       │
+│   (Browser) │      │   (SPA)     │      │   (Go API)  │      │   Remote    │
+└──────┬──────┘      └──────┬──────┘      └──────┬──────┘      └──────┬──────┘
+       │                    │                    │                    │
+       │ 1. Click Push      │                    │                    │
+       │───────────────────>│                    │                    │
+       │                    │                    │                    │
+       │ 2. Fetch encrypted │                    │                    │
+       │    pat from server │                    │                    │
+       │<───────────────────│                    │                    │
+       │                    │                    │                    │
+       │ 3. PGP decrypt PAT │                    │                    │
+       │    (private key +  │                    │                    │
+       │     passphrase)    │                    │                    │
+       │                    │                    │                    │
+       │ 4. POST /git/push  │                    │                    │
+       │    { token }       │                    │                    │
+       │───────────────────>│                    │                    │
+       │                    │                    │                    │
+       │                    │ 5. Export entries  │                    │
+       │                    │    to .password-store/                  │
+       │                    │───────────────────>│                    │
+       │                    │                    │                    │
+       │                    │ 6. git add, commit │                    │
+       │                    │───────────────────>│                    │
+       │                    │                    │                    │
+       │                    │ 7. git push        │                    │
+       │                    │─────────────────────────────────────────>│
+       │                    │                    │                    │
+       │ 8. Push success!   │                    │                    │
+       │<───────────────────│                    │                    │
+       │                    │                    │                    │
 ```
 
-**Note on PGP passphrase:** User must enter PGP private key passphrase to decrypt the PAT.
-
-### Session Caching (Optional Optimization)
+### Pull Flow
 
 ```
-After first decrypt + sync:
-1. Client: POST /git/session { token } (plaintext)
-2. Server: cache token for 5 minutes
-3. Subsequent push/pull within 5 min: omit token from request
-4. Server: use cached token (if valid)
-
-Benefit: User only enters password once per session
+┌─────────────┐      ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
+│   User      │      │   Client    │      │   Server    │      │   Git       │
+│   (Browser) │      │   (SPA)     │      │   (Go API)  │      │   Remote    │
+└──────┬──────┘      └──────┬──────┘      └──────┬──────┘      └──────┬──────┘
+       │                    │                    │                    │
+       │ 1. Click Pull      │                    │                    │
+       │───────────────────>│                    │                    │
+       │                    │                    │                    │
+       │ 2. Fetch encrypted │                    │                    │
+       │    pat from server │                    │                    │
+       │<───────────────────│                    │                    │
+       │                    │                    │                    │
+       │ 3. PGP decrypt PAT │                    │                    │
+       │    (private key +  │                    │                    │
+       │     passphrase)    │                    │                    │
+       │                    │                    │                    │
+       │ 4. POST /git/pull  │                    │                    │
+       │    { token }       │                    │                    │
+       │───────────────────>│                    │                    │
+       │                    │                    │                    │
+       │                    │ 5. git pull        │                    │
+       │                    │<─────────────────────────────────────────│
+       │                    │                    │                    │
+       │                    │ 6. Sync database   │                    │
+       │                    │    with repo state │                    │
+       │                    │───────────────────>│                    │
+       │                    │                    │                    │
+       │ 7. Pull success!   │                    │                    │
+       │    (X entries)     │                    │                    │
+       │<───────────────────│                    │                    │
+       │                    │                    │                    │
 ```
 
 ---
@@ -386,6 +552,103 @@ Benefit: User only enters password once per session
 - Plaintext token exists in server memory (brief window)
 - Requires HTTPS to protect in transit
 - Alternative: send token with every request (more secure, more bandwidth)
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+#### "PAT not configured. Please reconfigure Git sync."
+
+**Cause**: The encrypted PAT couldn't be retrieved or decrypted.
+
+**Solution**:
+1. Go to Settings → Git Sync
+2. Re-enter your PAT in the Update Configuration section
+3. Click "Update Config" and enter your PGP passphrase
+
+---
+
+#### "Failed to decrypt PAT. Check passphrase."
+
+**Cause**: Wrong PGP passphrase entered, or private key corrupted.
+
+**Solution**:
+1. Verify you're entering the correct PGP passphrase
+2. Try logging out and back in to ensure your private key is loaded
+3. If still failing, reconfigure Git sync with a new PAT
+
+---
+
+#### "git push: permission denied"
+
+**Cause**: Invalid or expired PAT, or insufficient permissions.
+
+**Solution**:
+1. Verify your PAT is still valid (not expired or revoked)
+2. Check PAT has correct scope:
+   - GitHub: `repo` (full control of private repositories)
+   - GitLab: `api`, `write_repository`
+   - Gitea: `write:repository`
+3. Generate a new PAT and update configuration
+
+---
+
+#### "CONFLICT: X entries have local changes that conflict with remote"
+
+**Cause**: Both local database and remote repository have unpushed changes.
+
+**Solution**:
+1. Review the conflicting files in the conflict dialog
+2. Choose one of:
+   - **Keep Local (Push)**: Overwrite remote with your local changes
+   - **Keep Remote (Pull)**: Overwrite local with remote changes
+   - **Skip**: Cancel the sync operation
+3. After resolution, perform the sync operation again
+
+---
+
+#### "Failed to push/pull: authentication failed"
+
+**Cause**: PAT is invalid or repository URL is incorrect.
+
+**Solution**:
+1. Verify repository URL is correct and accessible
+2. Check that the repository exists and you have access
+3. Generate a new PAT and reconfigure
+
+---
+
+#### "No changes to push"
+
+**Cause**: Local database and git repo are in sync (no new commits).
+
+**Solution**: This is informational, not an error. Your data is already synced.
+
+---
+
+### Error Messages Reference
+
+| Error Message | Meaning | Action |
+|--------------|---------|--------|
+| `git token required` | No PAT provided | Reconfigure Git sync |
+| `get config: sql: no rows` | Git sync not configured | Configure Git sync first |
+| `init repo: ...` | Failed to clone/init repository | Check repo URL and PAT |
+| `git push: ...` | Git push failed | Check PAT permissions, network |
+| `git pull: ...` | Git pull failed | Check PAT permissions, network |
+| `export password-store: ...` | Failed to write entries | Check server disk space |
+| `sync database: ...` | Failed to import entries | Check database integrity |
+
+---
+
+### Debug Mode
+
+To enable verbose logging for Git operations:
+
+1. Server logs are written to stdout/stderr
+2. Check server logs for `[GIT PUSH]` or `[GIT PULL]` prefixed messages
+3. Look for detailed error messages in the log output
 
 ---
 
@@ -508,6 +771,112 @@ Users manually push when ready. No debouncing needed.
 3. **Token Expiry**: Recommend using expirable tokens (GitHub PATs can be revoked)
 4. **Audit Log**: All git operations logged in `git_sync_log` table
 5. **Rate Limiting**: Consider rate-limiting push/pull endpoints (prevent abuse)
+
+---
+
+## Security Best Practices
+
+### PAT Management
+
+- **Use expirable tokens**: GitHub allows setting expiration dates on PATs
+- **Minimal scope**: Only grant `repo` or `write_repository` permissions
+- **Rotate regularly**: Regenerate PATs every 3-6 months
+- **Revoke compromised tokens**: Immediately revoke if you suspect a breach
+
+### Repository Security
+
+- **Private repositories only**: Never use public repos for password storage
+- **Enable 2FA on Git hosting**: Protect your Git account with two-factor authentication
+- **Audit access**: Regularly review who has access to your repository
+- **Backup your repo**: Download periodic backups of your remote repository
+
+### Client-Side Security
+
+- **Protect your PGP passphrase**: Never share it; use a strong, unique passphrase
+- **Lock your device**: Always lock your computer when stepping away
+- **Clear session after use**: Use the "Lock" button to clear sensitive data from memory
+- **Monitor sync logs**: Regularly check sync history for unexpected activity
+
+---
+
+## FAQ
+
+### Q: Can I use the same repository for multiple users?
+
+**A:** No. Each user has their own encrypted PAT and `.password-store/` directory. Sharing a repository would mix encrypted entries from different users, making decryption impossible.
+
+### Q: What happens if I forget my PGP passphrase?
+
+**A:** You won't be able to decrypt your PAT or sync with Git. You'll need to:
+1. Generate a new PAT on your Git hosting service
+2. Reconfigure Git sync with the new PAT
+3. Your existing entries remain in the database (not affected)
+
+### Q: Can I use SSH instead of HTTPS?
+
+**A:** Not yet. SSH key support is planned for Phase 2. Currently, only HTTPS with PAT is supported.
+
+### Q: How often should I push/pull?
+
+**A:** As needed:
+- **Push**: After making important changes, or before switching devices
+- **Pull**: When setting up a new device, or to recover from data loss
+
+### Q: What if I accidentally delete an entry and push?
+
+**A:** Git keeps history! You can:
+1. Access your Git repository directly (via `git clone`)
+2. Browse commit history to find the deleted entry
+3. Restore the `.gpg` file manually
+4. Pull the restored entry back into WebPass
+
+### Q: Can I sync between multiple devices?
+
+**A:** Yes, but manually:
+1. Device A: Push changes to remote
+2. Device B: Pull changes from remote
+3. Resolve any conflicts if both devices made changes
+
+Automatic multi-device sync is planned for Phase 3.
+
+### Q: Is the `.password-store/` format compatible with `pass`?
+
+**A:** Yes! The directory structure and `.gpg` files follow the standard `pass` convention. You can:
+- Clone your repository and use standard `pass` commands
+- Import existing `.password-store/` directories via the Import feature
+
+### Q: What data is stored on the server?
+
+**A:** The server stores:
+- **SQLite database**: Encrypted entry blobs (PGP-encrypted)
+- **Git config**: Repo URL + PGP-encrypted PAT
+- **Git repo clone**: Local copy of `.password-store/` for sync operations
+
+The server **cannot** decrypt any of this data without your PGP private key.
+
+---
+
+## Implementation Checklist
+
+- [ ] Database schema (`git_config` with `encrypted_pat`, `git_sync_log`)
+- [ ] sqlc queries
+- [ ] Git service layer (`srv/git.go`)
+- [ ] Session token cache
+- [ ] API endpoints
+- [ ] Frontend crypto (OpenPGP.js for PAT encryption/decryption)
+- [ ] Frontend Git Sync UI (push/pull buttons, PGP passphrase prompt)
+- [ ] Conflict detection and UI dialog
+- [ ] Error toasts in UI (show exact error messages)
+- [ ] Write tests (`srv/git_test.go`)
+- [ ] Update README.md (document git sync feature)
+
+---
+
+## Environment Variables
+
+| Variable        | Default       | Description                          |
+|-----------------|---------------|--------------------------------------|
+| `GIT_REPO_ROOT` | `.git-repos`  | Base directory for cloned repos      |
 
 ---
 
