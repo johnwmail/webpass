@@ -187,6 +187,11 @@ func (g *GitService) Push(ctx context.Context, fingerprint string, token string)
 		return nil, fmt.Errorf("init repo: %w", err)
 	}
 
+	// Export database entries to .password-store directory
+	if err := g.exportPasswordStore(ctx, fingerprint); err != nil {
+		return nil, fmt.Errorf("export password store: %w", err)
+	}
+
 	// Set credentials for push
 	pushURL := g.authURL(config.RepoURL, token)
 	if err := g.runGitCommand(repoDir, "remote", "set-url", "origin", pushURL); err != nil {
@@ -218,6 +223,12 @@ func (g *GitService) Push(ctx context.Context, fingerprint string, token string)
 
 	// Commit changes
 	commitMsg := fmt.Sprintf("Sync: %s", time.Now().Format(time.RFC3339))
+	if err := g.runGitCommand(repoDir, "config", "user.email", "webpass@local"); err != nil {
+		return nil, fmt.Errorf("git config email: %w", err)
+	}
+	if err := g.runGitCommand(repoDir, "config", "user.name", "WebPass"); err != nil {
+		return nil, fmt.Errorf("git config name: %w", err)
+	}
 	if err := g.runGitCommand(repoDir, "commit", "-m", commitMsg); err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
@@ -254,7 +265,7 @@ func (g *GitService) Push(ctx context.Context, fingerprint string, token string)
 }
 
 // Pull pulls changes from remote and merges
-func (g *GitService) Pull(ctx context.Context, fingerprint string, token string) (*PullResult, error) {
+func (g *GitService) Pull(ctx context.Context, fingerprint string, token string, forceTheirs bool) (*PullResult, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
@@ -279,20 +290,20 @@ func (g *GitService) Pull(ctx context.Context, fingerprint string, token string)
 		return nil, fmt.Errorf("set remote url: %w", err)
 	}
 
-	// Fetch
+	// Fetch first to get latest remote state
 	if err := g.runGitCommand(repoDir, "fetch", "origin"); err != nil {
 		return nil, fmt.Errorf("git fetch: %w", err)
 	}
 
-	// Check for conflicts before pulling
-	conflicts, err := g.detectConflicts(repoDir)
+	// Check for conflicts BEFORE pulling (compare DB vs remote)
+	conflicts, err := g.detectConflicts(ctx, fingerprint, repoDir)
 	if err != nil {
 		slog.Warn("conflict detection failed", "error", err)
-		// Continue with pull anyway, conflicts will be handled by git
+		// Continue with pull anyway
 	}
 
-	if len(conflicts) > 0 {
-		// Return conflicts without pulling
+	if len(conflicts) > 0 && !forceTheirs {
+		// Return conflicts without pulling (unless forceTheirs is true)
 		return &PullResult{
 			Status:    "conflict",
 			Operation: "pull",
@@ -301,18 +312,29 @@ func (g *GitService) Pull(ctx context.Context, fingerprint string, token string)
 		}, nil
 	}
 
-	// Pull with fast-forward only
-	if err := g.runGitCommand(repoDir, "pull", "--ff-only", "origin", "main"); err != nil {
+	// Pull with fast-forward only, or force theirs if conflicts
+	var pullErr error
+	if forceTheirs {
+		slog.Info("pulling with --strategy-option=theirs to resolve conflicts")
+		pullErr = g.runGitCommand(repoDir, "pull", "--strategy-option=theirs", "origin", "main")
+	} else {
+		pullErr = g.runGitCommand(repoDir, "pull", "--ff-only", "origin", "main")
+	}
+	if pullErr != nil {
 		// Try with merge strategy if ff-only fails
-		if err := g.runGitCommand(repoDir, "pull", "--strategy-option=ours", "origin", "main"); err != nil {
-			// Log failure
-			_ = g.q.LogGitSync(ctx, dbgen.LogGitSyncParams{
-				Fingerprint: fingerprint,
-				Operation:   "pull",
-				Status:      "failed",
-				Message:     err.Error(),
-			})
-			return nil, fmt.Errorf("git pull: %w", err)
+		if !forceTheirs {
+			if err := g.runGitCommand(repoDir, "pull", "--strategy-option=ours", "origin", "main"); err != nil {
+				// Log failure
+				_ = g.q.LogGitSync(ctx, dbgen.LogGitSyncParams{
+					Fingerprint: fingerprint,
+					Operation:   "pull",
+					Status:      "failed",
+					Message:     err.Error(),
+				})
+				return nil, fmt.Errorf("git pull: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("git pull: %w", pullErr)
 		}
 	}
 
@@ -342,55 +364,83 @@ func (g *GitService) Pull(ctx context.Context, fingerprint string, token string)
 	}, nil
 }
 
-// detectConflicts checks for files that exist both locally and remotely with different content
-func (g *GitService) detectConflicts(repoDir string) ([]Conflict, error) {
+// detectConflicts checks for files that exist both locally (in DB) and remotely with different content
+func (g *GitService) detectConflicts(ctx context.Context, fingerprint, repoDir string) ([]Conflict, error) {
 	var conflicts []Conflict
 
-	// Get list of tracked files in git repo
-	cmd := exec.Command("git", "ls-files", ".password-store")
-	cmd.Dir = repoDir
-	output, err := cmd.Output()
+	// Get entries from database
+	dbEntries, err := g.q.ListEntriesContent(ctx, fingerprint)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list db entries: %w", err)
 	}
 
-	files := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, file := range files {
+	// Get list of tracked files in remote repo
+	cmd := exec.Command("git", "ls-tree", "-r", "--name-only", "origin/main", "--", ".password-store")
+	cmd.Dir = repoDir
+	remoteOutput, err := cmd.Output()
+	if err != nil {
+		// Remote might not have any files yet
+		slog.Info("no remote files to compare")
+		return conflicts, nil
+	}
+
+	remoteFiles := strings.Split(strings.TrimSpace(string(remoteOutput)), "\n")
+	remoteFileSet := make(map[string]bool)
+	for _, file := range remoteFiles {
 		if file == "" {
 			continue
 		}
-		// Check if file was modified locally but not pushed
-		statusCmd := exec.Command("git", "status", "--porcelain", file)
-		statusCmd.Dir = repoDir
-		statusOutput, err := statusCmd.Output()
+		// Remove .password-store/ prefix and .gpg suffix
+		path := strings.TrimPrefix(file, ".password-store/")
+		path = strings.TrimSuffix(path, ".gpg")
+		remoteFileSet[path] = true
+	}
+
+	// Check each DB entry against remote
+	for _, entry := range dbEntries {
+		if !remoteFileSet[entry.Path] {
+			continue // Entry not in remote, no conflict
+		}
+
+		// Entry exists in both DB and remote - check if content differs
+		remotePath := ".password-store/" + entry.Path + ".gpg"
+		
+		// Get remote file content hash
+		hashCmd := exec.Command("git", "show", "origin/main:"+remotePath)
+		hashCmd.Dir = repoDir
+		remoteContent, err := hashCmd.Output()
 		if err != nil {
 			continue
 		}
-		// If file has local modifications (M or M in status), it's a potential conflict
-		if len(statusOutput) > 0 {
+
+		// Compare hashes
+		if string(remoteContent) != string(entry.Content) {
+			// Content differs - this is a conflict
 			conflict := Conflict{
-				Path:           strings.TrimPrefix(file, ".password-store/"),
+				Path:           entry.Path,
 				LocalModified:  true,
 				RemoteModified: true,
 			}
-			
-			// Get local commit time
-			localTimeCmd := exec.Command("git", "log", "-1", "--format=%cI", "--", file)
+
+			// Get local commit time (if committed)
+			localFile := ".password-store/" + entry.Path + ".gpg"
+			localTimeCmd := exec.Command("git", "log", "-1", "--format=%cI", "--", localFile)
 			localTimeCmd.Dir = repoDir
 			localTimeOutput, err := localTimeCmd.Output()
 			if err == nil {
 				conflict.LocalTime = strings.TrimSpace(string(localTimeOutput))
 			}
-			
+
 			// Get remote commit time
-			remoteTimeCmd := exec.Command("git", "log", "origin/main", "-1", "--format=%cI", "--", file)
+			remoteTimeCmd := exec.Command("git", "log", "-1", "--format=%cI", "--", remotePath)
 			remoteTimeCmd.Dir = repoDir
 			remoteTimeOutput, err := remoteTimeCmd.Output()
 			if err == nil {
 				conflict.RemoteTime = strings.TrimSpace(string(remoteTimeOutput))
 			}
-			
+
 			conflicts = append(conflicts, conflict)
+			slog.Info("conflict detected", "path", entry.Path)
 		}
 	}
 
@@ -455,6 +505,41 @@ func (g *GitService) syncDatabase(ctx context.Context, fingerprint string) (int,
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// exportPasswordStore exports database entries to .password-store directory
+func (g *GitService) exportPasswordStore(ctx context.Context, fingerprint string) error {
+	repoDir := g.repoDir(fingerprint)
+	passwordStoreDir := filepath.Join(repoDir, ".password-store")
+
+	// Get all entries for this user
+	entries, err := g.q.ListEntriesContent(ctx, fingerprint)
+	if err != nil {
+		return fmt.Errorf("list entries: %w", err)
+	}
+
+	// Create password-store directory
+	if err := os.MkdirAll(passwordStoreDir, 0700); err != nil {
+		return fmt.Errorf("create password-store dir: %w", err)
+	}
+
+	// Write each entry to a .gpg file
+	for _, entry := range entries {
+		// Create subdirectory if needed
+		entryPath := filepath.Join(passwordStoreDir, entry.Path+".gpg")
+		entryDir := filepath.Dir(entryPath)
+		if err := os.MkdirAll(entryDir, 0700); err != nil {
+			return fmt.Errorf("create entry dir: %w", err)
+		}
+
+		// Write encrypted content to file
+		if err := os.WriteFile(entryPath, entry.Content, 0600); err != nil {
+			return fmt.Errorf("write entry %s: %w", entry.Path, err)
+		}
+	}
+
+	slog.Info("exported password-store", "fingerprint", fingerprint, "entries", len(entries))
+	return nil
+}
 
 func (g *GitService) repoDir(fingerprint string) string {
 	return filepath.Join(g.repoRoot, fingerprint)

@@ -166,7 +166,7 @@ Import To: WebPass Account B
 │  + Batch upload to server                                   │
 └────────────────┬────────────────────────────────────────────┘
                  │ HTTPS + JWT
-                 │ POST /api/users/:fp/import
+                 │ POST /api/{fingerprint}/import
                  │ Content-Type: application/json
                  │ [{ path, content: <armored PGP> }, ...]
 ┌────────────────▼────────────────────────────────────────────┐
@@ -256,7 +256,7 @@ New blob: "-----BEGIN PGP MESSAGE-----\nwcBMA..."
 ### Step 5: Batch Upload
 
 ```
-Client: POST /api/users/:fp/import
+Client: POST /api/{fingerprint}/import
 Content-Type: application/json
 Authorization: Bearer <jwt-token>
 
@@ -453,7 +453,7 @@ All endpoints require JWT authentication.
 
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| POST | `/api/users/:fp/import` | `[{ path, content }]` (JSON array) | Batch import with pre-encrypted entries |
+| POST | `/api/{fingerprint}/import` | `[{ path, content }]` (JSON array) | Batch import with pre-encrypted entries |
 
 **Request Body:**
 ```json

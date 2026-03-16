@@ -157,11 +157,12 @@ All endpoints under `/api/`. JWT required for all except setup and login.
 
 | Method | Path                          | Auth | Description                              |
 | ------ | ----------------------------- | ---- | ---------------------------------------- |
-| GET    | `/api/git/status`             | JWT  | Get sync status (repo URL, last sync)    |
-| POST   | `/api/git/config`             | JWT  | Configure git sync `{ repo_url, encrypted_pat }` |
-| POST   | `/api/git/push`               | JWT  | Manual push to remote (optional `{ token }`) |
-| POST   | `/api/git/pull`               | JWT  | Manual pull from remote (optional `{ token }`) |
-| GET    | `/api/git/log`                | JWT  | Get sync operation history (last 50)     |
+| GET    | `/api/{fingerprint}/git/status`        | JWT  | Get sync status (repo URL, last sync)    |
+| POST   | `/api/{fingerprint}/git/config`        | JWT  | Configure git sync `{ repo_url, encrypted_pat }` |
+| POST   | `/api/{fingerprint}/git/session`       | JWT  | Set plaintext git token for current session |
+| POST   | `/api/{fingerprint}/git/push`          | JWT  | Manual push to remote (optional `{ token }`) |
+| POST   | `/api/{fingerprint}/git/pull`          | JWT  | Manual pull from remote (optional `{ token }`) |
+| GET    | `/api/{fingerprint}/git/log`           | JWT  | Get sync operation history (last 50)     |
 
 ### CORS
 

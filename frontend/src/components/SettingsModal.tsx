@@ -348,6 +348,29 @@ export function SettingsModal({ onClose, onLock }: Props) {
             )}
           </div>
 
+          {/* About */}
+          <div class="settings-section">
+            <h3>About</h3>
+            <div class="settings-row">
+              <span class="label-text">Version</span>
+              <span class="value-text" style="font-size: 12px;">
+                {document.querySelector('meta[name="build-version"]')?.getAttribute('content') || 'vdev'}
+              </span>
+            </div>
+            <div class="settings-row">
+              <span class="label-text">Build Time</span>
+              <span class="value-text" style="font-size: 12px;">
+                {document.querySelector('meta[name="build-time"]')?.getAttribute('content') || 'unknown'}
+              </span>
+            </div>
+            <div class="settings-row">
+              <span class="label-text">Commit</span>
+              <span class="value-text" style="font-size: 12px;">
+                {document.querySelector('meta[name="build-commit"]')?.getAttribute('content') || 'unknown'}
+              </span>
+            </div>
+          </div>
+
           {/* Session */}
           <div class="settings-section">
             <h3>Session</h3>

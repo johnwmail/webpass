@@ -766,8 +766,8 @@ Users manually push when ready. No debouncing needed.
 1. User clicks "Pull"
 2. Client decrypts PAT, sends to server
 3. Server: git fetch origin
-4. Server: detectConflicts() → check for local modifications
-5. If conflicts found:
+4. Server: detectConflicts() → compare DB entries vs remote content
+5. If conflicts found (same path, different content):
    - Get commit timestamps for both sides
    - Return conflict list to client
    - Abort pull (don't merge yet)
@@ -775,7 +775,7 @@ Users manually push when ready. No debouncing needed.
 7. User chooses which version to keep
 8. Based on choice:
    - Keep Local → User clicks "Push" to overwrite remote
-   - Keep Remote → User clicks "Pull" again (with --strategy-option=theirs)
+   - Keep Remote → User clicks "Pull" again (with force_theirs=true)
    - Skip → Operation cancelled
 ```
 

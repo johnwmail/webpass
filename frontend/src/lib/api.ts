@@ -324,7 +324,7 @@ export class ApiClient {
   }
 
   /** POST /api/:fp/git/pull */
-  async gitPull(token?: string): Promise<{
+  async gitPull(token?: string, forceTheirs?: boolean): Promise<{
     status: string;
     operation: string;
     entries_changed?: number;
@@ -333,6 +333,8 @@ export class ApiClient {
       path: string;
       local_modified: boolean;
       remote_modified: boolean;
+      local_time?: string;
+      remote_time?: string;
     }>;
   }> {
     const res = await fetch(
@@ -340,7 +342,7 @@ export class ApiClient {
       {
         method: 'POST',
         headers: this.headers(),
-        body: JSON.stringify({ token: token || '' }),
+        body: JSON.stringify({ token: token || '', force_theirs: forceTheirs || false }),
       }
     );
     if (!res.ok) {

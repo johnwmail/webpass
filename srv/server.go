@@ -924,12 +924,13 @@ func (s *Server) handleGitPush(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, result)
 }
 
-// POST /api/users/{fp}/git/pull — pull from remote
+// POST /api/{fingerprint}/git/pull — pull from remote
 func (s *Server) handleGitPull(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
 
 	var body struct {
-		Token string `json:"token"`
+		Token       string `json:"token"`
+		ForceTheirs bool   `json:"force_theirs"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
@@ -944,7 +945,7 @@ func (s *Server) handleGitPull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.GitService.Pull(r.Context(), fp, token)
+	result, err := s.GitService.Pull(r.Context(), fp, token, body.ForceTheirs)
 	if err != nil {
 		slog.Error("git pull", "error", err)
 		jsonError(w, "pull failed: "+err.Error(), http.StatusInternalServerError)

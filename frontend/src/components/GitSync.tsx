@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
-import * as openpgp from 'openpgp';
 import { session } from '../lib/session';
 import { getPublicKey, getDecryptedPrivateKey } from '../lib/storage';
 import { encryptPAT, decryptPAT, decryptPrivateKey } from '../lib/crypto';
@@ -63,8 +62,9 @@ export function GitSync({ onClose, onSuccess }: Props) {
   const [passphraseForPat, setPassphraseForPat] = useState('');
   const [pendingAction, setPendingAction] = useState<'configure' | 'push' | 'pull' | null>(null);
 
-  // Use ref for promise resolver to avoid stale closures
-  const passwordResolverRef = useRef<((pwd: string | null) => void) | null>(null);
+  // Use a ref to store the current passphrase value for the resolver
+  const passphraseRef = useRef<string>('');
+  const resolverRef = useRef<((pwd: string | null) => void) | null>(null);
 
   const fp = session.fingerprint || '';
 
@@ -111,13 +111,12 @@ export function GitSync({ onClose, onSuccess }: Props) {
   const promptForPassphrase = async (action: 'configure' | 'push' | 'pull'): Promise<string | null> => {
     setPendingAction(action);
     setPassphraseForPat('');
+    passphraseRef.current = '';
     setShowPassphrasePrompt(true);
-    console.log('[GitSync] promptForPassphrase called, modal shown');
 
     // Return a promise that resolves when user clicks OK or Cancel
     return new Promise((resolve) => {
-      passwordResolverRef.current = resolve;
-      console.log('[GitSync] Promise resolver set');
+      resolverRef.current = resolve;
     });
   };
 
@@ -156,7 +155,6 @@ export function GitSync({ onClose, onSuccess }: Props) {
   };
 
   const handlePush = async () => {
-    console.log('[GitSync] handlePush called');
     setLoading(true);
     setError('');
 
@@ -164,10 +162,8 @@ export function GitSync({ onClose, onSuccess }: Props) {
       if (!session.api) throw new Error('Not logged in');
       if (!status?.configured) throw new Error('Git sync not configured');
 
-      // Get passphrase to decrypt private key
-      console.log('[GitSync] Calling promptForPassphrase');
       const passphrase = await promptForPassphrase('push');
-      console.log('[GitSync] promptForPassphrase returned:', passphrase ? '***' : 'null');
+
       if (!passphrase) {
         setError('Passphrase required to decrypt private key');
         setLoading(false);
@@ -287,8 +283,56 @@ export function GitSync({ onClose, onSuccess }: Props) {
     setConflicts([]);
 
     if (resolution === 'remote') {
-      // Force pull with --strategy-option=theirs (would need backend support)
-      setError('Conflict resolution not yet implemented. Please resolve manually in git repo.');
+      // Force pull with --strategy-option=theirs to overwrite local with remote
+      setLoading(true);
+      setError('');
+      try {
+        if (!session.api) throw new Error('Not logged in');
+        
+        // Get passphrase to decrypt PAT
+        const passphrase = await promptForPassphrase('pull');
+        if (!passphrase) {
+          setError('Passphrase required');
+          setLoading(false);
+          return;
+        }
+
+        // Get encrypted PAT and decrypt it
+        if (!encryptedPat) {
+          setError('PAT not configured');
+          setLoading(false);
+          return;
+        }
+
+        const armoredPrivateKey = await getDecryptedPrivateKey(fp, passphrase);
+        if (!armoredPrivateKey) {
+          setError('Failed to get private key');
+          setLoading(false);
+          return;
+        }
+
+        const privateKey = await decryptPrivateKey(armoredPrivateKey, passphrase);
+        const patToUse = await decryptPAT(encryptedPat, privateKey);
+        if (!patToUse) {
+          setError('Failed to decrypt PAT');
+          setLoading(false);
+          return;
+        }
+
+        // Set session token
+        await session.api.setGitSession(patToUse);
+
+        // Pull with forceTheirs=true to resolve conflicts
+        const result = await session.api.gitPull(patToUse, true);
+        setSuccess(result.message || 'Pulled from remote (conflicts resolved)');
+        setTimeout(() => setSuccess(''), 3000);
+        loadStatus();
+        onSuccess?.();
+      } catch (e: any) {
+        setError(e.message || 'Pull failed');
+      }
+      setLoading(false);
+      setShowPassphrasePrompt(false);
     } else if (resolution === 'local') {
       // Push local changes
       await handlePush();
@@ -462,7 +506,11 @@ export function GitSync({ onClose, onSuccess }: Props) {
                     type="password"
                     placeholder="PGP passphrase"
                     value={passphraseForPat}
-                    onInput={(e) => setPassphraseForPat((e.target as HTMLInputElement).value)}
+                    onInput={(e) => {
+                      const val = (e.target as HTMLInputElement).value;
+                      setPassphraseForPat(val);
+                      passphraseRef.current = val;
+                    }}
                     style="width: 100%; margin-bottom: 16px;"
                     autoFocus
                   />
@@ -473,8 +521,8 @@ export function GitSync({ onClose, onSuccess }: Props) {
                         setShowPassphrasePrompt(false);
                         setPassphraseForPat('');
                         setPendingAction(null);
-                        passwordResolverRef.current?.(null);
-                        passwordResolverRef.current = null;
+                        resolverRef.current?.(null);
+                        resolverRef.current = null;
                       }}
                     >
                       Cancel
@@ -482,17 +530,13 @@ export function GitSync({ onClose, onSuccess }: Props) {
                     <button
                       class="btn btn-primary"
                       onClick={() => {
-                        const pwd = passphraseForPat;
-                        console.log('[GitSync] OK clicked, passphrase length:', pwd?.length);
+                        const pwd = passphraseRef.current;
                         setShowPassphrasePrompt(false);
                         setPassphraseForPat('');
                         setPendingAction(null);
-                        if (passwordResolverRef.current) {
-                          console.log('[GitSync] Resolving promise');
-                          passwordResolverRef.current(pwd);
-                          passwordResolverRef.current = null;
-                        } else {
-                          console.log('[GitSync] No resolver found!');
+                        if (resolverRef.current) {
+                          resolverRef.current(pwd);
+                          resolverRef.current = null;
                         }
                       }}
                       disabled={!passphraseForPat}
