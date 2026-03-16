@@ -252,7 +252,7 @@ func fingerprintFromKey(publicKey string) string {
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/users — create user
+// POST /api — create user
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
@@ -301,7 +301,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/users/{fp}/login — login
+// POST /api/{fp}/login — login
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -340,7 +340,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/users/{fp}/login/2fa — complete 2FA login
+// POST /api/{fp}/login/2fa — complete 2FA login
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleLogin2FA(w http.ResponseWriter, r *http.Request) {
@@ -380,7 +380,7 @@ func (s *Server) handleLogin2FA(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/users/{fp}/totp/setup — begin TOTP setup
+// POST /api/{fp}/totp/setup — begin TOTP setup
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleTOTPSetup(w http.ResponseWriter, r *http.Request) {
@@ -401,7 +401,7 @@ func (s *Server) handleTOTPSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/users/{fp}/totp/confirm — confirm TOTP setup
+// POST /api/{fp}/totp/confirm — confirm TOTP setup
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
@@ -446,7 +446,7 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// GET /api/users/{fp}/entries — list entries
+// GET /api/{fp}/entries — list entries
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleListEntries(w http.ResponseWriter, r *http.Request) {
@@ -471,7 +471,7 @@ func (s *Server) handleListEntries(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// GET /api/users/{fp}/entries/{path...} — get entry blob
+// GET /api/{fp}/entries/{path...} — get entry blob
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleGetEntry(w http.ResponseWriter, r *http.Request) {
@@ -496,7 +496,7 @@ func (s *Server) handleGetEntry(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// PUT /api/users/{fp}/entries/{path...} — create/update entry
+// PUT /api/{fp}/entries/{path...} — create/update entry
 // ---------------------------------------------------------------------------
 
 func (s *Server) handlePutEntry(w http.ResponseWriter, r *http.Request) {
@@ -531,7 +531,7 @@ func (s *Server) handlePutEntry(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// DELETE /api/users/{fp}/entries/{path...} — delete entry
+// DELETE /api/{fp}/entries/{path...} — delete entry
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleDeleteEntry(w http.ResponseWriter, r *http.Request) {
@@ -555,7 +555,7 @@ func (s *Server) handleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/users/{fp}/entries/move — move/rename entry
+// POST /api/{fp}/entries/move — move/rename entry
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleMoveEntry(w http.ResponseWriter, r *http.Request) {
@@ -586,7 +586,7 @@ func (s *Server) handleMoveEntry(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// GET /api/users/{fp}/export — export all entries as tar.gz
+// GET /api/{fp}/export — export all entries as tar.gz
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
@@ -627,7 +627,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/users/{fp}/import — import tar.gz or JSON batch
+// POST /api/{fp}/import — import tar.gz or JSON batch
 // ---------------------------------------------------------------------------
 
 // handleImport supports two formats:
@@ -804,7 +804,7 @@ func (s *Server) handleImportTarGz(w http.ResponseWriter, r *http.Request, fp st
 // Git Sync Handlers
 // ---------------------------------------------------------------------------
 
-// GET /api/users/{fp}/git/status — get git sync status
+// GET /api/{fp}/git/status — get git sync status
 func (s *Server) handleGitStatus(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
 
@@ -818,7 +818,7 @@ func (s *Server) handleGitStatus(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, status)
 }
 
-// GET /api/users/{fp}/git/config — get git config (including encrypted_pat)
+// GET /api/{fp}/git/config — get git config (including encrypted_pat)
 func (s *Server) handleGitGetConfig(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
 
@@ -846,7 +846,7 @@ func (s *Server) handleGitGetConfig(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// POST /api/users/{fp}/git/config — configure git sync
+// POST /api/{fp}/git/config — configure git sync
 func (s *Server) handleGitConfig(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
 
@@ -873,7 +873,7 @@ func (s *Server) handleGitConfig(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]string{"status": "configured"})
 }
 
-// POST /api/users/{fp}/git/session — set session token (called after login)
+// POST /api/{fp}/git/session — set session token (called after login)
 func (s *Server) handleGitSession(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
 
@@ -894,7 +894,7 @@ func (s *Server) handleGitSession(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]string{"status": "ok"})
 }
 
-// POST /api/users/{fp}/git/push — push to remote
+// POST /api/{fp}/git/push — push to remote
 func (s *Server) handleGitPush(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
 
@@ -955,13 +955,13 @@ func (s *Server) handleGitPull(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, result)
 }
 
-// POST /api/users/{fp}/git/toggle-sync — deprecated, kept for compatibility
+// POST /api/{fp}/git/toggle-sync — deprecated, kept for compatibility
 func (s *Server) handleGitToggleSync(w http.ResponseWriter, r *http.Request) {
 	// This endpoint is deprecated - manual sync only
 	jsonOK(w, map[string]string{"status": "deprecated", "message": "manual sync only"})
 }
 
-// GET /api/users/{fp}/git/log — get sync log
+// GET /api/{fp}/git/log — get sync log
 func (s *Server) handleGitLog(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
 

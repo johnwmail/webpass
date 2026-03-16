@@ -56,7 +56,7 @@ The server is a dumb encrypted-blob store — it never sees plaintext passwords 
 1. User enters API server URL + picks a password
 2. Browser generates PGP keypair (OpenPGP.js) — or imports existing key
 3. password → PBKDF2 → AES key → encrypt { private key, API URL } → store in IndexedDB
-4. POST /api/users { password, publicKey }
+4. POST /api { password, publicKey }
    → server stores bcrypt(password) + public key → returns { fingerprint }
 5. Server prompts: enable 2FA? → generate TOTP secret → show QR code
    → user scans with authenticator app → confirms with code
@@ -77,7 +77,7 @@ User enters password
        └── OK → decrypted PGP key held in JS memory only
                    │
                    ▼
-            2. POST /api/login { password }
+            2. POST /api/{fingerprint}/login { password }
                → server verifies bcrypt hash
                → returns JWT (5-min expiry)
                    │
@@ -139,19 +139,19 @@ All endpoints under `/api/`. JWT required for all except setup and login.
 
 | Method | Path                | Auth | Description                          |
 | ------ | ------------------- | ---- | ------------------------------------ |
-| POST   | `/api/setup`        | No   | First-time: set password + public key |
-| POST   | `/api/login`        | No   | Verify password → return JWT         |
+| POST   | `/api`              | No   | First-time: set password + public key |
+| POST   | `/api/{fingerprint}/login`        | No   | Verify password → return JWT         |
 | GET    | `/api/{fingerprint}`    | JWT  | Get user info by fingerprint         |
 
 ### Entries (Password Store)
 
 | Method | Path                    | Auth | Description                          |
 | ------ | ----------------------- | ---- | ------------------------------------ |
-| GET    | `/api/entries`          | JWT  | List all entry paths (tree)          |
-| GET    | `/api/entries/*path`    | JWT  | Download encrypted .gpg blob         |
-| PUT    | `/api/entries/*path`    | JWT  | Upload encrypted .gpg blob           |
-| DELETE | `/api/entries/*path`    | JWT  | Delete entry                         |
-| POST   | `/api/entries/move`     | JWT  | Rename/move entry `{ from, to }`     |
+| GET    | `/api/{fingerprint}/entries`          | JWT  | List all entry paths (tree)          |
+| GET    | `/api/{fingerprint}/entries/*path`    | JWT  | Download encrypted .gpg blob         |
+| PUT    | `/api/{fingerprint}/entries/*path`    | JWT  | Upload encrypted .gpg blob           |
+| DELETE | `/api/{fingerprint}/entries/*path`    | JWT  | Delete entry                         |
+| POST   | `/api/{fingerprint}/entries/move`     | JWT  | Rename/move entry `{ from, to }`     |
 
 ### Git Sync
 
@@ -243,7 +243,7 @@ Browser stores (IndexedDB, per fingerprint):
 
 | Method | Path                                    | Auth | Description                            |
 | ------ | --------------------------------------- | ---- | -------------------------------------- |
-| POST   | `/api/users`                            | No   | Setup: create user `{ password, publicKey }` → returns `{ fingerprint }` |
+| POST   | `/api`                            | No   | Setup: create user `{ password, publicKey }` → returns `{ fingerprint }` |
 | POST   | `/api/{fingerprint}/login`                  | No   | Verify password → return JWT (5-min)   |
 | GET    | `/api/{fingerprint}/entries`                | JWT  | List all entry paths                   |
 | GET    | `/api/{fingerprint}/entries/*path`          | JWT  | Download encrypted .gpg blob           |
@@ -384,7 +384,7 @@ Single clean page. Password input + two buttons.
 - Step 1: API server URL
 - Step 2: password + confirm
 - Step 3: generate or import PGP key
-- Step 4: review + optional 2FA setup → POST `/api/users` → store encrypted data in IndexedDB → redirect to login
+- Step 4: review + optional 2FA setup → POST `/api` → store encrypted data in IndexedDB → redirect to login
 
 ### Screen 3: Main App (authenticated)
 

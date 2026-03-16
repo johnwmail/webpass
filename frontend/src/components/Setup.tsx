@@ -81,7 +81,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
         throw new Error('Invalid URL format');
       }
 
-      const res = await fetch(`${url}/api/users`, {
+      const res = await fetch(`${url}/api`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),

@@ -64,8 +64,8 @@ describe('ApiClient', () => {
 
   describe('url method', () => {
     it('should construct full URL from path', () => {
-      const url = (client as any).url('/api/users');
-      expect(url).toBe('http://localhost:8000/api/api/users');
+      const url = (client as any).url('/api');
+      expect(url).toBe('http://localhost:8000/api/api');
     });
   });
 
