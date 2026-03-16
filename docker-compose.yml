@@ -5,17 +5,17 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        VERSION: vdev-${BUILD_TIME:-unknown}
+        VERSION: ${VERSION:-vdev-unknown}
         BUILD_TIME: ${BUILD_TIME:-unknown}
         COMMIT: ${COMMIT:-unknown}
-        FRONTEND_VERSION: vdev-${BUILD_TIME:-unknown}
-        FRONTEND_BUILD_TIME: ${BUILD_TIME:-unknown}
-        FRONTEND_COMMIT: ${COMMIT:-unknown}
+        FRONTEND_VERSION: ${FRONTEND_VERSION:-vdev-unknown}
+        FRONTEND_BUILD_TIME: ${FRONTEND_BUILD_TIME:-unknown}
+        FRONTEND_COMMIT: ${FRONTEND_COMMIT:-unknown}
     environment:
-      # Frontend build metadata
-      - FRONTEND_VERSION=vdev-${BUILD_TIME:-unknown}
-      - FRONTEND_BUILD_TIME=${BUILD_TIME:-unknown}
-      - FRONTEND_COMMIT=${COMMIT:-unknown}
+      # Frontend build metadata (passed to container for /api/version endpoint)
+      - VERSION=${VERSION:-vdev-unknown}
+      - BUILD_TIME=${BUILD_TIME:-unknown}
+      - COMMIT=${COMMIT:-unknown}
       # Runtime configuration
       - JWT_SECRET=${JWT_SECRET:-change-me-to-random-32-byte-hex}
       - DB_PATH=/data/db/db.sqlite3
