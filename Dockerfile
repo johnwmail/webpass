@@ -30,6 +30,11 @@ RUN echo "FRONTEND_VERSION=$FRONTEND_VERSION" > .env.production \
 # Build for production with version injection
 RUN npm run build
 
+# Patch index.html with version info (since Vite doesn't replace meta tags)
+RUN sed -i "s|content=\"vdev\"|content=\"$FRONTEND_VERSION\"|g" /app/frontend/dist/index.html \
+    && sed -i "s|name=\"build-time\" content=\"unknown\"|name=\"build-time\" content=\"$FRONTEND_BUILD_TIME\"|g" /app/frontend/dist/index.html \
+    && sed -i "s|name=\"build-commit\" content=\"unknown\"|name=\"build-commit\" content=\"$FRONTEND_COMMIT\"|g" /app/frontend/dist/index.html || true
+
 
 # ============================================
 # Stage 2: Build Backend
