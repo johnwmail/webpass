@@ -19,7 +19,12 @@ export class ApiClient {
   private url(path: string): string {
     // Strip leading /api if baseUrl already ends with /api
     if (this.baseUrl.endsWith('/api') && path.startsWith('/api')) {
-      path = path.slice(3); // Remove '/api' prefix
+      if (path === '/api') {
+        // Exact match - just return baseUrl
+        return this.baseUrl;
+      }
+      // Strip '/api' prefix (4 characters) from path
+      path = path.slice(4);
     }
     return `${this.baseUrl}${path}`;
   }

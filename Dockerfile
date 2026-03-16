@@ -22,11 +22,21 @@ RUN npm ci --frozen-lockfile
 # Copy frontend source
 COPY frontend/ ./
 
+# Create .env file with version info for Vite to pick up
+RUN echo "FRONTEND_VERSION=$FRONTEND_VERSION" > .env.production \
+    && echo "FRONTEND_COMMIT=$FRONTEND_COMMIT" >> .env.production \
+    && echo "FRONTEND_BUILD_TIME=$FRONTEND_BUILD_TIME" >> .env.production
+
 # Build for production with version injection
-RUN FRONTEND_VERSION=${FRONTEND_VERSION} \
-    FRONTEND_BUILD_TIME=${FRONTEND_BUILD_TIME} \
-    FRONTEND_COMMIT=${FRONTEND_COMMIT} \
-    npm run build
+RUN npm run build
+
+# Patch index.html with version info (since Vite doesn't replace meta tags)
+# Also add cache-busting timestamp to JS/CSS references
+RUN sed -i "s|content=\"vdev\"|content=\"$FRONTEND_VERSION\"|g" /app/frontend/dist/index.html \
+    && sed -i "s|name=\"build-time\" content=\"unknown\"|name=\"build-time\" content=\"$FRONTEND_BUILD_TIME\"|g" /app/frontend/dist/index.html \
+    && sed -i "s|name=\"build-commit\" content=\"unknown\"|name=\"build-commit\" content=\"$FRONTEND_COMMIT\"|g" /app/frontend/dist/index.html \
+    && sed -i "s|index-\\([^.]*\\)\\.js|index-\\1.js?v=$FRONTEND_BUILD_TIME|g" /app/frontend/dist/index.html \
+    && sed -i "s|index-\\([^.]*\\)\\.css|index-\\1.css?v=$FRONTEND_BUILD_TIME|g" /app/frontend/dist/index.html || true
 
 
 # ============================================

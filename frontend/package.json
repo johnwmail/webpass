@@ -11,11 +11,13 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "echo 'No linter configured'"
   },
   "dependencies": {
     "fflate": "^0.8.2",
     "openpgp": "^6.3.0",
+    "otpauth": "^9.3.2",
     "preact": "^10.25.4",
     "preact-router": "^4.1.2",
     "qrcode": "^1.5.4"

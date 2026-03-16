@@ -3,6 +3,7 @@ import { session } from '../lib/session';
 import { getAccount } from '../lib/storage';
 import { decryptPrivateKey, decryptBinary } from '../lib/crypto';
 import { PassphrasePrompt } from './PassphrasePrompt';
+import { OTPDisplay } from './OTPDisplay';
 import type { EntryContent } from '../types';
 
 interface Props {
@@ -20,6 +21,7 @@ function parseEntryContent(text: string): EntryContent {
 
 export function EntryDetail({ path, onEdit, onDelete }: Props) {
   const [content, setContent] = useState<EntryContent | null>(null);
+  const [rawContent, setRawContent] = useState<string>('');
   const [showPassword, setShowPassword] = useState(false);
   const [showPassphrasePrompt, setShowPassphrasePrompt] = useState(false);
   const [decrypting, setDecrypting] = useState(false);
@@ -44,6 +46,7 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
       const privateKey = await decryptPrivateKey(account.privateKey, passphrase);
       const encrypted = await session.api.getEntry(path);
       const decrypted = await decryptBinary(encrypted, privateKey);
+      setRawContent(decrypted);
       setContent(parseEntryContent(decrypted));
     } catch (e: any) {
       setError(e.message || 'Decryption failed');
@@ -146,6 +149,8 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
               <div class="notes-display">{content.notes}</div>
             </div>
           )}
+
+          <OTPDisplay content={rawContent} />
 
           <div class="entry-actions">
             <button class="btn btn-sm" onClick={onEdit}>✏️ Edit</button>
