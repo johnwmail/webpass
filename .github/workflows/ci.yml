@@ -40,6 +40,9 @@ jobs:
       - name: Install frontend dependencies
         run: cd frontend && npm ci
 
+      - name: Run frontend tests
+        run: cd frontend && npm test
+
       - name: Run Go tests
         run: go test -race -coverprofile=coverage.out ./...
 
@@ -89,7 +92,7 @@ jobs:
           args: --timeout=5m
 
       - name: Run frontend linter
-        run: cd frontend && npm run lint || true
+        run: cd frontend && npm run lint
 
       - name: Run frontend type check
         run: cd frontend && npm run typecheck
