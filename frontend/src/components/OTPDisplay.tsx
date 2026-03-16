@@ -155,10 +155,6 @@ export function OTPDisplay({ content }: Props) {
 
   return (
     <div class="otp-display">
-      <div class="otp-header">
-        <span class="otp-title">🔐 TOTP Code</span>
-      </div>
-
       <div class="otp-code-container">
         <code class="otp-code">{code}</code>
         <button
@@ -178,17 +174,6 @@ export function OTPDisplay({ content }: Props) {
         />
       </div>
 
-      <div class="otp-footer">
-        <span class="otp-expires">
-          Refreshes in {expiresIn}s
-        </span>
-        {period !== 30 && (
-          <span class="otp-period-hint">
-            ({period}s period)
-          </span>
-        )}
-      </div>
-
       {copied && (
         <div class="otp-toast">
           ✓ Copied — auto-clears in 45s
@@ -197,58 +182,54 @@ export function OTPDisplay({ content }: Props) {
 
       <style>{`
         .otp-display {
-          background: #f6f8fa;
-          border: 1px solid #d0d7de;
-          border-radius: 6px;
-          padding: 12px;
-          margin: 12px 0;
-        }
-
-        .otp-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 8px;
-        }
-
-        .otp-title {
-          font-weight: 600;
-          font-size: 13px;
-          color: #24292f;
+          background: linear-gradient(135deg, #f6f8fa 0%, #f0f2f4 100%);
+          border: 1px solid #e1e4e8;
+          border-radius: 8px;
+          padding: 10px 12px;
+          margin: 10px 0;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.04);
         }
 
         .otp-code-container {
           display: flex;
           align-items: center;
           gap: 8px;
-          margin: 12px 0;
         }
 
         .otp-code {
           flex: 1;
           font-family: 'SF Mono', SFMono-Regular, ui-monospace, 'DejaVu Sans Mono', Menlo, Consolas, monospace;
-          font-size: 28px;
+          font-size: 20px;
           font-weight: 600;
           text-align: center;
-          padding: 12px;
+          padding: 8px 12px;
           background: #fff;
-          border: 2px solid #d0d7de;
+          border: 1px solid #d0d7de;
           border-radius: 6px;
-          letter-spacing: 4px;
-          color: #24292f;
+          letter-spacing: 3px;
+          color: #1a7f37;
+          box-shadow: inset 0 1px 2px rgba(0,0,0,0.03);
         }
 
         .otp-copy {
-          background: #f6f8fa;
+          background: #fff;
           border: 1px solid #d0d7de;
           border-radius: 6px;
-          padding: 8px 12px;
+          padding: 6px 10px;
           cursor: pointer;
-          font-size: 18px;
+          font-size: 16px;
+          transition: all 0.2s;
+          flex-shrink: 0;
         }
 
         .otp-copy:hover:not(:disabled) {
           background: #f3f4f6;
+          border-color: #afb8c1;
+          transform: translateY(-1px);
+        }
+
+        .otp-copy:active:not(:disabled) {
+          transform: translateY(0);
         }
 
         .otp-copy:disabled {
@@ -257,29 +238,17 @@ export function OTPDisplay({ content }: Props) {
         }
 
         .otp-progress {
-          height: 4px;
-          background: #d0d7de;
+          height: 3px;
+          background: #eaecef;
           border-radius: 2px;
           overflow: hidden;
-          margin: 12px 0;
+          margin-top: 8px;
         }
 
         .otp-progress-bar {
           height: 100%;
-          background: #2da44e;
+          background: linear-gradient(90deg, #2da44e 0%, #4ac26b 100%);
           transition: width 1s linear;
-        }
-
-        .otp-footer {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          font-size: 12px;
-          color: #8b949e;
-        }
-
-        .otp-period-hint {
-          font-size: 11px;
         }
 
         .otp-toast {
@@ -287,14 +256,15 @@ export function OTPDisplay({ content }: Props) {
           bottom: 20px;
           left: 50%;
           transform: translateX(-50%);
-          background: #2da44e;
+          background: #1a7f37;
           color: white;
-          padding: 8px 16px;
+          padding: 6px 12px;
           border-radius: 6px;
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 500;
           z-index: 1000;
           animation: fadeIn 0.2s ease;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         }
 
         @keyframes fadeIn {
