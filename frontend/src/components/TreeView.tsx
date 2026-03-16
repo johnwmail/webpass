@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'preact/hooks';
 import type { EntryMeta, TreeNode } from '../types';
+import { Folder, FolderOpen, Key } from 'lucide-preact';
 
 interface Props {
   entries: EntryMeta[];
@@ -23,7 +24,6 @@ function buildTree(entries: EntryMeta[]): TreeNode[] {
 
       let existing = current.find((n) => n.name === name && n.isFolder === !isLast);
       if (!existing) {
-        // If it's an intermediate part, also check for a folder node
         if (!isLast) {
           existing = current.find((n) => n.name === name && n.isFolder);
         }
@@ -43,7 +43,6 @@ function buildTree(entries: EntryMeta[]): TreeNode[] {
     }
   }
 
-  // Sort: folders first, then alphabetical
   const sortNodes = (nodes: TreeNode[]) => {
     nodes.sort((a, b) => {
       if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
@@ -115,17 +114,27 @@ function TreeNodeView({
   return (
     <div class="tree-node">
       <div
-        class={`tree-item ${isSelected ? 'selected' : ''}`}
+        class={`tree-item ${isSelected ? 'selected' : ''} ${node.isFolder && isExpanded ? 'expanded' : ''}`}
         style={{ paddingLeft: `${12 + depth * 16}px` }}
         onClick={handleClick}
         onContextMenu={handleContext}
       >
         {node.isFolder ? (
-          <span class="toggle">{isExpanded ? '▼' : '▶'}</span>
+          <span class="toggle">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </span>
         ) : (
           <span class="toggle" />
         )}
-        <span class="icon">{node.isFolder ? (isExpanded ? '📂' : '📁') : '🔑'}</span>
+        <span class="icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {node.isFolder ? (
+            isExpanded ? <FolderOpen size={16} /> : <Folder size={16} />
+          ) : (
+            <Key size={14} />
+          )}
+        </span>
         <span class="name">{node.name}</span>
       </div>
       {node.isFolder && isExpanded && (
@@ -154,7 +163,6 @@ export function TreeView({ entries, selectedPath, searchQuery, onSelect, onConte
   const tree = useMemo(() => buildTree(entries), [entries]);
   const filtered = useMemo(() => filterTree(tree, searchQuery), [tree, searchQuery]);
 
-  // Auto-expand all folders when searching
   const effectiveExpanded = useMemo(() => {
     if (searchQuery) {
       const all = new Set<string>();
@@ -183,9 +191,9 @@ export function TreeView({ entries, selectedPath, searchQuery, onSelect, onConte
 
   if (filtered.length === 0) {
     return (
-      <div style="padding: 20px; text-align: center; color: var(--text-muted); font-size: 13px;">
+      <div style="padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px; line-height: 1.6;">
         {entries.length === 0
-          ? 'No entries yet. Create one to get started.'
+          ? 'No entries yet.\nCreate one to get started.'
           : 'No entries match your search.'}
       </div>
     );
