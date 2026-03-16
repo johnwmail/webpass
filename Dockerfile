@@ -96,7 +96,5 @@ ENV GIT_REPO_ROOT=/data/git-repos
 
 EXPOSE 8080
 
-VOLUME ["/data"]
-
 # Run with read-only root filesystem (only /data is writable)
 CMD ["./webpass-server"]
