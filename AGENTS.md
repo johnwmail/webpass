@@ -26,8 +26,7 @@ WebPass is a zero-knowledge password manager with:
 │   ├── index.html
 │   └── package.json
 ├── k8s/                # Kubernetes manifests
-└── docs/
-    └── GITSYNC.md      # Git sync feature documentation
+└── GITSYNC.md          # Git sync feature documentation
 ```
 
 ## Development Workflow
@@ -36,16 +35,16 @@ WebPass is a zero-knowledge password manager with:
 
 ```bash
 # Build
-make build
+go build -o webpass-server ./cmd/srv
 
 # Run (with env vars)
-JWT_SECRET=$(openssl rand -hex 32) make run
+JWT_SECRET=$(openssl rand -hex 32) go run ./cmd/srv
 
 # Test
-make test
+go test ./...
 
 # Generate sqlc code
-make db-generate
+cd db && sqlc generate
 ```
 
 ### Frontend
@@ -84,7 +83,7 @@ SQLite with sqlc for type-safe queries.
 
 ```bash
 # After modifying db/queries/*.sql:
-make db-generate
+cd db && sqlc generate
 ```
 
 ## Authentication Flow
@@ -102,7 +101,7 @@ Manual push/pull sync to any Git repository (GitHub, GitLab, Gitea):
 - **Zero-knowledge**: Server stores encrypted blob, can't decrypt
 - **Conflict detection**: Shows UI dialog if local and remote both modified
 
-See [docs/GITSYNC.md](docs/GITSYNC.md) for full documentation.
+See [GITSYNC.md](GITSYNC.md) for full documentation.
 
 ## Security Rules
 
@@ -120,7 +119,7 @@ See [DEPLOY.md](DEPLOY.md) for:
 
 ## Testing Checklist
 
-- [ ] Build succeeds: `make build`
+- [ ] Build succeeds: `go build -o webpass-server ./cmd/srv`
 - [ ] Frontend builds: `cd frontend && npm run build`
 - [ ] Tests pass: `go test ./...`
 - [ ] No hardcoded secrets in code

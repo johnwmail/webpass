@@ -54,7 +54,7 @@ A web-based password manager with zero-knowledge architecture. All cryptography 
 
 ```bash
 # Build backend
-make build
+go build -o webpass-server ./cmd/srv
 
 # Build frontend (optional, for static serving)
 cd frontend && npm run build
@@ -67,11 +67,14 @@ cd frontend && npm run build
 export JWT_SECRET=$(openssl rand -hex 32)
 export DB_PATH=./db.sqlite3
 
-# Run server
+# Run server (development)
+go run ./cmd/srv
+
+# Or run the compiled binary
 ./webpass-server
 ```
 
-Server listens on `:8000` by default.
+Server listens on `:8080` by default.
 
 ## 📦 Deployment
 
@@ -84,8 +87,8 @@ docker build -t webpass:latest .
 # Run container
 docker run -d \
   --name webpass \
-  -p 8000:8000 \
-  -v webpass-data:/app/data \
+  -p 8080:8080 \
+  -v webpass-data:/data \
   -e JWT_SECRET="$(openssl rand -hex 32)" \
   webpass:latest
 ```
