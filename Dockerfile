@@ -31,9 +31,12 @@ RUN echo "FRONTEND_VERSION=$FRONTEND_VERSION" > .env.production \
 RUN npm run build
 
 # Patch index.html with version info (since Vite doesn't replace meta tags)
+# Also add cache-busting timestamp to JS/CSS references
 RUN sed -i "s|content=\"vdev\"|content=\"$FRONTEND_VERSION\"|g" /app/frontend/dist/index.html \
     && sed -i "s|name=\"build-time\" content=\"unknown\"|name=\"build-time\" content=\"$FRONTEND_BUILD_TIME\"|g" /app/frontend/dist/index.html \
-    && sed -i "s|name=\"build-commit\" content=\"unknown\"|name=\"build-commit\" content=\"$FRONTEND_COMMIT\"|g" /app/frontend/dist/index.html || true
+    && sed -i "s|name=\"build-commit\" content=\"unknown\"|name=\"build-commit\" content=\"$FRONTEND_COMMIT\"|g" /app/frontend/dist/index.html \
+    && sed -i "s|index-\\([^.]*\\)\\.js|index-\\1.js?v=$FRONTEND_BUILD_TIME|g" /app/frontend/dist/index.html \
+    && sed -i "s|index-\\([^.]*\\)\\.css|index-\\1.css?v=$FRONTEND_BUILD_TIME|g" /app/frontend/dist/index.html || true
 
 
 # ============================================
