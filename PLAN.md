@@ -141,7 +141,6 @@ All endpoints under `/api/`. JWT required for all except setup and login.
 | ------ | ------------------- | ---- | ------------------------------------ |
 | POST   | `/api`              | No   | First-time: set password + public key |
 | POST   | `/api/{fingerprint}/login`        | No   | Verify password → return JWT         |
-| GET    | `/api/{fingerprint}`    | JWT  | Get user info by fingerprint         |
 
 ### Entries (Password Store)
 
