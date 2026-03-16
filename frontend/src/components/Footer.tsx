@@ -5,6 +5,7 @@ interface Props {
   onSessionExpired?: () => void;
 }
 
+// Updated version display - reads from meta tags
 export function Footer({ onSessionExpired }: Props) {
   return (
     <footer class="app-footer">
