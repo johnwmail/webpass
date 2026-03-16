@@ -182,12 +182,12 @@ export function OTPDisplay({ content }: Props) {
 
       <style>{`
         .otp-display {
-          background: linear-gradient(135deg, #f6f8fa 0%, #f0f2f4 100%);
-          border: 1px solid #e1e4e8;
+          background: #161b22;
+          border: 1px solid #30363d;
           border-radius: 8px;
           padding: 10px 12px;
           margin: 10px 0;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         }
 
         .otp-code-container {
@@ -203,28 +203,29 @@ export function OTPDisplay({ content }: Props) {
           font-weight: 600;
           text-align: center;
           padding: 8px 12px;
-          background: #fff;
-          border: 1px solid #d0d7de;
+          background: #0d1117;
+          border: 1px solid #30363d;
           border-radius: 6px;
           letter-spacing: 3px;
-          color: #1a7f37;
-          box-shadow: inset 0 1px 2px rgba(0,0,0,0.03);
+          color: #3fb950;
+          box-shadow: inset 0 1px 2px rgba(0,0,0,0.2);
         }
 
         .otp-copy {
-          background: #fff;
-          border: 1px solid #d0d7de;
+          background: #21262d;
+          border: 1px solid #30363d;
           border-radius: 6px;
           padding: 6px 10px;
           cursor: pointer;
           font-size: 16px;
           transition: all 0.2s;
           flex-shrink: 0;
+          color: #c9d1d9;
         }
 
         .otp-copy:hover:not(:disabled) {
-          background: #f3f4f6;
-          border-color: #afb8c1;
+          background: #30363d;
+          border-color: #8b949e;
           transform: translateY(-1px);
         }
 
@@ -239,7 +240,7 @@ export function OTPDisplay({ content }: Props) {
 
         .otp-progress {
           height: 3px;
-          background: #eaecef;
+          background: #21262d;
           border-radius: 2px;
           overflow: hidden;
           margin-top: 8px;
@@ -247,7 +248,7 @@ export function OTPDisplay({ content }: Props) {
 
         .otp-progress-bar {
           height: 100%;
-          background: linear-gradient(90deg, #2da44e 0%, #4ac26b 100%);
+          background: linear-gradient(90deg, #3fb950 0%, #56d364 100%);
           transition: width 1s linear;
         }
 
@@ -256,15 +257,15 @@ export function OTPDisplay({ content }: Props) {
           bottom: 20px;
           left: 50%;
           transform: translateX(-50%);
-          background: #1a7f37;
-          color: white;
+          background: #238636;
+          color: #ffffff;
           padding: 6px 12px;
           border-radius: 6px;
           font-size: 12px;
           font-weight: 500;
           z-index: 1000;
           animation: fadeIn 0.2s ease;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+          box-shadow: 0 4px 12px rgba(0,0,0,0.4);
         }
 
         @keyframes fadeIn {
