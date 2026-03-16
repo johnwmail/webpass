@@ -118,7 +118,7 @@ All endpoints require JWT authentication.
 
 | Method | Path                      | Auth  | Description                           |
 | ------ | ------------------------- | ----- | ------------------------------------- |
-| POST   | `/api/users`              | No    | Create user (first-time setup)        |
+| POST   | `/api`                    | No    | Create user (first-time setup)        |
 | POST   | `/api/{fingerprint}/login`    | No    | Login → returns JWT or 2FA challenge  |
 | POST   | `/api/{fingerprint}/login/2fa`| No    | Complete 2FA login                    |
 | GET    | `/api/{fingerprint}/entries`  | JWT   | List all entry paths                  |

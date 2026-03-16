@@ -176,7 +176,7 @@ jobs:
         run: |
           response=$(curl -s http://localhost:8080/api/health)
           echo "Health response: $response"
-          [[ "$response" == *"ok"* ]] && echo "✓ Health check passed"
+          [[ "$response" == *"status":"ok"* ]] && echo "✓ Health check passed"
 
       - name: Test frontend serving
         run: |
@@ -186,7 +186,7 @@ jobs:
 
       - name: Test setup endpoint
         run: |
-          response=$(curl -s -X POST http://localhost:8080/api/users \
+          response=$(curl -s -X POST http://localhost:8080/api \
             -H "Content-Type: application/json" \
             -d '{"password":"test123","public_key":"test-key","fingerprint":"test-fp"}')
           echo "Setup response: $response"
