@@ -6,9 +6,12 @@ set -e
 cd "$(dirname "$0")"
 
 # Get git info
-COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+COMMIT=$(git rev-parse --short 7 HEAD 2>/dev/null || echo "unknown")
 BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "vdev")
+BASE_VERSION=$(git describe --tags --always --dirty 2>/dev/null | sed 's/-dirty$//' || echo "vdev")
+
+# Format version as v0.1.1-<7-char-hash> for dev builds
+VERSION="${BASE_VERSION}-${COMMIT}"
 
 echo "Building WebPass..."
 echo "  Version: $VERSION"
