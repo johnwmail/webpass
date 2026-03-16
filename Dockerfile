@@ -13,6 +13,11 @@ ARG FRONTEND_VERSION=vdev
 ARG FRONTEND_BUILD_TIME=unknown
 ARG FRONTEND_COMMIT=unknown
 
+# Convert build args to environment variables for Vite
+ENV FRONTEND_VERSION=${FRONTEND_VERSION}
+ENV FRONTEND_BUILD_TIME=${FRONTEND_BUILD_TIME}
+ENV FRONTEND_COMMIT=${FRONTEND_COMMIT}
+
 # Copy package files
 COPY frontend/package*.json ./
 
@@ -23,10 +28,7 @@ RUN npm ci --frozen-lockfile
 COPY frontend/ ./
 
 # Build for production with version injection
-RUN FRONTEND_VERSION=${FRONTEND_VERSION} \
-    FRONTEND_BUILD_TIME=${FRONTEND_BUILD_TIME} \
-    FRONTEND_COMMIT=${FRONTEND_COMMIT} \
-    npm run build
+RUN npm run build
 
 
 # ============================================
