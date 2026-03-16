@@ -162,7 +162,7 @@ jobs:
       - name: Wait for health check
         run: |
           for i in {1..30}; do
-            if curl -s http://localhost:8080/api/health | grep -q "ok"; then
+            if curl -s http://localhost:8080/api/health | grep -q '"status":"ok"'; then
               echo "Service is healthy!"
               exit 0
             fi
@@ -176,7 +176,7 @@ jobs:
         run: |
           response=$(curl -s http://localhost:8080/api/health)
           echo "Health response: $response"
-          [[ "$response" == *"status":"ok"* ]] && echo "✓ Health check passed"
+          echo "$response" | grep -q '"status":"ok"' && echo "✓ Health check passed"
 
       - name: Test frontend serving
         run: |
