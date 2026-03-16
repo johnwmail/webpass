@@ -63,9 +63,20 @@ describe('ApiClient', () => {
   });
 
   describe('url method', () => {
-    it('should construct full URL from path', () => {
+    it('should strip /api prefix from path when baseUrl already has /api', () => {
       const url = (client as any).url('/api');
-      expect(url).toBe('http://localhost:8000/api/api');
+      expect(url).toBe('http://localhost:8000/api');
+    });
+
+    it('should strip /api prefix from longer paths', () => {
+      const url = (client as any).url('/api/test-fp/login');
+      expect(url).toBe('http://localhost:8000/api/test-fp/login');
+    });
+
+    it('should not strip if baseUrl does not end with /api', () => {
+      const clientNoApi = new ApiClient('http://localhost:8000');
+      const url = (clientNoApi as any).url('/api');
+      expect(url).toBe('http://localhost:8000/api');
     });
   });
 
