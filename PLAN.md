@@ -755,8 +755,8 @@ Note: login password and PGP passphrase CAN be the same (user's choice), but we 
 | `DEPLOY.md` | ✅ Complete | Detailed deployment instructions (Docker, K8s) |
 | `SECURITY.md` | ✅ Complete | Security policy and vulnerability reporting |
 | `CONTRIBUTING.md` | ✅ Complete | Contribution guidelines |
-| `docs/usage.md` | 📝 TODO | End-user guide: setup, login, managing entries |
-| `docs/api.md` | 📝 TODO | Full API reference with examples |
+| `IMPORT.md` | ✅ Complete | Import feature documentation |
+| `DEVELOPMENT.md` | ✅ Complete | Development setup guide |
 
 ## Testing
 
