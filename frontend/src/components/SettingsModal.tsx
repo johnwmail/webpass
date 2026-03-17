@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'preact/hooks';
 import { session } from '../lib/session';
 import { getAccount, deleteAccount as deleteAccountFromDB } from '../lib/storage';
+import { decryptPAT } from '../lib/crypto';
 import QRCode from 'qrcode';
 import { GitSync } from './GitSync';
 import { ImportDialog } from './ImportDialog';
@@ -131,12 +132,49 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
   };
 
   // Git sync handlers
+  const fetchAndDecryptPAT = async (): Promise<string | null> => {
+    try {
+      if (!session.api) return null;
+      const config = await session.api.getGitConfig();
+      if (!config.encrypted_pat) return null;
+      
+      // Get account to decrypt PAT
+      const account = await getAccount(fp);
+      if (!account) return null;
+      
+      // Prompt for passphrase
+      const passphrase = prompt('Enter PGP passphrase to decrypt PAT:');
+      if (!passphrase) return null;
+      
+      // Decrypt private key
+      const openpgp = await import('openpgp');
+      const privateKey = await openpgp.readPrivateKey({ armoredKey: account.privateKey });
+      const decryptedKey = await openpgp.decryptKey({ privateKey, passphrase });
+      
+      // Decrypt PAT
+      const decryptedPAT = await decryptPAT(config.encrypted_pat, decryptedKey);
+      return decryptedPAT;
+    } catch (e: any) {
+      setGitError('Failed to decrypt PAT: ' + (e.message || 'Unknown error'));
+      return null;
+    }
+  };
+
   const handleGitPush = async () => {
     setGitLoading(true);
     setGitError('');
     try {
       if (!session.api) throw new Error('Not logged in');
-      await session.api.gitPush('');
+      
+      // Fetch and decrypt PAT
+      const pat = await fetchAndDecryptPAT();
+      if (!pat) {
+        setGitError('PAT decryption failed. Check your passphrase.');
+        setGitLoading(false);
+        return;
+      }
+      
+      await session.api.gitPush(pat);
       setGitSuccess('Push successful!');
       setTimeout(() => setGitSuccess(''), 3000);
       onEntriesChanged?.();
@@ -151,7 +189,16 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
     setGitError('');
     try {
       if (!session.api) throw new Error('Not logged in');
-      await session.api.gitPull('');
+      
+      // Fetch and decrypt PAT
+      const pat = await fetchAndDecryptPAT();
+      if (!pat) {
+        setGitError('PAT decryption failed. Check your passphrase.');
+        setGitLoading(false);
+        return;
+      }
+      
+      await session.api.gitPull(pat);
       setGitSuccess('Pull successful!');
       setTimeout(() => setGitSuccess(''), 3000);
       onEntriesChanged?.();
