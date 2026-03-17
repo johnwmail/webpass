@@ -877,9 +877,9 @@ func (s *Server) handleGitGetConfig(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			jsonOK(w, map[string]interface{}{
-				"configured":      false,
-				"repo_url":        "",
-				"encrypted_pat":   "",
+				"configured":        false,
+				"repo_url":          "",
+				"encrypted_pat":     "",
 				"has_encrypted_pat": false,
 			})
 			return
