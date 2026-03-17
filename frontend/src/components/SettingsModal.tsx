@@ -503,7 +503,8 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
 
       {/* Git Sync Modal */}
       {showGitSync && <GitSync onClose={() => setShowGitSync(false)} onSuccess={() => {
-        // No reload needed - just close the modal
+        // Reload entries after successful sync
+        onEntriesChanged?.();
         setShowGitSync(false);
       }} />}
 
