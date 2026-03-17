@@ -19,7 +19,6 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
   const [loading, setLoading] = useState(false);
 
   const [apiUrl, setApiUrl] = useState('');
-  const [urlTested, setUrlTested] = useState(false);
   const [urlTesting, setUrlTesting] = useState(false);
 
   const [loginPassword, setLoginPassword] = useState('');
@@ -28,7 +27,8 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
   const [keyMode, setKeyMode] = useState<'generate' | 'import'>('generate');
   const [pgpPassphrase, setPgpPassphrase] = useState('');
   const [pgpPassphraseConfirm, setPgpPassphraseConfirm] = useState('');
-  const [importKey, setImportKey] = useState('');
+  const [importKeyData, setImportKeyData] = useState<string | Uint8Array | null>(null);
+  const [importKeyFormat, setImportKeyFormat] = useState<'armored' | 'binary'>('armored');
   const [importPassphrase, setImportPassphrase] = useState('');
 
   const [publicKey, setPublicKey] = useState('');
@@ -53,7 +53,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
 
   const formatFp = (fp: string) => fp.toUpperCase().replace(/(.{4})/g, '$1 ').trim();
 
-  const testConnection = async () => {
+  const testConnection = async (): Promise<boolean> => {
     setUrlTesting(true);
     setError('');
     try {
@@ -68,7 +68,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
         body: JSON.stringify({}),
       });
       if (res.status === 400 || res.status === 200 || res.status === 201 || res.status === 409) {
-        setUrlTested(true);
+        return true;
       } else {
         throw new Error(`Unexpected status: ${res.status}`);
       }
@@ -78,8 +78,10 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
       } else {
         setError(e.message);
       }
+      return false;
+    } finally {
+      setUrlTesting(false);
     }
-    setUrlTesting(false);
   };
 
   const handleGenerateKey = async () => {
@@ -101,13 +103,29 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
     setLoading(true);
     setError('');
     try {
-      await decryptPrivateKey(importKey, importPassphrase);
+      if (!importKeyData) {
+        throw new Error('No key data provided');
+      }
+      await decryptPrivateKey(importKeyData, importPassphrase);
       const openpgp = await import('openpgp');
-      const privKeyObj = await openpgp.readPrivateKey({ armoredKey: importKey });
-      const pubKey = privKeyObj.toPublic().armor();
+      let pubKey: string;
+      let privKeyArmored: string;
+      
+      if (importKeyFormat === 'armored' && typeof importKeyData === 'string') {
+        const privKeyObj = await openpgp.readPrivateKey({ armoredKey: importKeyData });
+        pubKey = privKeyObj.toPublic().armor();
+        privKeyArmored = importKeyData;
+      } else if (importKeyFormat === 'binary' && importKeyData instanceof Uint8Array) {
+        const privKeyObj = await openpgp.readPrivateKey({ binaryKey: importKeyData });
+        pubKey = privKeyObj.toPublic().armor();
+        privKeyArmored = privKeyObj.armor();
+      } else {
+        throw new Error('Invalid key format');
+      }
+      
       const fp = await getFingerprint(pubKey);
       setPublicKey(pubKey);
-      setPrivateKey(importKey);
+      setPrivateKey(privKeyArmored);
       setFingerprint(fp);
       setKeyReady(true);
     } catch (e: any) {
@@ -220,9 +238,17 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
     }
   }, [step, setupApi]);
 
-  const canProceedStep1 = apiUrl.trim().length > 0 && urlTested;
+  const canProceedStep1 = apiUrl.trim().length > 0;
   const canProceedStep2 = loginPassword.length >= 1 && loginPassword === loginPasswordConfirm;
   const canProceedStep3 = keyReady;
+
+  const handleStep1Next = async () => {
+    const success = await testConnection();
+    if (success) {
+      setStep(2);
+      setError('');
+    }
+  };
 
   return (
     <div class="setup-page">
@@ -263,43 +289,26 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
               </div>
               <div class="field">
                 <label class="label">Server URL</label>
-                <div class="input-group">
-                  <input
-                    class="input input-mono"
-                    type="url"
-                    value={apiUrl}
-                    onInput={(e) => {
-                      setApiUrl((e.target as HTMLInputElement).value);
-                      setUrlTested(false);
-                      setError('');
-                    }}
-                    placeholder="https://webpass.example.com:8000"
-                  />
-                  <button
-                    type="button"
-                    class="btn btn-sm"
-                    onClick={testConnection}
-                    disabled={!apiUrl.trim() || urlTesting}
-                  >
-                    {urlTesting ? <span class="spinner" /> : urlTested ? <><Check size={14} style={{ marginRight: '4px' }} /> OK</> : 'Test'}
-                  </button>
-                </div>
+                <input
+                  class="input input-mono"
+                  type="url"
+                  value={apiUrl}
+                  onInput={(e) => {
+                    setApiUrl((e.target as HTMLInputElement).value);
+                    setError('');
+                  }}
+                  placeholder="https://webpass.example.com:8000"
+                />
               </div>
-              {urlTested && (
-                <p class="success-msg">
-                  <Check size={14} style={{ marginRight: '6px', display: 'inline' }} />
-                  Server is reachable
-                </p>
-              )}
               {error && <p class="error-msg">{error}</p>}
               <div class="setup-actions">
                 <button class="btn" onClick={onCancel}>Cancel</button>
                 <button
                   class="btn btn-primary"
-                  onClick={() => { setStep(2); setError(''); }}
-                  disabled={!canProceedStep1}
+                  onClick={handleStep1Next}
+                  disabled={!canProceedStep1 || urlTesting}
                 >
-                  Next <ArrowRight size={16} style={{ marginLeft: '6px' }} />
+                  {urlTesting ? <><span class="spinner" /> Testing...</> : <>Next <ArrowRight size={16} style={{ marginLeft: '6px' }} /></>}
                 </button>
               </div>
             </>
@@ -428,14 +437,51 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                   ) : (
                     <>
                       <div class="field">
-                        <label class="label">Private Key (armored)</label>
-                        <textarea
-                          class="textarea input-mono"
-                          rows={5}
-                          value={importKey}
-                          onInput={(e) => setImportKey((e.target as HTMLTextAreaElement).value)}
-                          placeholder="-----BEGIN PGP PRIVATE KEY BLOCK-----"
+                        <label class="label">Import Private Key</label>
+                        <p class="help-text" style="margin-bottom: 12px; font-size: 12px; color: var(--text-muted);">
+                          Upload your PGP private key file (.asc, .key, .gpg, or .pgp)
+                        </p>
+                        <input
+                          type="file"
+                          accept=".asc,.pgp,.key,.gpg"
+                          onChange={(e) => {
+                            const input = e.target as HTMLInputElement;
+                            const file = input.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              // Always read as ArrayBuffer first, then detect format from content
+                              reader.onload = () => {
+                                const data = reader.result as ArrayBuffer;
+                                const bytes = new Uint8Array(data);
+
+                                // Detect format by checking for PGP armor headers
+                                // Armored text starts with "-----BEGIN PGP PRIVATE KEY BLOCK-----"
+                                const decoder = new TextDecoder('utf-8', { fatal: false });
+                                const textPreview = decoder.decode(bytes.slice(0, 50));
+
+                                if (textPreview.includes('-----BEGIN PGP PRIVATE KEY BLOCK-----')) {
+                                  // Armored text format - decode as string
+                                  const fullText = decoder.decode(bytes);
+                                  setImportKeyData(fullText);
+                                  setImportKeyFormat('armored');
+                                } else {
+                                  // Binary format (OpenPGP packets)
+                                  setImportKeyData(bytes);
+                                  setImportKeyFormat('binary');
+                                }
+                                setError('');
+                              };
+                              reader.readAsArrayBuffer(file);
+                            }
+                          }}
+                          disabled={loading}
+                          style="width: 100%;"
                         />
+                        {importKeyData && (
+                          <p style={`font-size: 12px; margin-top: 8px; ${importKeyFormat === 'binary' ? 'color: var(--success);' : 'color: var(--text-muted);'}`}>
+                            {importKeyFormat === 'binary' ? '✓ Binary key file detected' : '✓ Armored key file detected'}
+                          </p>
+                        )}
                       </div>
                       <div class="field">
                         <label class="label">Key Passphrase</label>
@@ -446,12 +492,13 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                           onInput={(e) => setImportPassphrase((e.target as HTMLInputElement).value)}
                           placeholder="Passphrase for this key"
                           autocomplete="off"
+                          disabled={loading}
                         />
                       </div>
                       <button
                         class="btn btn-primary btn-block"
                         onClick={handleImportKey}
-                        disabled={!importKey || !importPassphrase || loading}
+                        disabled={!importKeyData || !importPassphrase || loading}
                       >
                         {loading ? <><span class="spinner" /> Importing...</> : <><Key size={16} style={{ marginRight: '8px' }} /> Import Key</>}
                       </button>

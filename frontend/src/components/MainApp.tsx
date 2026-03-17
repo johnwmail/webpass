@@ -396,7 +396,7 @@ export function MainApp({ onLock }: Props) {
         <EncryptModal onClose={() => setShowEncrypt(false)} />
       )}
       {showSettings && (
-        <SettingsModal onClose={() => setShowSettings(false)} onLock={onLock} />
+        <SettingsModal onClose={() => setShowSettings(false)} onLock={onLock} onEntriesChanged={loadEntries} />
       )}
     </div>
   );

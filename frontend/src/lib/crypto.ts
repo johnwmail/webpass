@@ -28,33 +28,53 @@ export async function getFingerprint(armoredPublicKey: string): Promise<string> 
 
 /** Decrypt private key with passphrase */
 export async function decryptPrivateKey(
-  armoredKey: string,
+  keyData: string | Uint8Array,
   passphrase: string
 ): Promise<openpgp.PrivateKey> {
-  const privateKey = await openpgp.readPrivateKey({ armoredKey });
+  let privateKey: openpgp.PrivateKey;
+
+  // Auto-detect format: armored text or binary
+  if (typeof keyData === 'string') {
+    privateKey = await openpgp.readPrivateKey({ armoredKey: keyData });
+  } else if (keyData instanceof Uint8Array) {
+    privateKey = await openpgp.readPrivateKey({ binaryKey: keyData });
+  } else {
+    throw new Error('Invalid key format: must be string (armored) or Uint8Array (binary)');
+  }
+
   return openpgp.decryptKey({ privateKey, passphrase });
 }
 
 /**
  * Import and decrypt external private key from file
- * 
+ *
  * SECURITY: The decrypted key is returned but should NEVER be persisted.
  * Caller must clear it from memory after use (set to null).
- * 
- * @param armoredKey - Armored PGP private key (from .asc or .pgp file)
+ *
+ * @param keyData - PGP private key data (armored string or binary Uint8Array)
  * @param passphrase - Passphrase to decrypt the key
  * @returns Decrypted private key (MUST be cleared from memory after use)
  */
 export async function importPrivateKey(
-  armoredKey: string,
+  keyData: string | Uint8Array,
   passphrase: string
 ): Promise<openpgp.PrivateKey> {
-  // Read and parse the armored key
-  const privateKey = await openpgp.readPrivateKey({ armoredKey });
-  
+  let privateKey: openpgp.PrivateKey;
+
+  // Auto-detect format: armored text or binary
+  if (typeof keyData === 'string') {
+    // Armored text format (-----BEGIN PGP PRIVATE KEY BLOCK-----)
+    privateKey = await openpgp.readPrivateKey({ armoredKey: keyData });
+  } else if (keyData instanceof Uint8Array) {
+    // Binary format (OpenPGP binary packets)
+    privateKey = await openpgp.readPrivateKey({ binaryKey: keyData });
+  } else {
+    throw new Error('Invalid key format: must be string (armored) or Uint8Array (binary)');
+  }
+
   // Decrypt with passphrase
   const decryptedKey = await openpgp.decryptKey({ privateKey, passphrase });
-  
+
   return decryptedKey;
 }
 

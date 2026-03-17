@@ -47,3 +47,21 @@ No password-based AES-GCM layer. This is consistent with how password entries ar
 
 **Public key storage**: Stored in IndexedDB `KEYS_STORE` table (armored plaintext format).
 **Private key storage**: Stored in IndexedDB `KEYS_STORE` table (armored, passphrase-protected by PGP).
+
+## Code Changes Require Docs & Tests Review
+
+**After every code change**, automatically review and update:
+
+1. **Documentation** - Check all `.md` files for references to the changed code
+   - Update if docs describe outdated behavior or UI flows
+   - Keep screenshots/descriptions in sync with actual implementation
+
+2. **Unit Tests** - Check all `.test.ts`, `.test.tsx`, `.test.go` files
+   - Update tests that reference changed functions/components
+   - Add new tests for new functionality
+   - Remove or update tests for removed/changed behavior
+
+**Rule:** Never leave docs or tests referencing old code patterns. After modifying code:
+- Search for references in docs/tests
+- Update them to match the new implementation
+- Verify build and tests still pass

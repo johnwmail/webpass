@@ -9,9 +9,10 @@ import { VERSION as FRONTEND_VERSION, COMMIT as FRONTEND_COMMIT, BUILD_TIME as F
 interface Props {
   onClose: () => void;
   onLock: () => void;
+  onEntriesChanged?: () => void;
 }
 
-export function SettingsModal({ onClose, onLock }: Props) {
+export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -101,6 +102,8 @@ export function SettingsModal({ onClose, onLock }: Props) {
   const handleImportSuccess = (imported: number) => {
     setSuccess(`Imported ${imported} entries`);
     setTimeout(() => setSuccess(''), 5000);
+    // Reload entries in main app
+    onEntriesChanged?.();
   };
 
   // Setup 2FA
