@@ -45,6 +45,12 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
   const [gitLoading, setGitLoading] = useState(false);
   const [gitError, setGitError] = useState('');
   const [gitSuccess, setGitSuccess] = useState('');
+  
+  // PAT passphrase prompt state
+  const [showPassphrasePrompt, setShowPassphrasePrompt] = useState(false);
+  const [patPassphrase, setPatPassphrase] = useState('');
+  const [patAction, setPatAction] = useState<'push' | 'pull' | null>(null);
+  const [patLoading, setPatLoading] = useState(false);
 
   const fp = session.fingerprint || '';
   const apiUrl = session.api?.baseUrl || '';
@@ -132,7 +138,7 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
   };
 
   // Git sync handlers
-  const fetchAndDecryptPAT = async (): Promise<string | null> => {
+  const fetchAndDecryptPAT = async (passphrase: string): Promise<string | null> => {
     try {
       if (!session.api) return null;
       const config = await session.api.getGitConfig();
@@ -141,10 +147,6 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
       // Get account to decrypt PAT
       const account = await getAccount(fp);
       if (!account) return null;
-      
-      // Prompt for passphrase
-      const passphrase = prompt('Enter PGP passphrase to decrypt PAT:');
-      if (!passphrase) return null;
       
       // Decrypt private key
       const openpgp = await import('openpgp');
@@ -155,57 +157,59 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
       const decryptedPAT = await decryptPAT(config.encrypted_pat, decryptedKey);
       return decryptedPAT;
     } catch (e: any) {
-      setGitError('Failed to decrypt PAT: ' + (e.message || 'Unknown error'));
-      return null;
+      throw new Error('Failed to decrypt PAT: ' + (e.message || 'Unknown error'));
     }
+  };
+
+  const handlePassphraseSubmit = async () => {
+    if (!patPassphrase || !patAction) return;
+    
+    setPatLoading(true);
+    setGitError('');
+    
+    try {
+      const pat = await fetchAndDecryptPAT(patPassphrase);
+      if (!pat) {
+        setGitError('PAT decryption failed');
+        setPatLoading(false);
+        setShowPassphrasePrompt(false);
+        return;
+      }
+      
+      // Execute the action
+      if (patAction === 'push') {
+        if (session.api) await session.api.gitPush(pat);
+        setGitSuccess('Push successful!');
+        setTimeout(() => setGitSuccess(''), 3000);
+        onEntriesChanged?.();
+      } else if (patAction === 'pull') {
+        if (session.api) await session.api.gitPull(pat);
+        setGitSuccess('Pull successful!');
+        setTimeout(() => setGitSuccess(''), 3000);
+        onEntriesChanged?.();
+      }
+      
+      setShowPassphrasePrompt(false);
+      setPatPassphrase('');
+      setPatAction(null);
+    } catch (e: any) {
+      setGitError(e.message || (patAction === 'push' ? 'Push failed' : 'Pull failed'));
+    }
+    setPatLoading(false);
   };
 
   const handleGitPush = async () => {
-    setGitLoading(true);
+    setPatAction('push');
+    setPatPassphrase('');
     setGitError('');
-    try {
-      if (!session.api) throw new Error('Not logged in');
-      
-      // Fetch and decrypt PAT
-      const pat = await fetchAndDecryptPAT();
-      if (!pat) {
-        setGitError('PAT decryption failed. Check your passphrase.');
-        setGitLoading(false);
-        return;
-      }
-      
-      await session.api.gitPush(pat);
-      setGitSuccess('Push successful!');
-      setTimeout(() => setGitSuccess(''), 3000);
-      onEntriesChanged?.();
-    } catch (e: any) {
-      setGitError(e.message || 'Push failed');
-    }
-    setGitLoading(false);
+    setShowPassphrasePrompt(true);
   };
 
   const handleGitPull = async () => {
-    setGitLoading(true);
+    setPatAction('pull');
+    setPatPassphrase('');
     setGitError('');
-    try {
-      if (!session.api) throw new Error('Not logged in');
-      
-      // Fetch and decrypt PAT
-      const pat = await fetchAndDecryptPAT();
-      if (!pat) {
-        setGitError('PAT decryption failed. Check your passphrase.');
-        setGitLoading(false);
-        return;
-      }
-      
-      await session.api.gitPull(pat);
-      setGitSuccess('Pull successful!');
-      setTimeout(() => setGitSuccess(''), 3000);
-      onEntriesChanged?.();
-    } catch (e: any) {
-      setGitError(e.message || 'Pull failed');
-    }
-    setGitLoading(false);
+    setShowPassphrasePrompt(true);
   };
 
   // Setup 2FA
@@ -447,16 +451,16 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
                 <button
                   class="btn btn-sm"
                   onClick={handleGitPush}
-                  disabled={gitLoading}
+                  disabled={patLoading}
                 >
-                  {gitLoading ? <><span class="spinner" /> Pushing...</> : '⬆️ Push'}
+                  {patLoading ? <><span class="spinner" /> Pushing...</> : '⬆️ Push'}
                 </button>
                 <button
                   class="btn btn-sm"
                   onClick={handleGitPull}
-                  disabled={gitLoading}
+                  disabled={patLoading}
                 >
-                  {gitLoading ? <><span class="spinner" /> Pulling...</> : '⬇️ Pull'}
+                  {patLoading ? <><span class="spinner" /> Pulling...</> : '⬇️ Pull'}
                 </button>
                 <div style="flex: 1;" />
                 <button class="btn btn-sm" onClick={() => setShowGitSync(true)}>
@@ -583,7 +587,7 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
             </div>
             <div class="modal-body">
               <p style="margin-bottom: 16px; font-size: 13px; color: var(--text-muted);">
-                {showDeletePrompt === 'local' 
+                {showDeletePrompt === 'local'
                   ? 'Enter your PGP passphrase to confirm clearing local data.'
                   : 'Enter your PGP passphrase to permanently delete your account. This action cannot be undone.'}
               </p>
@@ -619,6 +623,57 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
                   disabled={!deletePassphrase || deleteLoading}
                 >
                   {deleteLoading ? <><span class="spinner" /> Deleting...</> : 'Confirm'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PAT Passphrase Prompt Modal */}
+      {showPassphrasePrompt && (
+        <div class="modal-overlay" onClick={() => { setShowPassphrasePrompt(false); setPatPassphrase(''); setPatAction(null); }}>
+          <div class="modal" style="max-width: 400px;" onClick={(e) => e.stopPropagation()}>
+            <div class="modal-header">
+              <h3>🔐 {patAction === 'push' ? 'Push to Git' : 'Pull from Git'}</h3>
+              <button class="btn btn-ghost btn-icon" onClick={() => { setShowPassphrasePrompt(false); setPatPassphrase(''); setPatAction(null); }}>✕</button>
+            </div>
+            <div class="modal-body">
+              <p style="margin-bottom: 16px; font-size: 13px; color: var(--text-muted);">
+                Enter your PGP passphrase to decrypt the Git PAT (Personal Access Token).
+              </p>
+              <div class="field">
+                <label class="label">PGP Passphrase</label>
+                <input
+                  class="input"
+                  type="password"
+                  value={patPassphrase}
+                  onInput={(e) => setPatPassphrase((e.target as HTMLInputElement).value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && patPassphrase) {
+                      handlePassphraseSubmit();
+                    }
+                  }}
+                  placeholder="Enter your PGP passphrase"
+                  disabled={patLoading}
+                  autofocus
+                />
+              </div>
+              {gitError && <p class="error-msg">{gitError}</p>}
+              <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 16px;">
+                <button
+                  class="btn btn-ghost"
+                  onClick={() => { setShowPassphrasePrompt(false); setPatPassphrase(''); setPatAction(null); }}
+                  disabled={patLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  class="btn btn-primary"
+                  onClick={handlePassphraseSubmit}
+                  disabled={!patPassphrase || patLoading}
+                >
+                  {patLoading ? <><span class="spinner" /> Decrypting...</> : 'Decrypt & Continue'}
                 </button>
               </div>
             </div>
