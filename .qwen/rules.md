@@ -65,3 +65,10 @@ No password-based AES-GCM layer. This is consistent with how password entries ar
 - Search for references in docs/tests
 - Update them to match the new implementation
 - Verify build and tests still pass
+
+**Go Code Verification:** After any Go code changes, run:
+```bash
+go fmt ./...
+golangci-lint run
+go test ./...
+```
