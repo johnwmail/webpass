@@ -395,33 +395,35 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
                 ? 'Your passwords are synced to a private Git repository.'
                 : 'Sync your encrypted passwords to a private Git repository.'}
             </p>
-            {gitConfigured ? (
-              <>
-                <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-                  <button
-                    class="btn btn-sm"
-                    onClick={handleGitPush}
-                    disabled={gitLoading}
-                    style="flex: 1;"
-                  >
-                    {gitLoading ? <><span class="spinner" /> Pushing...</> : '⬆️ Push'}
-                  </button>
-                  <button
-                    class="btn btn-sm"
-                    onClick={handleGitPull}
-                    disabled={gitLoading}
-                    style="flex: 1;"
-                  >
-                    {gitLoading ? <><span class="spinner" /> Pulling...</> : '⬇️ Pull'}
-                  </button>
-                </div>
-                {gitError && <p class="error-msg" style="margin-bottom: 8px;">{gitError}</p>}
-                {gitSuccess && <p class="success-msg" style="margin-bottom: 8px;">{gitSuccess}</p>}
-              </>
-            ) : null}
-            <button class="btn btn-sm" onClick={() => setShowGitSync(true)}>
-              {showGitSync ? 'Configuring...' : gitConfigured ? '⚙️ Manage Git Sync' : '⚙️ Configure Git Sync'}
-            </button>
+            {gitConfigured && (
+              <div style="display: flex; gap: 8px; margin-bottom: 12px; align-items: center;">
+                <button
+                  class="btn btn-sm"
+                  onClick={handleGitPush}
+                  disabled={gitLoading}
+                >
+                  {gitLoading ? <><span class="spinner" /> Pushing...</> : '⬆️ Push'}
+                </button>
+                <button
+                  class="btn btn-sm"
+                  onClick={handleGitPull}
+                  disabled={gitLoading}
+                >
+                  {gitLoading ? <><span class="spinner" /> Pulling...</> : '⬇️ Pull'}
+                </button>
+                <div style="flex: 1;" />
+                <button class="btn btn-sm" onClick={() => setShowGitSync(true)}>
+                  {showGitSync ? 'Configuring...' : '⚙️ Manage'}
+                </button>
+              </div>
+            )}
+            {!gitConfigured && (
+              <button class="btn btn-sm" onClick={() => setShowGitSync(true)}>
+                {showGitSync ? 'Configuring...' : '⚙️ Configure Git Sync'}
+              </button>
+            )}
+            {gitError && <p class="error-msg" style="margin-bottom: 8px;">{gitError}</p>}
+            {gitSuccess && <p class="success-msg" style="margin-bottom: 8px;">{gitSuccess}</p>}
           </div>
 
           {/* 2FA */}
