@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'preact/hooks';
 import { session } from '../lib/session';
 import { getAccount } from '../lib/storage';
-import { decryptPrivateKey, decryptBinary, encryptBinary } from '../lib/crypto';
+import { decryptPrivateKey, decryptBinary, encryptBinary, WrongKeyError } from '../lib/crypto';
 import { PassphrasePrompt } from './PassphrasePrompt';
+import { ReencryptDialog } from './ReencryptDialog';
 import { GeneratorModal } from './GeneratorModal';
 import { Lock, Sparkles, Save, X } from 'lucide-preact';
 
@@ -20,6 +21,7 @@ export function EntryForm({ editPath, folderPrefix, onSave, onCancel }: Props) {
   const [notes, setNotes] = useState('');
   const [showGenerator, setShowGenerator] = useState(false);
   const [showPassphrasePrompt, setShowPassphrasePrompt] = useState(false);
+  const [showReencryptDialog, setShowReencryptDialog] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -52,7 +54,12 @@ export function EntryForm({ editPath, folderPrefix, onSave, onCancel }: Props) {
       setNotes(lines.slice(1).join('\n').trim());
       setNeedsDecryptForEdit(false);
     } catch (e: any) {
-      setError(e.message || 'Decryption failed');
+      if (e instanceof WrongKeyError) {
+        // Entry was encrypted with different key - show re-encrypt dialog
+        setShowReencryptDialog(true);
+      } else {
+        setError(e.message || 'Decryption failed');
+      }
     }
     setLoading(false);
   };
@@ -109,6 +116,24 @@ export function EntryForm({ editPath, folderPrefix, onSave, onCancel }: Props) {
           message="Enter passphrase to decrypt entry for editing."
           onSubmit={handleDecryptForEdit}
           onCancel={() => setShowPassphrasePrompt(false)}
+        />
+      )}
+
+      {showReencryptDialog && (
+        <ReencryptDialog
+          entryPath={editPath!}
+          onReencryptComplete={() => {
+            setShowReencryptDialog(false);
+            // Clear state and trigger re-decrypt with current key
+            setNeedsDecryptForEdit(true);
+            setError('');
+            // Show passphrase prompt to decrypt with current key
+            setShowPassphrasePrompt(true);
+          }}
+          onCancel={() => {
+            setShowReencryptDialog(false);
+            setError('Entry encrypted with different key. Cannot decrypt for editing.');
+          }}
         />
       )}
 

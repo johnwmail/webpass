@@ -650,6 +650,44 @@ To view sync history:
 
 ---
 
+#### "This entry was encrypted with a different key"
+
+**Cause**: The entry was encrypted with a different PGP key than your current account. This can happen when:
+
+- Pulling from a git repo that was created from a different WebPass account
+- Pulling entries that were encrypted before you regenerated your PGP keypair
+- Syncing from someone else's repository
+
+**What Happens**:
+- Git pull succeeds and entries are stored in the database
+- When you try to view or edit an entry, decryption fails
+- A dialog appears offering to re-encrypt the entry
+
+**Solution**:
+1. When you see the error dialog, click **"Decrypt & Re-encrypt"**
+2. Upload the **original private key file** that was used to encrypt the entry
+3. Enter the **passphrase** for that original key
+4. The entry will be:
+   - Decrypted with the original private key
+   - Re-encrypted with your current account's public key
+   - Saved back to the server
+5. After re-encryption, the entry is usable with your current key
+
+**Don't have the original key?**
+- Click **"Skip"** in the dialog
+- The entry will remain encrypted (unreadable) until you obtain the original key
+- You can re-encrypt later when you have the original private key
+
+**Batch re-encryption:**
+If you have many entries with the wrong key, repeat the process for each entry. Alternatively:
+1. Export your git repo locally: `git clone <repo-url>`
+2. Create a tar.gz: `tar -czf backup.tar.gz .password-store/`
+3. Use the **Import** feature with the original private key
+4. Import will decrypt all entries and re-encrypt with your current key
+5. After import, push to git sync to update the repo
+
+---
+
 ### Error Messages Reference
 
 | Error Message | Meaning | Action |

@@ -1,8 +1,9 @@
 import { useState } from 'preact/hooks';
 import { session } from '../lib/session';
 import { getAccount } from '../lib/storage';
-import { decryptPrivateKey, decryptBinary } from '../lib/crypto';
+import { decryptPrivateKey, decryptBinary, WrongKeyError } from '../lib/crypto';
 import { PassphrasePrompt } from './PassphrasePrompt';
+import { ReencryptDialog } from './ReencryptDialog';
 import { OTPDisplay } from './OTPDisplay';
 import type { EntryContent } from '../types';
 import { Lock, Eye, EyeOff, Copy, Check, Edit2, Trash2 } from 'lucide-preact';
@@ -25,6 +26,7 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
   const [rawContent, setRawContent] = useState<string>('');
   const [showPassword, setShowPassword] = useState(false);
   const [showPassphrasePrompt, setShowPassphrasePrompt] = useState(false);
+  const [showReencryptDialog, setShowReencryptDialog] = useState(false);
   const [decrypting, setDecrypting] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
@@ -50,7 +52,12 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
       setRawContent(decrypted);
       setContent(parseEntryContent(decrypted));
     } catch (e: any) {
-      setError(e.message || 'Decryption failed');
+      if (e instanceof WrongKeyError) {
+        // Entry was encrypted with different key - show re-encrypt dialog
+        setShowReencryptDialog(true);
+      } else {
+        setError(e.message || 'Decryption failed');
+      }
     }
     setDecrypting(false);
   };
@@ -89,6 +96,25 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
           message="Decrypt this entry to view its contents."
           onSubmit={handleDecrypt}
           onCancel={() => setShowPassphrasePrompt(false)}
+        />
+      )}
+
+      {showReencryptDialog && (
+        <ReencryptDialog
+          entryPath={path}
+          onReencryptComplete={() => {
+            setShowReencryptDialog(false);
+            // Clear state and trigger re-decrypt with current key
+            setContent(null);
+            setRawContent('');
+            setError('');
+            // Show passphrase prompt to decrypt with current key
+            setShowPassphrasePrompt(true);
+          }}
+          onCancel={() => {
+            setShowReencryptDialog(false);
+            setError('Entry encrypted with different key. Cannot decrypt.');
+          }}
         />
       )}
 

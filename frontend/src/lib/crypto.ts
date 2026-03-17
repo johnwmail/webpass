@@ -149,17 +149,39 @@ export async function encryptBinary(
   return encrypted as Uint8Array;
 }
 
+/**
+ * Error thrown when decryption fails due to wrong key
+ * (entry was encrypted with a different PGP key)
+ */
+export class WrongKeyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WrongKeyError';
+  }
+}
+
 /** Decrypt binary PGP message */
 export async function decryptBinary(
   encrypted: Uint8Array,
   privateKey: openpgp.PrivateKey
 ): Promise<string> {
-  const message = await openpgp.readMessage({ binaryMessage: encrypted });
-  const { data } = await openpgp.decrypt({
-    message,
-    decryptionKeys: privateKey,
-  });
-  return data as string;
+  try {
+    const message = await openpgp.readMessage({ binaryMessage: encrypted });
+    const { data } = await openpgp.decrypt({
+      message,
+      decryptionKeys: privateKey,
+    });
+    return data as string;
+  } catch (err: any) {
+    // OpenPGP.js throws "Session key decryption failed" when the key doesn't match
+    if (err.message?.includes('Session key decryption failed')) {
+      throw new WrongKeyError(
+        'This entry was encrypted with a different key. ' +
+        'You need the original private key to decrypt it.'
+      );
+    }
+    throw err;
+  }
 }
 
 /** Encrypt text with a recipient's public key (for encrypt tool) */
