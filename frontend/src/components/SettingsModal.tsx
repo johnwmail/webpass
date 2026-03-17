@@ -40,6 +40,10 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
 
   // Git sync state
   const [showGitSync, setShowGitSync] = useState(false);
+  const [gitConfigured, setGitConfigured] = useState(false);
+  const [gitLoading, setGitLoading] = useState(false);
+  const [gitError, setGitError] = useState('');
+  const [gitSuccess, setGitSuccess] = useState('');
 
   const fp = session.fingerprint || '';
   const apiUrl = session.api?.baseUrl || '';
@@ -56,6 +60,21 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
           setVersionError(err.message || 'Failed to fetch version');
         });
     }
+  }, []);
+
+  // Fetch git sync status
+  useEffect(() => {
+    const fetchGitStatus = async () => {
+      if (session.api) {
+        try {
+          const status = await session.api.getGitStatus();
+          setGitConfigured(!!(status.configured && status.has_encrypted_pat));
+        } catch (err) {
+          // Ignore errors - git not configured
+        }
+      }
+    };
+    fetchGitStatus();
   }, []);
 
   // QR code rendering
@@ -109,6 +128,37 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
     setTimeout(() => setSuccess(''), 5000);
     // Reload entries in main app
     onEntriesChanged?.();
+  };
+
+  // Git sync handlers
+  const handleGitPush = async () => {
+    setGitLoading(true);
+    setGitError('');
+    try {
+      if (!session.api) throw new Error('Not logged in');
+      await session.api.gitPush('');
+      setGitSuccess('Push successful!');
+      setTimeout(() => setGitSuccess(''), 3000);
+      onEntriesChanged?.();
+    } catch (e: any) {
+      setGitError(e.message || 'Push failed');
+    }
+    setGitLoading(false);
+  };
+
+  const handleGitPull = async () => {
+    setGitLoading(true);
+    setGitError('');
+    try {
+      if (!session.api) throw new Error('Not logged in');
+      await session.api.gitPull('');
+      setGitSuccess('Pull successful!');
+      setTimeout(() => setGitSuccess(''), 3000);
+      onEntriesChanged?.();
+    } catch (e: any) {
+      setGitError(e.message || 'Pull failed');
+    }
+    setGitLoading(false);
   };
 
   // Setup 2FA
@@ -341,10 +391,36 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
           <div class="settings-section">
             <h3>🔄 Git Sync</h3>
             <p class="help-text" style="margin-bottom: 12px;">
-              Sync your encrypted passwords to a private Git repository.
+              {gitConfigured 
+                ? 'Your passwords are synced to a private Git repository.'
+                : 'Sync your encrypted passwords to a private Git repository.'}
             </p>
+            {gitConfigured ? (
+              <>
+                <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                  <button
+                    class="btn btn-sm"
+                    onClick={handleGitPush}
+                    disabled={gitLoading}
+                    style="flex: 1;"
+                  >
+                    {gitLoading ? <><span class="spinner" /> Pushing...</> : '⬆️ Push'}
+                  </button>
+                  <button
+                    class="btn btn-sm"
+                    onClick={handleGitPull}
+                    disabled={gitLoading}
+                    style="flex: 1;"
+                  >
+                    {gitLoading ? <><span class="spinner" /> Pulling...</> : '⬇️ Pull'}
+                  </button>
+                </div>
+                {gitError && <p class="error-msg" style="margin-bottom: 8px;">{gitError}</p>}
+                {gitSuccess && <p class="success-msg" style="margin-bottom: 8px;">{gitSuccess}</p>}
+              </>
+            ) : null}
             <button class="btn btn-sm" onClick={() => setShowGitSync(true)}>
-              {showGitSync ? 'Configuring...' : '⚙️ Configure Git Sync'}
+              {showGitSync ? 'Configuring...' : gitConfigured ? '⚙️ Manage Git Sync' : '⚙️ Configure Git Sync'}
             </button>
           </div>
 
