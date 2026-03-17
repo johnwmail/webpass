@@ -16,6 +16,7 @@ A web-based password manager with zero-knowledge architecture. All cryptography 
 - **Password generator** — Configurable random password generation
 - **Session management** — 5-minute JWT sessions with automatic expiry
 - **Git sync** — Backup and sync encrypted entries to any Git repository (GitHub, GitLab, Gitea)
+- **Theme toggle** — Auto-switching light/dark themes based on time of day (8AM-10PM)
 
 ## 🏗️ Architecture
 
@@ -154,6 +155,35 @@ All endpoints require JWT authentication.
 | `DB_PATH`      | No       | Path to SQLite database (default: `db.sqlite3`) |
 | `STATIC_DIR`   | No       | Path to frontend `dist/` directory       |
 | `CORS_ORIGINS` | No       | Comma-separated allowed origins          |
+
+## 🎨 Theme System
+
+The app includes an **auto-switching theme system** with manual override:
+
+### Available Themes
+
+| Theme | Description |
+|-------|-------------|
+| **Ocean** | Dark blue professional theme (default for night) |
+| **Daylight** | Clean white/blue light theme (default for day) |
+
+### Auto Theme Switch (Default)
+
+The theme toggle button in the footer (bottom-right) defaults to **Auto mode**:
+
+- **8:00 AM - 10:00 PM** → Daylight theme
+- **10:00 PM - 8:00 AM** → Ocean theme
+
+### Manual Override
+
+Click the theme toggle button to cycle through modes:
+
+```
+🔄 Auto → 🌙 Ocean → ☀️ Daylight → 🔄 Auto
+```
+
+Your preference is saved to localStorage and persists across sessions.
+
 
 ## 📁 Project Structure
 

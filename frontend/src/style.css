@@ -3,74 +3,74 @@
    ========================================================================== */
 
 :root {
-  /* === Colors: Modern Dark Theme === */
-  --bg: #0a0e1a;
-  --bg-secondary: #111827;
-  --bg-tertiary: #1f2937;
-  --bg-elevated: #1f2937;
-  
+  /* === Default Theme: Ocean (Dark Blue) === */
+  --bg: #001a2e;
+  --bg-secondary: #002a4a;
+  --bg-tertiary: #003d6b;
+  --bg-elevated: #003d6b;
+
   /* Gradient backgrounds */
-  --bg-gradient-1: #0f172a;
-  --bg-gradient-2: #1e1b4b;
-  --bg-gradient-3: #312e81;
-  
+  --bg-gradient-1: #001a2e;
+  --bg-gradient-2: #002a4a;
+  --bg-gradient-3: #003d6b;
+
   /* Borders */
-  --border: #374151;
-  --border-light: #4b5563;
-  --border-gradient: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(139, 92, 246, 0.3));
-  
+  --border: #005a8c;
+  --border-light: #0077b6;
+  --border-gradient: linear-gradient(135deg, rgba(14, 165, 233, 0.3), rgba(56, 189, 248, 0.3));
+
   /* Text */
-  --text: #f9fafb;
-  --text-muted: #9ca3af;
-  --text-dim: #6b7280;
-  
-  /* Accents - Indigo/Purple gradient */
-  --accent: #6366f1;
-  --accent-hover: #818cf8;
-  --accent-bg: rgba(99, 102, 241, 0.12);
-  --accent-glow: rgba(99, 102, 241, 0.4);
-  
+  --text: #f0f9ff;
+  --text-muted: #7dd3fc;
+  --text-dim: #38bdf8;
+
+  /* Accents - Ocean Blue */
+  --accent: #0ea5e9;
+  --accent-hover: #38bdf8;
+  --accent-bg: rgba(14, 165, 233, 0.12);
+  --accent-glow: rgba(14, 165, 233, 0.4);
+
   /* Status colors */
-  --danger: #ef4444;
-  --danger-hover: #f87171;
-  --danger-bg: rgba(239, 68, 68, 0.12);
+  --danger: #f87171;
+  --danger-hover: #fca5a5;
+  --danger-bg: rgba(248, 113, 113, 0.12);
   --success: #10b981;
   --success-bg: rgba(16, 185, 129, 0.12);
-  --warning: #f59e0b;
-  --warning-bg: rgba(245, 158, 11, 0.12);
-  --info: #3b82f6;
-  --info-bg: rgba(59, 130, 246, 0.12);
-  
+  --warning: #fbbf24;
+  --warning-bg: rgba(251, 191, 36, 0.12);
+  --info: #38bdf8;
+  --info-bg: rgba(56, 189, 248, 0.12);
+
   /* === Gradients === */
-  --gradient-main: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
-  --gradient-main-hover: linear-gradient(135deg, #818cf8 0%, #a78bfa 50%, #c084fc 100%);
+  --gradient-main: linear-gradient(135deg, #0ea5e9 0%, #38bdf8 50%, #7dd3fc 100%);
+  --gradient-main-hover: linear-gradient(135deg, #38bdf8 0%, #7dd3fc 50%, #bae6fd 100%);
   --gradient-success: linear-gradient(135deg, #10b981, #34d399);
-  --gradient-danger: linear-gradient(135deg, #ef4444, #f87171);
-  --gradient-bg: linear-gradient(-45deg, #0f172a, #1e1b4b, #312e81, #1e1b4b);
-  --gradient-subtle: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
-  
+  --gradient-danger: linear-gradient(135deg, #f87171, #fca5a5);
+  --gradient-bg: linear-gradient(-45deg, #001a2e, #002a4a, #003d6b, #005a8c);
+  --gradient-subtle: linear-gradient(135deg, rgba(14, 165, 233, 0.1), rgba(56, 189, 248, 0.1));
+
   /* === Glassmorphism === */
-  --glass-bg: rgba(17, 24, 39, 0.7);
-  --glass-bg-light: rgba(17, 24, 39, 0.5);
-  --glass-border: 1px solid rgba(255, 255, 255, 0.08);
-  --glass-border-light: 1px solid rgba(255, 255, 255, 0.05);
+  --glass-bg: rgba(0, 42, 74, 0.7);
+  --glass-bg-light: rgba(0, 42, 74, 0.5);
+  --glass-border: 1px solid rgba(125, 211, 252, 0.1);
+  --glass-border-light: 1px solid rgba(125, 211, 252, 0.05);
   --backdrop-blur: blur(12px);
   --backdrop-blur-sm: blur(8px);
   --backdrop-blur-lg: blur(16px);
-  
+
   /* === Shadows === */
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
   --shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
   --shadow-xl: 0 12px 48px rgba(0, 0, 0, 0.6);
-  --shadow-glow: 0 0 24px rgba(99, 102, 241, 0.3);
-  --shadow-glow-hover: 0 0 32px rgba(99, 102, 241, 0.5);
-  --shadow-glow-danger: 0 0 24px rgba(239, 68, 68, 0.3);
-  
+  --shadow-glow: 0 0 24px rgba(14, 165, 233, 0.3);
+  --shadow-glow-hover: 0 0 32px rgba(14, 165, 233, 0.5);
+  --shadow-glow-danger: 0 0 24px rgba(248, 113, 113, 0.3);
+
   /* === Typography === */
   --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
-  
+
   /* === Spacing === */
   --spacing-xs: 4px;
   --spacing-sm: 8px;
@@ -2241,9 +2241,114 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-  
+
   body {
     background: var(--bg-gradient-1);
     animation: none;
+  }
+}
+
+/* ==========================================================================
+   Daylight Theme (Light Mode Override)
+   ========================================================================== */
+
+[data-theme="daylight"] {
+  --bg: #ffffff;
+  --bg-secondary: #f1f5f9;
+  --bg-tertiary: #e2e8f0;
+  --bg-elevated: #e2e8f0;
+
+  --bg-gradient-1: #ffffff;
+  --bg-gradient-2: #f8fafc;
+  --bg-gradient-3: #f1f5f9;
+
+  --border: #cbd5e1;
+  --border-light: #94a3b8;
+  --border-gradient: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(37, 99, 235, 0.2));
+
+  --text: #1e293b;
+  --text-muted: #64748b;
+  --text-dim: #94a3b8;
+
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-bg: rgba(59, 130, 246, 0.1);
+  --accent-glow: rgba(59, 130, 246, 0.2);
+
+  --danger: #ef4444;
+  --danger-hover: #dc2626;
+  --danger-bg: rgba(239, 68, 68, 0.1);
+  --success: #10b981;
+  --success-bg: rgba(16, 185, 129, 0.1);
+  --warning: #f59e0b;
+  --warning-bg: rgba(245, 158, 11, 0.1);
+  --info: #3b82f6;
+  --info-bg: rgba(59, 130, 246, 0.1);
+
+  --gradient-main: linear-gradient(135deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%);
+  --gradient-main-hover: linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #2563eb 100%);
+  --gradient-bg: linear-gradient(-45deg, #ffffff, #f8fafc, #f1f5f9, #e2e8f0);
+  --gradient-subtle: linear-gradient(135deg, rgba(59, 130, 246, 0.05), rgba(37, 99, 235, 0.05));
+
+  --glass-bg: rgba(255, 255, 255, 0.9);
+  --glass-bg-light: rgba(255, 255, 255, 0.7);
+  --glass-border: 1px solid rgba(148, 163, 184, 0.3);
+  --glass-border-light: 1px solid rgba(148, 163, 184, 0.15);
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.12);
+  --shadow-xl: 0 12px 48px rgba(0, 0, 0, 0.15);
+  --shadow-glow: 0 0 24px rgba(59, 130, 246, 0.2);
+  --shadow-glow-hover: 0 0 32px rgba(59, 130, 246, 0.3);
+  --shadow-glow-danger: 0 0 24px rgba(239, 68, 68, 0.2);
+}
+
+/* ==========================================================================
+   Theme Toggle Button
+   ========================================================================== */
+
+.theme-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: var(--font);
+  white-space: nowrap;
+}
+
+.theme-toggle-btn:hover {
+  background: var(--border);
+  color: var(--text);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.theme-toggle-btn:active {
+  transform: translateY(0);
+}
+
+/* Auto mode indicator - subtle pulse animation */
+.theme-toggle-btn[data-mode="auto"] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.theme-toggle-text {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .theme-toggle-text {
+    display: inline;
   }
 }
