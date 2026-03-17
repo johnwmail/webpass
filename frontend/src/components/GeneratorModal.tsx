@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'preact/hooks';
+import { Copy, Check, Sparkles, RotateCcw } from 'lucide-preact';
 
 interface Props {
   onUse?: (password: string) => void;
@@ -51,7 +52,6 @@ export function GeneratorModal({ onUse, onClose }: Props) {
       await navigator.clipboard.writeText(password);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-      // Auto-clear clipboard after 45s
       setTimeout(() => {
         navigator.clipboard.writeText('').catch(() => {});
       }, 45000);
@@ -64,16 +64,23 @@ export function GeneratorModal({ onUse, onClose }: Props) {
     <div class="modal-overlay" onClick={onClose}>
       <div class="modal" onClick={(e) => e.stopPropagation()}>
         <div class="modal-header">
-          <h2>🎲 Password Generator</h2>
-          <button class="btn btn-ghost btn-icon" onClick={onClose}>✕</button>
+          <h2>
+            <Sparkles size={18} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+            Password Generator
+          </h2>
+          <button class="btn btn-ghost btn-icon" onClick={onClose}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
         </div>
         <div class="modal-body">
           <div class="generator-display">{password}</div>
           <div class="generator-actions">
             <button class="btn btn-sm" onClick={copyToClipboard}>
-              {copied ? '✓ Copied' : '📋 Copy'}
+              {copied ? <><Check size={14} style={{ marginRight: '6px', color: 'var(--success)' }} /> Copied</> : <><Copy size={14} style={{ marginRight: '6px' }} /> Copy</>}
             </button>
-            <button class="btn btn-sm" onClick={regenerate}>↻ Regenerate</button>
+            <button class="btn btn-sm" onClick={regenerate}>
+              <RotateCcw size={14} style={{ marginRight: '6px' }} /> Regenerate
+            </button>
           </div>
 
           <div class="slider-group">
@@ -109,8 +116,7 @@ export function GeneratorModal({ onUse, onClose }: Props) {
 
           {onUse && (
             <button
-              class="btn btn-primary"
-              style="width: 100%;"
+              class="btn btn-primary btn-block"
               onClick={() => onUse(password)}
             >
               Use This Password

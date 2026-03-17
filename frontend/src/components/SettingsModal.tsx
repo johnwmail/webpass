@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'preact/hooks';
 import { session } from '../lib/session';
 import { getAccount, deleteAccount as deleteAccountFromDB } from '../lib/storage';
+import { decryptPAT } from '../lib/crypto';
 import QRCode from 'qrcode';
 import { GitSync } from './GitSync';
 import { ImportDialog } from './ImportDialog';
@@ -9,12 +10,18 @@ import { VERSION as FRONTEND_VERSION, COMMIT as FRONTEND_COMMIT, BUILD_TIME as F
 interface Props {
   onClose: () => void;
   onLock: () => void;
+  onEntriesChanged?: () => void;
 }
 
-export function SettingsModal({ onClose, onLock }: Props) {
+export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Passphrase prompt for delete operations
+  const [showDeletePrompt, setShowDeletePrompt] = useState<'local' | 'full' | null>(null);
+  const [deletePassphrase, setDeletePassphrase] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   // Version state
   const [backendVersion, setBackendVersion] = useState<{ version: string; commit: string; build_time: string } | null>(null);
@@ -34,6 +41,16 @@ export function SettingsModal({ onClose, onLock }: Props) {
 
   // Git sync state
   const [showGitSync, setShowGitSync] = useState(false);
+  const [gitConfigured, setGitConfigured] = useState(false);
+  const [gitLoading, setGitLoading] = useState(false);
+  const [gitError, setGitError] = useState('');
+  const [gitSuccess, setGitSuccess] = useState('');
+  
+  // PAT passphrase prompt state
+  const [showPassphrasePrompt, setShowPassphrasePrompt] = useState(false);
+  const [patPassphrase, setPatPassphrase] = useState('');
+  const [patAction, setPatAction] = useState<'push' | 'pull' | null>(null);
+  const [patLoading, setPatLoading] = useState(false);
 
   const fp = session.fingerprint || '';
   const apiUrl = session.api?.baseUrl || '';
@@ -50,6 +67,21 @@ export function SettingsModal({ onClose, onLock }: Props) {
           setVersionError(err.message || 'Failed to fetch version');
         });
     }
+  }, []);
+
+  // Fetch git sync status
+  useEffect(() => {
+    const fetchGitStatus = async () => {
+      if (session.api) {
+        try {
+          const status = await session.api.getGitStatus();
+          setGitConfigured(!!(status.configured && status.has_encrypted_pat));
+        } catch (err) {
+          // Ignore errors - git not configured
+        }
+      }
+    };
+    fetchGitStatus();
   }, []);
 
   // QR code rendering
@@ -101,6 +133,83 @@ export function SettingsModal({ onClose, onLock }: Props) {
   const handleImportSuccess = (imported: number) => {
     setSuccess(`Imported ${imported} entries`);
     setTimeout(() => setSuccess(''), 5000);
+    // Reload entries in main app
+    onEntriesChanged?.();
+  };
+
+  // Git sync handlers
+  const fetchAndDecryptPAT = async (passphrase: string): Promise<string | null> => {
+    try {
+      if (!session.api) return null;
+      const config = await session.api.getGitConfig();
+      if (!config.encrypted_pat) return null;
+      
+      // Get account to decrypt PAT
+      const account = await getAccount(fp);
+      if (!account) return null;
+      
+      // Decrypt private key
+      const openpgp = await import('openpgp');
+      const privateKey = await openpgp.readPrivateKey({ armoredKey: account.privateKey });
+      const decryptedKey = await openpgp.decryptKey({ privateKey, passphrase });
+      
+      // Decrypt PAT
+      const decryptedPAT = await decryptPAT(config.encrypted_pat, decryptedKey);
+      return decryptedPAT;
+    } catch (e: any) {
+      throw new Error('Failed to decrypt PAT: ' + (e.message || 'Unknown error'));
+    }
+  };
+
+  const handlePassphraseSubmit = async () => {
+    if (!patPassphrase || !patAction) return;
+    
+    setPatLoading(true);
+    setGitError('');
+    
+    try {
+      const pat = await fetchAndDecryptPAT(patPassphrase);
+      if (!pat) {
+        setGitError('PAT decryption failed');
+        setPatLoading(false);
+        setShowPassphrasePrompt(false);
+        return;
+      }
+      
+      // Execute the action
+      if (patAction === 'push') {
+        if (session.api) await session.api.gitPush(pat);
+        setGitSuccess('Push successful!');
+        setTimeout(() => setGitSuccess(''), 3000);
+        onEntriesChanged?.();
+      } else if (patAction === 'pull') {
+        if (session.api) await session.api.gitPull(pat);
+        setGitSuccess('Pull successful!');
+        setTimeout(() => setGitSuccess(''), 3000);
+        onEntriesChanged?.();
+      }
+      
+      setShowPassphrasePrompt(false);
+      setPatPassphrase('');
+      setPatAction(null);
+    } catch (e: any) {
+      setGitError(e.message || (patAction === 'push' ? 'Push failed' : 'Pull failed'));
+    }
+    setPatLoading(false);
+  };
+
+  const handleGitPush = async () => {
+    setPatAction('push');
+    setPatPassphrase('');
+    setGitError('');
+    setShowPassphrasePrompt(true);
+  };
+
+  const handleGitPull = async () => {
+    setPatAction('pull');
+    setPatPassphrase('');
+    setGitError('');
+    setShowPassphrasePrompt(true);
   };
 
   // Setup 2FA
@@ -134,19 +243,64 @@ export function SettingsModal({ onClose, onLock }: Props) {
     setTotpLoading(false);
   };
 
-  // Delete account
-  const handleDeleteAccount = async () => {
-    if (!confirmDelete) {
-      setConfirmDelete(true);
+  // Delete local data only (IndexedDB)
+  const handleDeleteLocalData = async () => {
+    if (!showDeletePrompt) {
+      setShowDeletePrompt('local');
       return;
     }
+    setDeleteLoading(true);
+    setError('');
     try {
+      // Verify passphrase by attempting to get account
+      const account = await getAccount(fp);
+      if (!account) {
+        throw new Error('Account not found');
+      }
+      // Delete from IndexedDB
       await deleteAccountFromDB(fp);
+      setSuccess('Local data cleared');
+      setShowDeletePrompt(null);
+      setDeletePassphrase('');
+      setTimeout(() => setSuccess(''), 3000);
       session.clear();
       onLock();
     } catch (e: any) {
       setError(e.message || 'Delete failed');
     }
+    setDeleteLoading(false);
+  };
+
+  // Delete full account (server + local)
+  const handleDeleteFullAccount = async () => {
+    if (!showDeletePrompt) {
+      setShowDeletePrompt('full');
+      return;
+    }
+    setDeleteLoading(true);
+    setError('');
+    try {
+      // Verify passphrase by attempting to get account
+      const account = await getAccount(fp);
+      if (!account) {
+        throw new Error('Account not found');
+      }
+      // Call backend to delete account
+      if (session.api) {
+        await session.api.deleteAccount();
+      }
+      // Delete from IndexedDB
+      await deleteAccountFromDB(fp);
+      setSuccess('Account permanently deleted');
+      setShowDeletePrompt(null);
+      setDeletePassphrase('');
+      setTimeout(() => setSuccess(''), 5000);
+      session.clear();
+      onLock();
+    } catch (e: any) {
+      setError(e.message || 'Delete failed');
+    }
+    setDeleteLoading(false);
   };
 
   // Logout (clear session without deleting account)
@@ -288,11 +442,39 @@ export function SettingsModal({ onClose, onLock }: Props) {
           <div class="settings-section">
             <h3>🔄 Git Sync</h3>
             <p class="help-text" style="margin-bottom: 12px;">
-              Sync your encrypted passwords to a private Git repository.
+              {gitConfigured 
+                ? 'Your passwords are synced to a private Git repository.'
+                : 'Sync your encrypted passwords to a private Git repository.'}
             </p>
-            <button class="btn btn-sm" onClick={() => setShowGitSync(true)}>
-              {showGitSync ? 'Configuring...' : '⚙️ Configure Git Sync'}
-            </button>
+            {gitConfigured && (
+              <div style="display: flex; gap: 8px; margin-bottom: 12px; align-items: center;">
+                <button
+                  class="btn btn-sm"
+                  onClick={handleGitPush}
+                  disabled={patLoading}
+                >
+                  {patLoading ? <><span class="spinner" /> Pushing...</> : '⬆️ Push'}
+                </button>
+                <button
+                  class="btn btn-sm"
+                  onClick={handleGitPull}
+                  disabled={patLoading}
+                >
+                  {patLoading ? <><span class="spinner" /> Pulling...</> : '⬇️ Pull'}
+                </button>
+                <div style="flex: 1;" />
+                <button class="btn btn-sm" onClick={() => setShowGitSync(true)}>
+                  {showGitSync ? 'Configuring...' : '⚙️ Manage'}
+                </button>
+              </div>
+            )}
+            {!gitConfigured && (
+              <button class="btn btn-sm" onClick={() => setShowGitSync(true)}>
+                {showGitSync ? 'Configuring...' : '⚙️ Configure Git Sync'}
+              </button>
+            )}
+            {gitError && <p class="error-msg" style="margin-bottom: 8px;">{gitError}</p>}
+            {gitSuccess && <p class="success-msg" style="margin-bottom: 8px;">{gitSuccess}</p>}
           </div>
 
           {/* 2FA */}
@@ -365,28 +547,144 @@ export function SettingsModal({ onClose, onLock }: Props) {
           {/* Danger Zone */}
           <div class="settings-section">
             <h3 style="color: var(--danger);">Danger Zone</h3>
-            <button
-              class={`btn btn-sm ${confirmDelete ? 'btn-danger' : ''}`}
-              onClick={handleDeleteAccount}
-            >
-              {confirmDelete ? '⚠️ Confirm — Delete Account Permanently' : '🗑️ Delete Account'}
-            </button>
-            {confirmDelete && (
+            
+            <div style="margin-bottom: 16px;">
+              <p class="help-text" style="margin-bottom: 8px; font-size: 12px;">
+                🗑️ <strong>Clear Local Data</strong> — Remove stored data from this browser only. Server account remains intact.
+              </p>
               <button
-                class="btn btn-sm btn-ghost"
-                style="margin-top: 4px;"
-                onClick={() => setConfirmDelete(false)}
+                class="btn btn-sm"
+                onClick={handleDeleteLocalData}
+                disabled={deleteLoading}
               >
-                Cancel
+                {showDeletePrompt === 'local' ? '⚠️ Confirm with Passphrase' : 'Clear Local Data'}
               </button>
-            )}
+            </div>
+
+            <div style="border-top: 1px solid var(--border); padding-top: 16px;">
+              <p class="help-text" style="margin-bottom: 8px; font-size: 12px; color: var(--danger);">
+                ☠️ <strong>Permanently Delete Account</strong> — Delete everything: local data, server account, database records, and git repository files. This action cannot be undone.
+              </p>
+              <button
+                class={`btn btn-sm btn-danger`}
+                onClick={handleDeleteFullAccount}
+                disabled={deleteLoading}
+              >
+                {showDeletePrompt === 'full' ? '⚠️ Confirm with Passphrase' : '☠️ Permanently Delete Account'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
+      {/* Delete Passphrase Prompt Modal */}
+      {showDeletePrompt && (
+        <div class="modal-overlay" onClick={() => { setShowDeletePrompt(null); setDeletePassphrase(''); }}>
+          <div class="modal" style="max-width: 400px;" onClick={(e) => e.stopPropagation()}>
+            <div class="modal-header">
+              <h3>{showDeletePrompt === 'local' ? '🗑️ Clear Local Data' : '☠️ Delete Account'}</h3>
+              <button class="btn btn-ghost btn-icon" onClick={() => { setShowDeletePrompt(null); setDeletePassphrase(''); }}>✕</button>
+            </div>
+            <div class="modal-body">
+              <p style="margin-bottom: 16px; font-size: 13px; color: var(--text-muted);">
+                {showDeletePrompt === 'local'
+                  ? 'Enter your PGP passphrase to confirm clearing local data.'
+                  : 'Enter your PGP passphrase to permanently delete your account. This action cannot be undone.'}
+              </p>
+              <div class="field">
+                <label class="label">PGP Passphrase</label>
+                <input
+                  class="input"
+                  type="password"
+                  value={deletePassphrase}
+                  onInput={(e) => setDeletePassphrase((e.target as HTMLInputElement).value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && deletePassphrase) {
+                      showDeletePrompt === 'local' ? handleDeleteLocalData() : handleDeleteFullAccount();
+                    }
+                  }}
+                  placeholder="Enter your PGP passphrase"
+                  disabled={deleteLoading}
+                  autofocus
+                />
+              </div>
+              {error && <p class="error-msg">{error}</p>}
+              <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 16px;">
+                <button
+                  class="btn btn-ghost"
+                  onClick={() => { setShowDeletePrompt(null); setDeletePassphrase(''); }}
+                  disabled={deleteLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  class="btn btn-danger"
+                  onClick={() => showDeletePrompt === 'local' ? handleDeleteLocalData() : handleDeleteFullAccount()}
+                  disabled={!deletePassphrase || deleteLoading}
+                >
+                  {deleteLoading ? <><span class="spinner" /> Deleting...</> : 'Confirm'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PAT Passphrase Prompt Modal */}
+      {showPassphrasePrompt && (
+        <div class="modal-overlay" onClick={() => { setShowPassphrasePrompt(false); setPatPassphrase(''); setPatAction(null); }}>
+          <div class="modal" style="max-width: 400px;" onClick={(e) => e.stopPropagation()}>
+            <div class="modal-header">
+              <h3>🔐 {patAction === 'push' ? 'Push to Git' : 'Pull from Git'}</h3>
+              <button class="btn btn-ghost btn-icon" onClick={() => { setShowPassphrasePrompt(false); setPatPassphrase(''); setPatAction(null); }}>✕</button>
+            </div>
+            <div class="modal-body">
+              <p style="margin-bottom: 16px; font-size: 13px; color: var(--text-muted);">
+                Enter your PGP passphrase to decrypt the Git PAT (Personal Access Token).
+              </p>
+              <div class="field">
+                <label class="label">PGP Passphrase</label>
+                <input
+                  class="input"
+                  type="password"
+                  value={patPassphrase}
+                  onInput={(e) => setPatPassphrase((e.target as HTMLInputElement).value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && patPassphrase) {
+                      handlePassphraseSubmit();
+                    }
+                  }}
+                  placeholder="Enter your PGP passphrase"
+                  disabled={patLoading}
+                  autofocus
+                />
+              </div>
+              {gitError && <p class="error-msg">{gitError}</p>}
+              <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 16px;">
+                <button
+                  class="btn btn-ghost"
+                  onClick={() => { setShowPassphrasePrompt(false); setPatPassphrase(''); setPatAction(null); }}
+                  disabled={patLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  class="btn btn-primary"
+                  onClick={handlePassphraseSubmit}
+                  disabled={!patPassphrase || patLoading}
+                >
+                  {patLoading ? <><span class="spinner" /> Decrypting...</> : 'Decrypt & Continue'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Git Sync Modal */}
       {showGitSync && <GitSync onClose={() => setShowGitSync(false)} onSuccess={() => {
-        // No reload needed - just close the modal
+        // Reload entries after successful sync
+        onEntriesChanged?.();
         setShowGitSync(false);
       }} />}
 

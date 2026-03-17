@@ -5,6 +5,7 @@ import { decryptPrivateKey, decryptBinary } from '../lib/crypto';
 import { PassphrasePrompt } from './PassphrasePrompt';
 import { OTPDisplay } from './OTPDisplay';
 import type { EntryContent } from '../types';
+import { Lock, Eye, EyeOff, Copy, Check, Edit2, Trash2 } from 'lucide-preact';
 
 interface Props {
   path: string;
@@ -60,7 +61,6 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
       await navigator.clipboard.writeText(content.password);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-      // Auto-clear after 45s
       setTimeout(() => {
         navigator.clipboard.writeText('').catch(() => {});
       }, 45000);
@@ -97,18 +97,23 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
           {prefix && <span class="path-prefix">{prefix} / </span>}
           {name}
         </h2>
-        <button class="btn btn-sm" onClick={onEdit}>✏️ Edit</button>
+        <button class="btn btn-sm" onClick={onEdit}>
+          <Edit2 size={14} style={{ marginRight: '6px' }} /> Edit
+        </button>
       </div>
 
       {!content && !decrypting ? (
         <div class="decrypt-prompt">
-          <span class="icon">🔒</span>
-          <p>This entry is encrypted.</p>
+          <div style={{ marginBottom: '16px', opacity: 0.5 }}>
+            <Lock size={56} />
+          </div>
+          <p style={{ fontSize: '14px', marginBottom: '16px' }}>This entry is encrypted.</p>
           <button
             class="btn btn-primary"
             onClick={() => setShowPassphrasePrompt(true)}
           >
-            🔓 Decrypt
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '8px' }}><rect x="3" y="11" width="18" height="11" rx="2" /><circle cx="12" cy="16" r="1" /><path d="M7 11V7a5 5 0 0110 0v4" /></svg>
+            Decrypt
           </button>
           {error && <p class="error-msg">{error}</p>}
         </div>
@@ -130,14 +135,14 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
                   onClick={() => setShowPassword(!showPassword)}
                   title={showPassword ? 'Hide' : 'Show'}
                 >
-                  {showPassword ? '🙈' : '👁️'}
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
                 <button
                   class="btn btn-ghost btn-icon btn-sm"
                   onClick={copyPassword}
                   title="Copy password"
                 >
-                  {copied ? '✓' : '📋'}
+                  {copied ? <Check size={16} style={{ color: 'var(--success)' }} /> : <Copy size={16} />}
                 </button>
               </div>
             </div>
@@ -153,12 +158,16 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
           <OTPDisplay content={rawContent} />
 
           <div class="entry-actions">
-            <button class="btn btn-sm" onClick={onEdit}>✏️ Edit</button>
+            <button class="btn btn-sm" onClick={onEdit}>
+              <Edit2 size={14} style={{ marginRight: '6px' }} /> Edit
+            </button>
             <button
               class={`btn btn-sm ${confirmDelete ? 'btn-danger' : ''}`}
               onClick={handleDelete}
             >
-              {confirmDelete ? 'Confirm Delete' : '🗑️ Delete'}
+              {confirmDelete ? 'Confirm Delete' : (
+                <><Trash2 size={14} style={{ marginRight: '6px' }} /> Delete</>
+              )}
             </button>
             {confirmDelete && (
               <button class="btn btn-sm btn-ghost" onClick={() => setConfirmDelete(false)}>

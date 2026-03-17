@@ -45,8 +45,8 @@ type Conflict struct {
 	Path           string `json:"path"`
 	LocalModified  bool   `json:"local_modified"`
 	RemoteModified bool   `json:"remote_modified"`
-	LocalTime      string `json:"local_time,omitempty"`      // RFC3339 format
-	RemoteTime     string `json:"remote_time,omitempty"`     // RFC3339 format
+	LocalTime      string `json:"local_time,omitempty"`  // RFC3339 format
+	RemoteTime     string `json:"remote_time,omitempty"` // RFC3339 format
 }
 
 // PullResult represents the result of a pull operation
@@ -404,7 +404,7 @@ func (g *GitService) detectConflicts(ctx context.Context, fingerprint, repoDir s
 
 		// Entry exists in both DB and remote - check if content differs
 		remotePath := ".password-store/" + entry.Path + ".gpg"
-		
+
 		// Get remote file content hash
 		hashCmd := exec.Command("git", "show", "origin/main:"+remotePath)
 		hashCmd.Dir = repoDir

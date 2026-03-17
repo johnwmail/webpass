@@ -437,6 +437,93 @@ func TestUpsertEntryUpdates(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// DELETE /api/{fingerprint}/account — delete user account
+// ---------------------------------------------------------------------------
+
+func TestDeleteAccount(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	// Create user
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"del1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	resp = doReq(t, ts, "POST", "/api/del1/login", `{"password":"pw"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	var lr map[string]string
+	decodeJSON(t, resp, &lr)
+	token := lr["token"]
+
+	// Create some entries
+	resp = doReqRaw(t, ts, "PUT", "/api/del1/entries/Email/gmail", []byte("blob1"), token)
+	expectStatus(t, resp, http.StatusNoContent)
+	resp = doReqRaw(t, ts, "PUT", "/api/del1/entries/Social/github", []byte("blob2"), token)
+	expectStatus(t, resp, http.StatusNoContent)
+
+	// Verify entries exist
+	resp = doReq(t, ts, "GET", "/api/del1/entries", "", token)
+	expectStatus(t, resp, http.StatusOK)
+
+	// Delete account
+	resp = doReq(t, ts, "DELETE", "/api/del1/account", "", token)
+	expectStatus(t, resp, http.StatusNoContent)
+
+	// Verify user is deleted - login should fail
+	resp = doReq(t, ts, "POST", "/api/del1/login", `{"password":"pw"}`, "")
+	expectStatus(t, resp, http.StatusUnauthorized)
+
+	// Verify entries are deleted (should return empty list)
+	resp = doReq(t, ts, "GET", "/api/del1/entries", "", token)
+	expectStatus(t, resp, http.StatusOK) // Token still valid, but entries are gone
+	var listResp struct {
+		Entries []struct{ Path string } `json:"entries"`
+	}
+	decodeJSON(t, resp, &listResp)
+	if len(listResp.Entries) != 0 {
+		t.Fatalf("expected 0 entries after delete, got %d", len(listResp.Entries))
+	}
+}
+
+func TestDeleteAccount_WithGitRepo(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	// Create user
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"del2"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	resp = doReq(t, ts, "POST", "/api/del2/login", `{"password":"pw"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	var lr map[string]string
+	decodeJSON(t, resp, &lr)
+	token := lr["token"]
+
+	// Create a fake git repo folder
+	repoPath := filepath.Join(s.GitService.repoRoot, "del2")
+	if err := os.MkdirAll(repoPath, 0755); err != nil {
+		t.Fatalf("create repo dir: %v", err)
+	}
+	testFile := filepath.Join(repoPath, "test.txt")
+	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+		t.Fatalf("create test file: %v", err)
+	}
+
+	// Verify repo exists
+	if _, err := os.Stat(repoPath); err != nil {
+		t.Fatalf("repo should exist: %v", err)
+	}
+
+	// Delete account
+	resp = doReq(t, ts, "DELETE", "/api/del2/account", "", token)
+	expectStatus(t, resp, http.StatusNoContent)
+
+	// Verify git repo is deleted
+	if _, err := os.Stat(repoPath); err == nil {
+		t.Fatal("git repo should be deleted")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
 

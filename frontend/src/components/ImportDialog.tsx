@@ -12,6 +12,7 @@ interface Props {
 export function ImportDialog({ onClose, onSuccess }: Props) {
   const [archiveFile, setArchiveFile] = useState<File | null>(null);
   const [keyFile, setKeyFile] = useState<File | null>(null);
+  const [keyData, setKeyData] = useState<string | Uint8Array | null>(null);
   const [passphrase, setPassphrase] = useState('');
   const [error, setError] = useState('');
   const [importing, setImporting] = useState(false);
@@ -35,11 +36,31 @@ export function ImportDialog({ onClose, onSuccess }: Props) {
     if (file) {
       setKeyFile(file);
       setError('');
+      // Read as ArrayBuffer and detect format from content (not extension)
+      const reader = new FileReader();
+      reader.onload = () => {
+        const data = reader.result as ArrayBuffer;
+        const bytes = new Uint8Array(data);
+        
+        // Detect format by checking for PGP armor headers
+        // Armored text starts with "-----BEGIN PGP PRIVATE KEY BLOCK-----"
+        const decoder = new TextDecoder('utf-8', { fatal: false });
+        const textPreview = decoder.decode(bytes.slice(0, 50));
+        
+        if (textPreview.includes('-----BEGIN PGP PRIVATE KEY BLOCK-----')) {
+          // Armored text format - decode as string
+          setKeyData(decoder.decode(bytes));
+        } else {
+          // Binary format (OpenPGP packets)
+          setKeyData(bytes);
+        }
+      };
+      reader.readAsArrayBuffer(file);
     }
   };
 
   const handleImport = async () => {
-    if (!archiveFile || !keyFile || !passphrase || !session.api) {
+    if (!archiveFile || !keyData || !passphrase || !session.api) {
       setError('Please fill in all fields');
       return;
     }
@@ -48,12 +69,10 @@ export function ImportDialog({ onClose, onSuccess }: Props) {
     setError('');
 
     let privateKey: openpgp.PrivateKey | null = null;
-    let keyContent = '';
 
     try {
-      // Step 1: Read and decrypt private key
-      keyContent = await keyFile.text();
-      privateKey = await importPrivateKey(keyContent, passphrase);
+      // Step 1: Import and decrypt private key (supports both armored and binary)
+      privateKey = await importPrivateKey(keyData, passphrase);
 
       // Clear passphrase from memory immediately
       setPassphrase('');
@@ -85,7 +104,7 @@ export function ImportDialog({ onClose, onSuccess }: Props) {
 
     } catch (err: any) {
       console.error('Import failed:', err);
-      
+
       // Clear private key on error
       if (privateKey) {
         clearSensitiveData(privateKey);
@@ -106,7 +125,7 @@ export function ImportDialog({ onClose, onSuccess }: Props) {
     }
   };
 
-  const isFormValid = archiveFile && keyFile && passphrase && !importing;
+  const isFormValid = archiveFile && keyData && passphrase && !importing;
 
   return (
     <div class="modal-overlay" onClick={onClose}>
@@ -156,7 +175,7 @@ export function ImportDialog({ onClose, onSuccess }: Props) {
               <input
                 ref={archiveInputRef}
                 type="file"
-                accept=".tar.gz,.tgz"
+                accept=".tar.gz,.tgz,.tar"
                 onChange={handleArchiveChange}
                 disabled={importing}
                 style="flex: 1;"
@@ -168,7 +187,7 @@ export function ImportDialog({ onClose, onSuccess }: Props) {
               )}
             </div>
             <p class="help-text" style="margin-top: 4px; font-size: 12px;">
-              Select a .tar.gz file containing your password store
+              Select a .tar.gz or .tar file containing your password store
             </p>
           </div>
 
@@ -178,13 +197,13 @@ export function ImportDialog({ onClose, onSuccess }: Props) {
               Step 2: Import Private Key
             </label>
             <p class="help-text" style="margin-bottom: 8px; font-size: 12px; color: var(--text-muted);">
-              The key that was used to encrypt these files
+              Supports both armored (.asc, .key) and binary (.gpg, .pgp) formats
             </p>
             <div style="display: flex; gap: 8px; align-items: center;">
               <input
                 ref={keyInputRef}
                 type="file"
-                accept=".asc,.pgp,.key"
+                accept=".asc,.pgp,.key,.gpg"
                 onChange={handleKeyChange}
                 disabled={importing}
                 style="flex: 1;"

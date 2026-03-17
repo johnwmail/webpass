@@ -5,6 +5,7 @@ import { ApiClient } from '../lib/api';
 import { session } from '../lib/session';
 import QRCode from 'qrcode';
 import { Footer } from './Footer';
+import { Shield, Key, Lock, Check, AlertTriangle, ArrowRight, ArrowLeft } from 'lucide-preact';
 
 interface Props {
   onComplete: () => void;
@@ -17,29 +18,24 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Step 1: API server URL
   const [apiUrl, setApiUrl] = useState('');
-  const [urlTested, setUrlTested] = useState(false);
   const [urlTesting, setUrlTesting] = useState(false);
 
-  // Step 2: Login password
   const [loginPassword, setLoginPassword] = useState('');
   const [loginPasswordConfirm, setLoginPasswordConfirm] = useState('');
 
-  // Step 3: PGP key
   const [keyMode, setKeyMode] = useState<'generate' | 'import'>('generate');
   const [pgpPassphrase, setPgpPassphrase] = useState('');
   const [pgpPassphraseConfirm, setPgpPassphraseConfirm] = useState('');
-  const [importKey, setImportKey] = useState('');
+  const [importKeyData, setImportKeyData] = useState<string | Uint8Array | null>(null);
+  const [importKeyFormat, setImportKeyFormat] = useState<'armored' | 'binary'>('armored');
   const [importPassphrase, setImportPassphrase] = useState('');
 
-  // Generated/imported key data
   const [publicKey, setPublicKey] = useState('');
   const [privateKey, setPrivateKey] = useState('');
   const [fingerprint, setFingerprint] = useState('');
   const [keyReady, setKeyReady] = useState(false);
 
-  // Step 4: Summary + 2FA
   const [totpSecret, setTotpSecret] = useState('');
   const [totpUrl, setTotpUrl] = useState('');
   const [totpCode, setTotpCode] = useState('');
@@ -48,62 +44,46 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
   const [totpLoading, setTotpLoading] = useState(false);
   const qrRef = useRef<HTMLCanvasElement>(null);
 
-  // Token for authed TOTP calls
   const [setupApi, setSetupApi] = useState<ApiClient | null>(null);
 
-  // Set default API URL to same origin as frontend
   useEffect(() => {
-    // Use the current origin (protocol + host) as the default API URL
-    // This works when frontend and backend are on the same domain
     const defaultUrl = window.location.origin;
     setApiUrl(defaultUrl);
   }, []);
 
   const formatFp = (fp: string) => fp.toUpperCase().replace(/(.{4})/g, '$1 ').trim();
 
-  // Test API connection
-  const testConnection = async () => {
+  const testConnection = async (): Promise<boolean> => {
     setUrlTesting(true);
     setError('');
     try {
-      // Validate URL format first
       let url = apiUrl.replace(/\/+$/, '');
-
-      // Check if URL has a valid protocol
       if (!url.startsWith('http://') && !url.startsWith('https://')) {
         throw new Error('URL must start with http:// or https://');
       }
-
-      // Validate URL structure
-      try {
-        new URL(url);
-      } catch {
-        throw new Error('Invalid URL format');
-      }
-
+      new URL(url);
       const res = await fetch(`${url}/api`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-      // We expect a 400 (missing fields) which proves the API is alive
       if (res.status === 400 || res.status === 200 || res.status === 201 || res.status === 409) {
-        setUrlTested(true);
+        return true;
       } else {
         throw new Error(`Unexpected status: ${res.status}`);
       }
     } catch (e: any) {
-      // Distinguish between network errors and validation errors
       if (e.message.includes('http') || e.message.includes('network') || e.message.includes('fetch')) {
         setError(`Cannot reach server: ${e.message}`);
       } else {
         setError(e.message);
       }
+      return false;
+    } finally {
+      setUrlTesting(false);
     }
-    setUrlTesting(false);
   };
 
-  // Generate PGP key
   const handleGenerateKey = async () => {
     setLoading(true);
     setError('');
@@ -119,21 +99,33 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
     setLoading(false);
   };
 
-  // Import PGP key
   const handleImportKey = async () => {
     setLoading(true);
     setError('');
     try {
-      // Validate the key can be decrypted with the provided passphrase
-      await decryptPrivateKey(importKey, importPassphrase);
-      // Read public key from private key
+      if (!importKeyData) {
+        throw new Error('No key data provided');
+      }
+      await decryptPrivateKey(importKeyData, importPassphrase);
       const openpgp = await import('openpgp');
-      const privKeyObj = await openpgp.readPrivateKey({ armoredKey: importKey });
-      const pubKey = privKeyObj.toPublic().armor();
+      let pubKey: string;
+      let privKeyArmored: string;
+      
+      if (importKeyFormat === 'armored' && typeof importKeyData === 'string') {
+        const privKeyObj = await openpgp.readPrivateKey({ armoredKey: importKeyData });
+        pubKey = privKeyObj.toPublic().armor();
+        privKeyArmored = importKeyData;
+      } else if (importKeyFormat === 'binary' && importKeyData instanceof Uint8Array) {
+        const privKeyObj = await openpgp.readPrivateKey({ binaryKey: importKeyData });
+        pubKey = privKeyObj.toPublic().armor();
+        privKeyArmored = privKeyObj.armor();
+      } else {
+        throw new Error('Invalid key format');
+      }
+      
       const fp = await getFingerprint(pubKey);
       setPublicKey(pubKey);
-      // Store the private key as-is (still encrypted with its original passphrase)
-      setPrivateKey(importKey);
+      setPrivateKey(privKeyArmored);
       setFingerprint(fp);
       setKeyReady(true);
     } catch (e: any) {
@@ -142,7 +134,6 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
     setLoading(false);
   };
 
-  // Setup TOTP QR code rendering
   useEffect(() => {
     if (totpUrl && qrRef.current) {
       QRCode.toCanvas(qrRef.current, totpUrl, {
@@ -153,7 +144,6 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
     }
   }, [totpUrl]);
 
-  // Complete setup
   const handleComplete = async () => {
     setLoading(true);
     setError('');
@@ -161,7 +151,6 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
       const url = apiUrl.replace(/\/+$/, '');
       const api = new ApiClient(url);
 
-      // Save to IndexedDB first so existing remote users can still be opened locally.
       const encrypted = await aesEncrypt(url, loginPassword);
       await saveAccount({
         fingerprint,
@@ -209,7 +198,6 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
         setSetupApi(api);
       }
 
-      // Move to step 4 to offer 2FA setup for newly created accounts.
       setStep(4);
     } catch (e: any) {
       setError(e.message || 'Setup failed');
@@ -217,7 +205,6 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
     setLoading(false);
   };
 
-  // Initialize TOTP
   const initTOTP = async () => {
     if (!setupApi) return;
     setTotpLoading(true);
@@ -232,7 +219,6 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
     setTotpLoading(false);
   };
 
-  // Confirm TOTP
   const confirmTOTP = async () => {
     if (!setupApi || !totpSecret || !totpCode) return;
     setTotpLoading(true);
@@ -246,22 +232,41 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
     setTotpLoading(false);
   };
 
-  // Auto-init TOTP when reaching step 4
   useEffect(() => {
     if (step === 4 && setupApi && !totpSecret && !totpSkipped) {
       initTOTP();
     }
   }, [step, setupApi]);
 
-  const canProceedStep1 = apiUrl.trim().length > 0 && urlTested;
+  const canProceedStep1 = apiUrl.trim().length > 0;
   const canProceedStep2 = loginPassword.length >= 1 && loginPassword === loginPasswordConfirm;
   const canProceedStep3 = keyReady;
+
+  const handleStep1Next = async () => {
+    const success = await testConnection();
+    if (success) {
+      setStep(2);
+      setError('');
+    }
+  };
 
   return (
     <div class="setup-page">
       <div class="setup-container">
         <div class="setup-header">
-          <div class="icon">🔐</div>
+          <div class="icon">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="shieldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#6366f1" />
+                  <stop offset="50%" stopColor="#8b5cf6" />
+                  <stop offset="100%" stopColor="#a855f7" />
+                </linearGradient>
+              </defs>
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="url(#shieldGradient)" strokeWidth="2" fill="rgba(99,102,241,0.1)" />
+              <path d="M9 12l2 2 4-4" stroke="url(#shieldGradient)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
           <h1>WebPass — Setup</h1>
         </div>
 
@@ -275,58 +280,50 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
         </div>
 
         <div class="card">
-          {/* Step 1: API Server */}
           {step === 1 && (
             <>
-              <div class="setup-step-title">Step 1 of 4: API Server</div>
+              <div class="setup-step-title">
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                  <Shield size={18} /> Step 1 of 4: API Server
+                </span>
+              </div>
               <div class="field">
                 <label class="label">Server URL</label>
-                <div class="input-group">
-                  <input
-                    class="input input-mono"
-                    type="url"
-                    value={apiUrl}
-                    onInput={(e) => {
-                      setApiUrl((e.target as HTMLInputElement).value);
-                      setUrlTested(false);
-                      setError('');
-                    }}
-                    placeholder="https://webpass.example.com:8000"
-                  />
-                  <button
-                    type="button"
-                    class="btn btn-sm"
-                    onClick={testConnection}
-                    disabled={!apiUrl.trim() || urlTesting}
-                  >
-                    {urlTesting ? <span class="spinner" /> : urlTested ? '✓ OK' : 'Test'}
-                  </button>
-                </div>
+                <input
+                  class="input input-mono"
+                  type="url"
+                  value={apiUrl}
+                  onInput={(e) => {
+                    setApiUrl((e.target as HTMLInputElement).value);
+                    setError('');
+                  }}
+                  placeholder="https://webpass.example.com:8000"
+                />
               </div>
-              {urlTested && (
-                <p class="success-msg">✓ Server is reachable</p>
-              )}
               {error && <p class="error-msg">{error}</p>}
               <div class="setup-actions">
                 <button class="btn" onClick={onCancel}>Cancel</button>
                 <button
                   class="btn btn-primary"
-                  onClick={() => { setStep(2); setError(''); }}
-                  disabled={!canProceedStep1}
+                  onClick={handleStep1Next}
+                  disabled={!canProceedStep1 || urlTesting}
                 >
-                  Next →
+                  {urlTesting ? <><span class="spinner" /> Testing...</> : <>Next <ArrowRight size={16} style={{ marginLeft: '6px' }} /></>}
                 </button>
               </div>
             </>
           )}
 
-          {/* Step 2: Password */}
           {step === 2 && (
             <>
-              <div class="setup-step-title">Step 2 of 4: Choose Password</div>
-              <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;">
-                This password is used for server authentication and to encrypt
-                your API URL locally. It is separate from your PGP passphrase.
+              <div class="setup-step-title">
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                  <Lock size={18} /> Step 2 of 4: Choose Password
+                </span>
+              </div>
+              <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 20px; line-height: 1.6;">
+                This password is used for server authentication and to encrypt your API URL locally. 
+                It is separate from your PGP passphrase.
               </p>
               <div class="field">
                 <label class="label">Login Password</label>
@@ -354,22 +351,27 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                 )}
               </div>
               <div class="setup-actions">
-                <button class="btn" onClick={() => setStep(1)}>← Back</button>
+                <button class="btn" onClick={() => setStep(1)}>
+                  <ArrowLeft size={16} style={{ marginRight: '6px' }} /> Back
+                </button>
                 <button
                   class="btn btn-primary"
                   onClick={() => { setStep(3); setError(''); }}
                   disabled={!canProceedStep2}
                 >
-                  Next →
+                  Next <ArrowRight size={16} style={{ marginLeft: '6px' }} />
                 </button>
               </div>
             </>
           )}
 
-          {/* Step 3: PGP Key */}
           {step === 3 && (
             <>
-              <div class="setup-step-title">Step 3 of 4: PGP Key</div>
+              <div class="setup-step-title">
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                  <Key size={18} /> Step 3 of 4: PGP Key
+                </span>
+              </div>
 
               {!keyReady ? (
                 <>
@@ -396,9 +398,8 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
 
                   {keyMode === 'generate' ? (
                     <>
-                      <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px;">
-                        This passphrase protects your PGP private key. You will
-                        be prompted for it each time you decrypt an entry.
+                      <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px; line-height: 1.6;">
+                        This passphrase protects your PGP private key. You will be prompted for it each time you decrypt an entry.
                       </p>
                       <div class="field">
                         <label class="label">PGP Passphrase</label>
@@ -426,25 +427,61 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                         )}
                       </div>
                       <button
-                        class="btn btn-primary"
-                        style="width: 100%;"
+                        class="btn btn-primary btn-block"
                         onClick={handleGenerateKey}
                         disabled={!pgpPassphrase || pgpPassphrase !== pgpPassphraseConfirm || loading}
                       >
-                        {loading ? <><span class="spinner" /> Generating...</> : '🔑 Generate Keypair'}
+                        {loading ? <><span class="spinner" /> Generating...</> : <><Key size={16} style={{ marginRight: '8px' }} /> Generate Keypair</>}
                       </button>
                     </>
                   ) : (
                     <>
                       <div class="field">
-                        <label class="label">Private Key (armored)</label>
-                        <textarea
-                          class="textarea input-mono"
-                          rows={5}
-                          value={importKey}
-                          onInput={(e) => setImportKey((e.target as HTMLTextAreaElement).value)}
-                          placeholder="Paste your armored PGP private key..."
+                        <label class="label">Import Private Key</label>
+                        <p class="help-text" style="margin-bottom: 12px; font-size: 12px; color: var(--text-muted);">
+                          Upload your PGP private key file (.asc, .key, .gpg, or .pgp)
+                        </p>
+                        <input
+                          type="file"
+                          accept=".asc,.pgp,.key,.gpg"
+                          onChange={(e) => {
+                            const input = e.target as HTMLInputElement;
+                            const file = input.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              // Always read as ArrayBuffer first, then detect format from content
+                              reader.onload = () => {
+                                const data = reader.result as ArrayBuffer;
+                                const bytes = new Uint8Array(data);
+
+                                // Detect format by checking for PGP armor headers
+                                // Armored text starts with "-----BEGIN PGP PRIVATE KEY BLOCK-----"
+                                const decoder = new TextDecoder('utf-8', { fatal: false });
+                                const textPreview = decoder.decode(bytes.slice(0, 50));
+
+                                if (textPreview.includes('-----BEGIN PGP PRIVATE KEY BLOCK-----')) {
+                                  // Armored text format - decode as string
+                                  const fullText = decoder.decode(bytes);
+                                  setImportKeyData(fullText);
+                                  setImportKeyFormat('armored');
+                                } else {
+                                  // Binary format (OpenPGP packets)
+                                  setImportKeyData(bytes);
+                                  setImportKeyFormat('binary');
+                                }
+                                setError('');
+                              };
+                              reader.readAsArrayBuffer(file);
+                            }
+                          }}
+                          disabled={loading}
+                          style="width: 100%;"
                         />
+                        {importKeyData && (
+                          <p style={`font-size: 12px; margin-top: 8px; ${importKeyFormat === 'binary' ? 'color: var(--success);' : 'color: var(--text-muted);'}`}>
+                            {importKeyFormat === 'binary' ? '✓ Binary key file detected' : '✓ Armored key file detected'}
+                          </p>
+                        )}
                       </div>
                       <div class="field">
                         <label class="label">Key Passphrase</label>
@@ -455,22 +492,22 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                           onInput={(e) => setImportPassphrase((e.target as HTMLInputElement).value)}
                           placeholder="Passphrase for this key"
                           autocomplete="off"
+                          disabled={loading}
                         />
                       </div>
                       <button
-                        class="btn btn-primary"
-                        style="width: 100%;"
+                        class="btn btn-primary btn-block"
                         onClick={handleImportKey}
-                        disabled={!importKey || !importPassphrase || loading}
+                        disabled={!importKeyData || !importPassphrase || loading}
                       >
-                        {loading ? <><span class="spinner" /> Importing...</> : '📥 Import Key'}
+                        {loading ? <><span class="spinner" /> Importing...</> : <><Key size={16} style={{ marginRight: '8px' }} /> Import Key</>}
                       </button>
                     </>
                   )}
                 </>
               ) : (
                 <div class="notice notice-success">
-                  <span>✓</span>
+                  <Check size={18} style={{ flexShrink: 0 }} />
                   <div>
                     <strong>Key ready!</strong><br />
                     <span style="font-family: var(--font-mono); font-size: 12px;">
@@ -484,25 +521,28 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
 
               <div class="setup-actions">
                 <button class="btn" onClick={() => { setStep(2); setKeyReady(false); setError(''); }}>
-                  ← Back
+                  <ArrowLeft size={16} style={{ marginRight: '6px' }} /> Back
                 </button>
                 <button
                   class="btn btn-primary"
                   onClick={handleComplete}
                   disabled={!canProceedStep3 || loading}
                 >
-                  {loading ? <><span class="spinner" /> Creating account...</> : 'Next →'}
+                  {loading ? <><span class="spinner" /> Creating account...</> : <>Next <ArrowRight size={16} style={{ marginLeft: '6px' }} /></>}
                 </button>
               </div>
             </>
           )}
 
-          {/* Step 4: Summary + 2FA */}
           {step === 4 && (
             <>
-              <div class="setup-step-title">Step 4 of 4: Confirm & 2FA</div>
+              <div class="setup-step-title">
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                  <Check size={18} /> Step 4 of 4: Confirm & 2FA
+                </span>
+              </div>
 
-              <div style="margin-bottom: 16px;">
+              <div style="margin-bottom: 20px;">
                 <div class="settings-row">
                   <span class="label-text">API Server</span>
                   <span class="value-text">{apiUrl}</span>
@@ -518,7 +558,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
               </div>
 
               <div class="notice notice-warning">
-                <span>⚠️</span>
+                <AlertTriangle size={18} style={{ flexShrink: 0 }} />
                 <span>Save your password and PGP passphrase! They cannot be recovered if lost.</span>
               </div>
 
@@ -526,7 +566,9 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
 
               {!totpConfirmed && !totpSkipped ? (
                 <>
-                  <h3 style="font-size: 14px; margin-bottom: 12px;">Enable 2FA (recommended)</h3>
+                  <h3 style="font-size: 14px; margin-bottom: 16px; display: flex; align-items: center; gap: '8px';">
+                    <Shield size={16} /> Enable 2FA (recommended)
+                  </h3>
 
                   {totpUrl ? (
                     <>
@@ -534,7 +576,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                         <canvas ref={qrRef} />
                       </div>
                       <div class="totp-secret">{totpSecret}</div>
-                      <p style="color: var(--text-muted); font-size: 12px; text-align: center; margin-bottom: 12px;">
+                      <p style="color: var(--text-muted); font-size: 12px; text-align: center; margin-bottom: 16px; line-height: 1.6;">
                         Scan the QR code with your authenticator app, or enter the secret manually.
                       </p>
                       <div class="field">
@@ -576,8 +618,8 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                   {error && <p class="error-msg">{error}</p>}
 
                   <button
-                    class="btn btn-ghost"
-                    style="width: 100%; margin-top: 8px;"
+                    class="btn btn-ghost btn-block"
+                    style="margin-top: 12px;"
                     onClick={() => setTotpSkipped(true)}
                   >
                     Skip for now
@@ -585,7 +627,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                 </>
               ) : (
                 <div class={`notice ${totpConfirmed ? 'notice-success' : 'notice-info'}`}>
-                  <span>{totpConfirmed ? '✓' : 'ℹ️'}</span>
+                  <Check size={18} style={{ flexShrink: 0 }} />
                   <span>
                     {totpConfirmed
                       ? '2FA is enabled. Your account is secured with two-factor authentication.'
@@ -597,7 +639,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
               <div class="setup-actions">
                 <div />
                 <button class="btn btn-primary" onClick={onComplete}>
-                  Complete ✓
+                  <Check size={16} style={{ marginRight: '8px' }} /> Complete Setup
                 </button>
               </div>
             </>

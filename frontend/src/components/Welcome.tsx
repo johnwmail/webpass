@@ -4,6 +4,7 @@ import { listAccounts, getAccount, aesDecrypt } from '../lib/storage';
 import { ApiClient } from '../lib/api';
 import { session } from '../lib/session';
 import { Footer } from './Footer';
+import { Lock, Key, Shield } from 'lucide-preact';
 
 interface Props {
   onSetup: () => void;
@@ -31,7 +32,6 @@ export function Welcome({ onSetup, onLogin }: Props) {
   }, []);
 
   const formatFp = (fp: string) => {
-    // Show as groups of 4
     const upper = fp.toUpperCase();
     return upper.replace(/(.{4})/g, '$1 ').trim();
   };
@@ -47,7 +47,6 @@ export function Welcome({ onSetup, onLogin }: Props) {
       const account = await getAccount(selectedFp);
       if (!account) throw new Error('Account not found');
 
-      // Step 1: AES decrypt the API URL using login password
       let apiUrl: string;
       try {
         apiUrl = await aesDecrypt(
@@ -60,12 +59,10 @@ export function Welcome({ onSetup, onLogin }: Props) {
         throw new Error('Wrong password');
       }
 
-      // Step 2: POST login to server
       const api = new ApiClient(apiUrl);
       api.fingerprint = selectedFp;
 
       if (needs2fa) {
-        // Complete 2FA
         if (!totpCode) {
           setError('Enter your 2FA code');
           setLoading(false);
@@ -105,16 +102,33 @@ export function Welcome({ onSetup, onLogin }: Props) {
     <div class="welcome-page">
       <div class="welcome-container">
         <div class="welcome-logo">
-          <div class="icon">🔐</div>
+          <div class="icon">
+            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="lockGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#6366f1" />
+                  <stop offset="50%" stopColor="#8b5cf6" />
+                  <stop offset="100%" stopColor="#a855f7" />
+                </linearGradient>
+              </defs>
+              <rect x="3" y="11" width="18" height="11" rx="2" stroke="url(#lockGradient)" strokeWidth="2" fill="rgba(99,102,241,0.1)" />
+              <path d="M7 11V7a5 5 0 0110 0v4" stroke="url(#lockGradient)" strokeWidth="2" strokeLinecap="round" />
+              <circle cx="12" cy="16" r="1" fill="url(#lockGradient)" />
+            </svg>
+          </div>
           <h1>WebPass</h1>
-          <p>Web-based password manager</p>
+          <p>Zero-knowledge password manager</p>
         </div>
 
         <div class="card">
           <form onSubmit={handleLogin}>
             {accounts.length > 0 && (
               <div class="field">
-                <label class="label">Account</label>
+                <label class="label">
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <Key size={14} /> Select Account
+                  </span>
+                </label>
                 {accounts.map((acc) => (
                   <div
                     key={acc.fingerprint}
@@ -126,11 +140,15 @@ export function Welcome({ onSetup, onLogin }: Props) {
                       setError('');
                     }}
                   >
-                    <span style="font-size: 18px;">🔑</span>
+                    <Shield size={18} style={{ color: 'var(--accent)' }} />
                     <span class="fp">
                       {acc.label || formatFp(acc.fingerprint)}
                     </span>
-                    {selectedFp === acc.fingerprint && <span class="check">✓</span>}
+                    {selectedFp === acc.fingerprint && (
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--success)' }}>
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    )}
                   </div>
                 ))}
               </div>
@@ -142,9 +160,12 @@ export function Welcome({ onSetup, onLogin }: Props) {
                 Loading accounts...
               </div>
             ) : accounts.length === 0 ? (
-              <div style="text-align: center; padding: 20px 0; color: var(--text-muted);">
-                <p style="margin-bottom: 16px;">No accounts found. Create one to get started.</p>
-                <button type="button" class="btn btn-primary" onClick={onSetup} style="width: 100%;">
+              <div style="text-align: center; padding: 24px 0; color: var(--text-muted);">
+                <div style={{ marginBottom: '16px', opacity: 0.5 }}>
+                  <Lock size={48} style={{ margin: '0 auto' }} />
+                </div>
+                <p style="margin-bottom: 20px; font-size: 14px;">No accounts found. Create one to get started.</p>
+                <button type="button" class="btn btn-primary btn-block" onClick={onSetup}>
                   Get Started →
                 </button>
               </div>
@@ -188,7 +209,7 @@ export function Welcome({ onSetup, onLogin }: Props) {
 
                 {error && <p class="error-msg">{error}</p>}
 
-                <div style="display: flex; gap: 8px; margin-top: 8px;">
+                <div style="display: flex; gap: 10px; margin-top: 12px;">
                   <button
                     type="submit"
                     class="btn btn-primary"
@@ -197,7 +218,9 @@ export function Welcome({ onSetup, onLogin }: Props) {
                   >
                     {loading ? (
                       <><span class="spinner" /> Logging in...</>
-                    ) : needs2fa ? 'Verify' : 'Login'}
+                    ) : needs2fa ? 'Verify' : (
+                      <><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4" /><polyline points="10 17 15 12 10 7" /><line x1="15" y1="12" x2="3" y2="12" /></svg> Login</>
+                    )}
                   </button>
                   <button type="button" class="btn" onClick={onSetup}>
                     Setup →

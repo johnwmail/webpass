@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "fflate": "^0.8.2",
+    "lucide-preact": "^0.460.0",
     "openpgp": "^6.3.0",
     "otpauth": "^9.3.2",
     "preact": "^10.25.4",

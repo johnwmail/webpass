@@ -17,6 +17,19 @@ Git sync allows users to backup and synchronize their encrypted password store t
 
 ---
 
+## Account Deletion and Git Cleanup
+
+When a user **permanently deletes their account**, the following cleanup occurs:
+
+1. **Git repository folder deleted** — `/data/git-repos/{fingerprint}/` is removed
+2. **All database entries deleted** — SQLite entries removed
+3. **User account deleted** — User record removed from database
+4. **Local data cleared** — Browser IndexedDB cleared
+
+**Note:** This only deletes the local git repository on the server. The remote Git repository (GitHub, GitLab, etc.) is NOT affected. Users should manually delete their remote repository if desired.
+
+---
+
 ## Architecture
 
 ```
