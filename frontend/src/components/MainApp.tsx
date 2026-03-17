@@ -45,6 +45,9 @@ export function MainApp({ onLock }: Props) {
   const [renameTo, setRenameTo] = useState('');
   const [renameError, setRenameError] = useState('');
 
+  const [deleteConfirmPath, setDeleteConfirmPath] = useState<string | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
   const loadEntries = useCallback(async () => {
     if (!session.api) return;
     try {
@@ -137,18 +140,24 @@ export function MainApp({ onLock }: Props) {
   };
 
   const handleDeleteEntry = async (path: string) => {
-    if (!session.api) return;
-    if (!confirm(`Delete "${path}"?`)) return;
+    setDeleteConfirmPath(path);
+  };
+
+  const confirmDeleteEntry = async () => {
+    if (!deleteConfirmPath || !session.api) return;
+    setDeleteLoading(true);
     try {
-      await session.api.deleteEntry(path);
-      if (selectedPath === path) {
+      await session.api.deleteEntry(deleteConfirmPath);
+      if (selectedPath === deleteConfirmPath) {
         setSelectedPath(null);
         setRightPanel({ type: 'empty' });
       }
+      setDeleteConfirmPath(null);
       await loadEntries();
-    } catch {
-      // ignore
+    } catch (e: any) {
+      // Ignore error
     }
+    setDeleteLoading(false);
   };
 
   const handleEntrySaved = async () => {
@@ -383,6 +392,54 @@ export function MainApp({ onLock }: Props) {
             <div class="modal-footer">
               <button class="btn" onClick={() => setRenameTarget(null)}>Cancel</button>
               <button class="btn btn-primary" onClick={handleRename} disabled={!renameTo.trim()}>Rename</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation dialog */}
+      {deleteConfirmPath && (
+        <div class="modal-overlay" onClick={() => setDeleteConfirmPath(null)}>
+          <div class="modal" style="max-width: 400px;" onClick={(e) => e.stopPropagation()}>
+            <div class="modal-header">
+              <h2>🗑️ Delete Entry</h2>
+              <button class="btn btn-ghost btn-icon" onClick={() => setDeleteConfirmPath(null)}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+              </button>
+            </div>
+            <div class="modal-body">
+              <p style="margin-bottom: 16px; font-size: 14px; color: var(--text-muted);">
+                Are you sure you want to delete this entry?
+              </p>
+              <div class="field">
+                <label class="label">Entry Path</label>
+                <input
+                  class="input input-mono"
+                  type="text"
+                  value={deleteConfirmPath}
+                  disabled
+                  style="background: var(--bg-tertiary); cursor: not-allowed;"
+                />
+              </div>
+              <p class="help-text" style="font-size: 12px; color: var(--text-muted);">
+                This action cannot be undone.
+              </p>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 12px;">
+              <button
+                class="btn btn-ghost"
+                onClick={() => setDeleteConfirmPath(null)}
+                disabled={deleteLoading}
+              >
+                Cancel
+              </button>
+              <button
+                class="btn btn-danger"
+                onClick={confirmDeleteEntry}
+                disabled={deleteLoading}
+              >
+                {deleteLoading ? <><span class="spinner" /> Deleting...</> : '🗑️ Delete'}
+              </button>
             </div>
           </div>
         </div>
