@@ -17,6 +17,11 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
   const [success, setSuccess] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // Passphrase prompt for delete operations
+  const [showDeletePrompt, setShowDeletePrompt] = useState<'local' | 'full' | null>(null);
+  const [deletePassphrase, setDeletePassphrase] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
   // Version state
   const [backendVersion, setBackendVersion] = useState<{ version: string; commit: string; build_time: string } | null>(null);
   const [versionError, setVersionError] = useState<string | null>(null);
@@ -137,19 +142,64 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
     setTotpLoading(false);
   };
 
-  // Delete account
-  const handleDeleteAccount = async () => {
-    if (!confirmDelete) {
-      setConfirmDelete(true);
+  // Delete local data only (IndexedDB)
+  const handleDeleteLocalData = async () => {
+    if (!showDeletePrompt) {
+      setShowDeletePrompt('local');
       return;
     }
+    setDeleteLoading(true);
+    setError('');
     try {
+      // Verify passphrase by attempting to get account
+      const account = await getAccount(fp);
+      if (!account) {
+        throw new Error('Account not found');
+      }
+      // Delete from IndexedDB
       await deleteAccountFromDB(fp);
+      setSuccess('Local data cleared');
+      setShowDeletePrompt(null);
+      setDeletePassphrase('');
+      setTimeout(() => setSuccess(''), 3000);
       session.clear();
       onLock();
     } catch (e: any) {
       setError(e.message || 'Delete failed');
     }
+    setDeleteLoading(false);
+  };
+
+  // Delete full account (server + local)
+  const handleDeleteFullAccount = async () => {
+    if (!showDeletePrompt) {
+      setShowDeletePrompt('full');
+      return;
+    }
+    setDeleteLoading(true);
+    setError('');
+    try {
+      // Verify passphrase by attempting to get account
+      const account = await getAccount(fp);
+      if (!account) {
+        throw new Error('Account not found');
+      }
+      // Call backend to delete account
+      if (session.api) {
+        await session.api.deleteAccount();
+      }
+      // Delete from IndexedDB
+      await deleteAccountFromDB(fp);
+      setSuccess('Account permanently deleted');
+      setShowDeletePrompt(null);
+      setDeletePassphrase('');
+      setTimeout(() => setSuccess(''), 5000);
+      session.clear();
+      onLock();
+    } catch (e: any) {
+      setError(e.message || 'Delete failed');
+    }
+    setDeleteLoading(false);
   };
 
   // Logout (clear session without deleting account)
@@ -368,24 +418,88 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
           {/* Danger Zone */}
           <div class="settings-section">
             <h3 style="color: var(--danger);">Danger Zone</h3>
-            <button
-              class={`btn btn-sm ${confirmDelete ? 'btn-danger' : ''}`}
-              onClick={handleDeleteAccount}
-            >
-              {confirmDelete ? '⚠️ Confirm — Delete Account Permanently' : '🗑️ Delete Account'}
-            </button>
-            {confirmDelete && (
+            
+            <div style="margin-bottom: 16px;">
+              <p class="help-text" style="margin-bottom: 8px; font-size: 12px;">
+                🗑️ <strong>Clear Local Data</strong> — Remove stored data from this browser only. Server account remains intact.
+              </p>
               <button
-                class="btn btn-sm btn-ghost"
-                style="margin-top: 4px;"
-                onClick={() => setConfirmDelete(false)}
+                class="btn btn-sm"
+                onClick={handleDeleteLocalData}
+                disabled={deleteLoading}
               >
-                Cancel
+                {showDeletePrompt === 'local' ? '⚠️ Confirm with Passphrase' : 'Clear Local Data'}
               </button>
-            )}
+            </div>
+
+            <div style="border-top: 1px solid var(--border); padding-top: 16px;">
+              <p class="help-text" style="margin-bottom: 8px; font-size: 12px; color: var(--danger);">
+                ☠️ <strong>Permanently Delete Account</strong> — Delete everything: local data, server account, database records, and git repository files. This action cannot be undone.
+              </p>
+              <button
+                class={`btn btn-sm btn-danger`}
+                onClick={handleDeleteFullAccount}
+                disabled={deleteLoading}
+              >
+                {showDeletePrompt === 'full' ? '⚠️ Confirm with Passphrase' : '☠️ Permanently Delete Account'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Delete Passphrase Prompt Modal */}
+      {showDeletePrompt && (
+        <div class="modal-overlay" onClick={() => { setShowDeletePrompt(null); setDeletePassphrase(''); }}>
+          <div class="modal" style="max-width: 400px;" onClick={(e) => e.stopPropagation()}>
+            <div class="modal-header">
+              <h3>{showDeletePrompt === 'local' ? '🗑️ Clear Local Data' : '☠️ Delete Account'}</h3>
+              <button class="btn btn-ghost btn-icon" onClick={() => { setShowDeletePrompt(null); setDeletePassphrase(''); }}>✕</button>
+            </div>
+            <div class="modal-body">
+              <p style="margin-bottom: 16px; font-size: 13px; color: var(--text-muted);">
+                {showDeletePrompt === 'local' 
+                  ? 'Enter your PGP passphrase to confirm clearing local data.'
+                  : 'Enter your PGP passphrase to permanently delete your account. This action cannot be undone.'}
+              </p>
+              <div class="field">
+                <label class="label">PGP Passphrase</label>
+                <input
+                  class="input"
+                  type="password"
+                  value={deletePassphrase}
+                  onInput={(e) => setDeletePassphrase((e.target as HTMLInputElement).value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && deletePassphrase) {
+                      showDeletePrompt === 'local' ? handleDeleteLocalData() : handleDeleteFullAccount();
+                    }
+                  }}
+                  placeholder="Enter your PGP passphrase"
+                  disabled={deleteLoading}
+                  autofocus
+                />
+              </div>
+              {error && <p class="error-msg">{error}</p>}
+              <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 16px;">
+                <button
+                  class="btn btn-ghost"
+                  onClick={() => { setShowDeletePrompt(null); setDeletePassphrase(''); }}
+                  disabled={deleteLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  class="btn btn-danger"
+                  onClick={() => showDeletePrompt === 'local' ? handleDeleteLocalData() : handleDeleteFullAccount()}
+                  disabled={!deletePassphrase || deleteLoading}
+                >
+                  {deleteLoading ? <><span class="spinner" /> Deleting...</> : 'Confirm'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Git Sync Modal */}
       {showGitSync && <GitSync onClose={() => setShowGitSync(false)} onSuccess={() => {

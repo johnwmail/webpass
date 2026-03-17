@@ -95,6 +95,27 @@ WebPass implements several security measures:
 - Encrypted git sync (PGP-encrypted PAT)
 - Secure session management
 - Input validation on all endpoints
+- Passphrase confirmation required for account deletion
+
+### Account Deletion Security
+
+WebPass provides two levels of account deletion:
+
+1. **Clear Local Data** — Removes IndexedDB storage from the browser only. Requires PGP passphrase confirmation. Server account and data remain intact.
+
+2. **Permanently Delete Account** — Complete deletion including:
+   - All database entries
+   - User account record
+   - Git repository folder (`/data/git-repos/{fingerprint}/`)
+   - Local IndexedDB data
+   
+   Requires PGP passphrase confirmation. This action cannot be undone.
+
+**Security measures:**
+- Passphrase verification before deletion
+- JWT authentication required for server-side deletion
+- Atomic deletion: database entries removed before user account
+- Git repo deletion is scoped to user's fingerprint folder only
 
 ## Known Limitations
 

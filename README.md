@@ -17,6 +17,7 @@ A web-based password manager with zero-knowledge architecture. All cryptography 
 - **Session management** — 5-minute JWT sessions with automatic expiry
 - **Git sync** — Backup and sync encrypted entries to any Git repository (GitHub, GitLab, Gitea)
 - **Theme toggle** — Auto-switching light/dark themes based on time of day (8AM-10PM)
+- **Account management** — Clear local data or permanently delete account with passphrase confirmation
 
 ## 🏗️ Architecture
 

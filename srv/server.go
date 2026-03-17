@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -102,6 +103,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/{fingerprint}/entries/{path...}", s.requireAuth(s.handleGetEntry))
 	mux.HandleFunc("PUT /api/{fingerprint}/entries/{path...}", s.requireAuth(s.handlePutEntry))
 	mux.HandleFunc("DELETE /api/{fingerprint}/entries/{path...}", s.requireAuth(s.handleDeleteEntry))
+
+	// Account deletion
+	mux.HandleFunc("DELETE /api/{fingerprint}/account", s.requireAuth(s.handleDeleteAccount))
 
 	// Health check
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -549,6 +553,53 @@ func (s *Server) handleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 		slog.Error("delete entry", "error", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /api/{fingerprint}/account — delete user account
+// ---------------------------------------------------------------------------
+
+func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
+	fp := r.PathValue("fingerprint")
+	if fp == "" {
+		jsonError(w, "fingerprint required", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	// Get all entries for this user and delete them
+	entries, err := s.Q.ListEntries(ctx, fp)
+	if err != nil {
+		slog.Error("list entries", "error", err)
+	}
+	for _, entry := range entries {
+		if err := s.Q.DeleteEntry(ctx, dbgen.DeleteEntryParams{
+			Fingerprint: fp,
+			Path:        entry.Path,
+		}); err != nil {
+			slog.Error("delete entry", "path", entry.Path, "error", err)
+		}
+	}
+
+	// Delete user account
+	if err := s.Q.DeleteUser(ctx, fp); err != nil {
+		slog.Error("delete user", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Delete git repo folder if it exists
+	if s.GitService != nil {
+		repoPath := filepath.Join(s.GitService.repoRoot, fp)
+		if _, err := os.Stat(repoPath); err == nil {
+			if err := os.RemoveAll(repoPath); err != nil {
+				slog.Error("delete git repo", "error", err)
+			}
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)

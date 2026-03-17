@@ -133,6 +133,18 @@ export class ApiClient {
     if (!res.ok) throw new Error(`Delete entry failed (${res.status})`);
   }
 
+  /** DELETE /api/:fp/account — delete user account (server-side) */
+  async deleteAccount(): Promise<void> {
+    const res = await fetch(
+      this.url(`/api/${this.fingerprint}/account`),
+      {
+        method: 'DELETE',
+        headers: this.headers(),
+      }
+    );
+    if (!res.ok) throw new Error(`Delete account failed (${res.status})`);
+  }
+
   /** POST /api/:fp/entries/move */
   async moveEntry(from: string, to: string): Promise<void> {
     const res = await fetch(

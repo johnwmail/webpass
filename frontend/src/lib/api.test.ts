@@ -136,5 +136,9 @@ describe('ApiClient', () => {
     it('should have gitPull method', () => {
       expect(typeof client.gitPull).toBe('function');
     });
+
+    it('should have deleteAccount method', () => {
+      expect(typeof client.deleteAccount).toBe('function');
+    });
   });
 });
