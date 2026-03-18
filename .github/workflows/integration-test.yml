@@ -81,7 +81,7 @@ jobs:
 
       - name: Upload test results (HTML report)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-html-report
           path: frontend/playwright-report/
@@ -89,7 +89,7 @@ jobs:
 
       - name: Upload test results (screenshots/videos)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-test-results
           path: frontend/test-results/
@@ -97,7 +97,7 @@ jobs:
 
       - name: Upload test results (JSON)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-json-results
           path: frontend/test-results/results.json
