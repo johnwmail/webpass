@@ -26,7 +26,6 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: '24'
-          cache: true
 
       - name: Cache node modules
         uses: actions/cache@v5
