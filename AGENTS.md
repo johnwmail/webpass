@@ -121,6 +121,32 @@ See [DEPLOY.md](DEPLOY.md) for:
 
 - [ ] Build succeeds: `go build -o webpass-server ./cmd/srv`
 - [ ] Frontend builds: `cd frontend && npm run build`
-- [ ] Tests pass: `go test ./...`
+- [ ] Go tests pass: `go test ./...`
+- [ ] Playwright E2E tests pass: `cd frontend && npx playwright test`
 - [ ] No hardcoded secrets in code
 - [ ] `.env` files are gitignored
+
+## E2E Testing (Playwright)
+
+Run browser-based integration tests:
+
+```bash
+# Install dependencies (one-time)
+cd frontend
+npm install -D @playwright/test
+npx playwright install chromium
+
+# Run all tests
+npx playwright test
+
+# Run with UI (interactive)
+npx playwright test --ui
+
+# Run specific test
+npx playwright test -g "login"
+
+# View HTML report
+npx playwright show-report
+```
+
+See [PLAYWRIGHT.md](PLAYWRIGHT.md) for full documentation.

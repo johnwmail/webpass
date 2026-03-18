@@ -12,6 +12,10 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:debug": "playwright test --debug",
     "lint": "echo 'No linter configured'"
   },
   "dependencies": {
@@ -24,6 +28,7 @@
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.52.0",
     "@preact/preset-vite": "^2.9.4",
     "@types/node": "^22.10.2",
     "@types/qrcode": "^1.5.5",

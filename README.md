@@ -3,6 +3,7 @@
 A web-based password manager with zero-knowledge architecture. All cryptography happens client-side in the browser using OpenPGP.js. The server stores only encrypted blobs — it never sees plaintext passwords or private keys.
 
 [![CI](https://github.com/johnwmail/webpass/actions/workflows/ci.yml/badge.svg)](https://github.com/johnwmail/webpass/actions/workflows/ci.yml)
+[![Integration Tests](https://github.com/johnwmail/webpass/actions/workflows/integration-test.yml/badge.svg)](https://github.com/johnwmail/webpass/actions/workflows/integration-test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)](https://go.dev)
 
@@ -41,6 +42,7 @@ A web-based password manager with zero-knowledge architecture. All cryptography 
 | Crypto   | OpenPGP.js + Web Crypto API (PBKDF2)   |
 | Backend  | Go 1.26 + SQLite (pure-Go, no CGO)     |
 | Auth     | bcrypt + JWT (5-min) + TOTP (2FA)      |
+| Testing  | Playwright (E2E) + Vitest (unit)       |
 | Deploy   | Docker (single container)               |
 
 ## 🚀 Quick Start
@@ -77,6 +79,45 @@ go run ./cmd/srv
 ```
 
 Server listens on `:8080` by default.
+
+## 🧪 Testing
+
+### Unit Tests
+
+```bash
+# Backend tests
+go test ./...
+
+# Frontend unit tests
+cd frontend && npm test
+```
+
+### E2E Tests (Playwright)
+
+Browser-based integration tests with real Chromium:
+
+```bash
+# Install Playwright (one-time)
+cd frontend
+npm install -D @playwright/test
+npx playwright install chromium
+
+# Run all E2E tests
+npx playwright test
+
+# Run with interactive UI
+npx playwright test --ui
+
+# Run with visible browser
+npx playwright test --headed
+
+# View HTML report
+npx playwright show-report
+```
+
+**Test Coverage**: 20 tests across 3 suites (Authentication, Entry Management, Settings)
+
+📖 See [PLAYWRIGHT.md](PLAYWRIGHT.md) for full E2E test documentation.
 
 ## 📦 Deployment
 
