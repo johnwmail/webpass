@@ -13,6 +13,8 @@ import {
   apiSetupTOTP,
   apiConfirmTOTP,
 } from '../helpers/api';
+import { execSync } from 'child_process';
+import * as fs from 'fs';
 
 test.describe('Authentication', () => {
   let testUser: TestUser;
@@ -201,13 +203,32 @@ test.describe('Authentication', () => {
     await expect(page.locator('canvas')).toBeVisible();
 
     // Verify secret is displayed
-    await expect(page.locator('.totp-secret')).toBeVisible();
+    const secretElement = page.locator('.totp-secret');
+    await expect(secretElement).toBeVisible();
+    
+    // Extract the TOTP secret (remove spaces)
+    const secretText = await secretElement.textContent();
+    const totpSecret = secretText?.replace(/\s/g, '') || '';
+    expect(totpSecret.length).toBeGreaterThan(10);
 
-    // Verify skip button exists and click it
-    await page.getByRole('button', { name: /Skip/i }).click();
+    // Generate a valid TOTP code using the secret
+    const otpauth = await import('otpauth');
+    const totp = new otpauth.TOTP({
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: otpauth.Secret.fromBase32(totpSecret),
+    });
+    const totpCode = totp.generate();
+
+    // Enter the TOTP code
+    await page.getByPlaceholder('6-digit code').fill(totpCode);
+
+    // Click verify button
+    await page.getByRole('button', { name: /Verify/i }).click();
 
     // Wait for the confirmation screen (Step 4 of 4)
-    await page.getByText('Step 4 of 4', { exact: false }).waitFor({ timeout: 5000 });
+    await page.getByText('Step 4 of 4', { exact: false }).waitFor({ timeout: 10000 });
 
     // Click "Complete Setup" to finish registration
     await page.getByRole('button', { name: /Complete Setup/i }).click();
@@ -215,9 +236,31 @@ test.describe('Authentication', () => {
     // Should redirect to Welcome page with account saved
     await page.getByRole('heading', { name: 'WebPass' }).waitFor({ timeout: 10000 });
     await page.getByText('Zero-knowledge password manager').waitFor({ timeout: 5000 });
-    
+
     // Verify account is listed
     await expect(page.locator('.account-item')).toBeVisible();
+
+    // Now test login with 2FA
+    await page.locator('.account-item').first().click({ timeout: 5000 });
+
+    // Enter password
+    await page.getByPlaceholder('Enter your login password').fill(testUserData.password);
+    await page.getByRole('button', { name: /Login/i }).click();
+
+    // 2FA code input should appear
+    await page.getByPlaceholder('6-digit code').waitFor({ timeout: 5000 });
+    await expect(page.getByPlaceholder('6-digit code')).toBeVisible();
+
+    // Generate a new TOTP code (codes expire every 30 seconds)
+    const totpCode2 = totp.generate();
+
+    // Enter TOTP code
+    await page.getByPlaceholder('6-digit code').fill(totpCode2);
+    await page.getByRole('button', { name: /Verify/i }).click();
+
+    // Should login successfully and show main app
+    await page.getByText('Select an entry or create a new one').waitFor({ timeout: 10000 });
+    await expect(page.getByText('Select an entry or create a new one')).toBeVisible();
   });
 
   test('logout and session cleanup', async ({ page }) => {
@@ -267,5 +310,113 @@ test.describe('Authentication', () => {
     // Verify session is cleared by checking that login is required again
     await page.locator('.account-item').first().click({ timeout: 5000 });
     await expect(page.getByPlaceholder('Enter your login password')).toBeVisible();
+  });
+
+  // Test importing an existing private key during account setup
+  // This simulates the scenario where a user wants to restore from backup
+  test('import private key during setup', async ({ page }) => {
+    const accountA = generateTestUser();
+    const accountAPassphrase = `pgp-pass-A-${Date.now()}`;
+
+    // Step 1: Create Account A and export its private key
+    await page.goto('/');
+    await page.getByRole('button', { name: /Get Started/i }).click();
+    await page.waitForSelector('input[type="url"]', { timeout: 5000 });
+    await page.getByRole('button', { name: /Next/i }).first().click();
+    await page.getByText('Choose Password', { exact: false }).waitFor({ timeout: 5000 });
+
+    await page.getByPlaceholder('Choose a strong password').fill(accountA.password);
+    await page.getByPlaceholder('Confirm your password').fill(accountA.password);
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
+
+    await page.getByPlaceholder('Choose a PGP passphrase').fill(accountAPassphrase);
+    await page.getByPlaceholder('Confirm your PGP passphrase').fill(accountAPassphrase);
+    await page.getByRole('button', { name: /Generate Keypair/i }).click();
+    await page.getByText('Key ready!', { exact: false }).waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: /Next/i }).last().click();
+    await page.getByText('Enable 2FA', { exact: false }).waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: /Complete Setup/i }).click();
+    await page.getByRole('heading', { name: 'WebPass' }).waitFor({ timeout: 10000 });
+
+    // Login to Account A
+    await page.locator('.account-item').first().click({ timeout: 5000 });
+    await page.getByPlaceholder('Enter your login password').fill(accountA.password);
+    await page.getByRole('button', { name: /Login/i }).click();
+    await page.getByText('Select an entry or create a new one').waitFor({ timeout: 10000 });
+
+    // Create a test entry
+    await page.getByRole('button', { name: 'Entry' }).click();
+    await page.waitForSelector('text=New Entry', { timeout: 5000 });
+    await page.getByPlaceholder('Entry name').fill('Test/entry');
+    await page.getByPlaceholder('Username').fill('test@example.com');
+    await page.getByPlaceholder('Password').fill('test-password');
+    await page.getByRole('button', { name: 'Save' }).click();
+    await page.waitForSelector('text=Test', { timeout: 30000 });
+
+    // Export private key from Account A
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.waitForSelector('text=Settings', { timeout: 5000 });
+
+    const [keyDownload] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: '📤 Export Private Key' }).click(),
+    ]);
+    const keyFilePath = await keyDownload.path();
+
+    // Delete Account A
+    await page.getByRole('button', { name: '✕' }).click();
+    await page.waitForTimeout(1000);
+
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.getByRole('heading', { name: 'Danger Zone' }).scrollIntoViewIfNeeded();
+    await page.getByRole('button', { name: '☠️ Permanently Delete Account' }).click();
+    await page.waitForSelector('text=Enter your PGP passphrase', { timeout: 5000 });
+    await page.getByPlaceholder('Enter your PGP passphrase').fill(accountAPassphrase);
+    await page.getByRole('button', { name: 'Confirm' }).last().click();
+    await page.getByRole('heading', { name: 'WebPass' }).waitFor({ timeout: 10000 });
+
+    // Step 2: Create Account B using Account A's exported private key
+    const accountB = generateTestUser();
+    const accountBPassword = `password-B-${Date.now()}`;
+
+    await page.getByRole('button', { name: /Get Started/i }).click();
+    await page.waitForSelector('input[type="url"]', { timeout: 5000 });
+    await page.getByRole('button', { name: /Next/i }).first().click();
+    await page.getByText('Choose Password', { exact: false }).waitFor({ timeout: 5000 });
+
+    await page.getByPlaceholder('Choose a strong password').fill(accountBPassword);
+    await page.getByPlaceholder('Confirm your password').fill(accountBPassword);
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
+
+    // Select "Import existing private key" radio option
+    await page.getByLabel('Import existing private key').check();
+
+    // File input should appear
+    await page.getByText('Import Private Key', { exact: false }).waitFor({ timeout: 5000 });
+
+    // Upload the exported private key from Account A
+    const fileInput = page.locator('input[type="file"][accept=".asc,.pgp,.key,.gpg"]');
+    await fileInput.setInputFiles(keyFilePath);
+    await page.waitForTimeout(1000);
+
+    // Passphrase input should appear
+    await expect(page.getByPlaceholder('Passphrase for this key')).toBeVisible();
+
+    // Enter Account A's passphrase
+    await page.getByPlaceholder('Passphrase for this key').fill(accountAPassphrase);
+
+    // Verify import button is enabled
+    const importButton = page.getByRole('button', { name: /Import Key/i });
+    await expect(importButton).toBeEnabled();
+
+    // Cleanup temp file
+    try {
+      fs.unlinkSync(keyFilePath);
+    } catch (e) {}
+
+    // Set testUser for cleanup (Account B)
+    testUser = accountB;
   });
 });

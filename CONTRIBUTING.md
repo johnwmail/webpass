@@ -64,7 +64,14 @@ Feature suggestions are welcome! Please provide:
 - Include tests for new functionality
 - Update documentation if needed
 - Keep changes focused and atomic
-- Ensure CI passes
+- Ensure CI passes (all 26 E2E tests must pass)
+
+**Testing Requirements:**
+- Backend: `go test ./...` must pass
+- Frontend unit: `npm test` must pass
+- E2E tests: `./frontend/playwright-e2e-test.sh` must pass (26 tests)
+- Linters: `golangci-lint run` and `npm run lint` must pass
+- Type check: `npm run typecheck` must pass
 
 ## Development Setup
 
@@ -92,7 +99,7 @@ go build -o webpass-server ./cmd/srv
 ```bash
 cd frontend
 
-# Install Node.js 20+
+# Install Node.js 24+
 node --version
 
 # Install dependencies
@@ -101,12 +108,47 @@ npm install
 # Run dev server
 npm run dev
 
-# Run tests
+# Run unit tests
 npm test
+
+# Run E2E tests
+./frontend/playwright-e2e-test.sh
 
 # Build
 npm run build
+
+# Type check
+npm run typecheck
 ```
+
+### E2E Testing (Playwright)
+
+```bash
+# Run all E2E tests
+./frontend/playwright-e2e-test.sh
+
+# Or use npx directly
+npx playwright test
+
+# Run specific tests
+npx playwright test --grep "import"
+npx playwright test --grep "2FA"
+
+# Run with UI (interactive)
+npx playwright test --ui
+
+# Run with visible browser
+npx playwright test --headed
+
+# View HTML report
+npx playwright show-report
+```
+
+**Note:** The E2E test script (`playwright-e2e-test.sh`) automatically:
+- Builds the frontend
+- Starts the backend server
+- Runs all 26 tests
+- Cleans up on exit
 
 ### Database
 

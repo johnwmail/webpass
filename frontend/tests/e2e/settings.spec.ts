@@ -138,6 +138,58 @@ test.describe('Settings', () => {
     expect(download.suggestedFilename()).toMatch(/.*public.*\.asc/);
   });
 
+  test('import entries', async ({ page }) => {
+    testUser = generateTestUser();
+    const pgpPassphrase = `pgp-pass-${Date.now()}`;
+
+    // Register and login
+    await page.goto('/');
+    await page.getByRole('button', { name: /Get Started/i }).click();
+    await page.waitForSelector('input[type="url"]', { timeout: 5000 });
+    await page.getByRole('button', { name: /Next/i }).first().click();
+    await page.getByText('Choose Password', { exact: false }).waitFor({ timeout: 5000 });
+
+    await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
+    await page.getByPlaceholder('Confirm your password').fill(testUser.password);
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
+
+    await page.getByPlaceholder('Choose a PGP passphrase').fill(pgpPassphrase);
+    await page.getByPlaceholder('Confirm your PGP passphrase').fill(pgpPassphrase);
+    await page.getByRole('button', { name: /Generate Keypair/i }).click();
+    await page.getByText('Key ready!', { exact: false }).waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: /Next/i }).last().click();
+    await page.getByText('Enable 2FA', { exact: false }).waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: /Complete Setup/i }).click();
+    await page.getByRole('heading', { name: 'WebPass' }).waitFor({ timeout: 10000 });
+
+    // Login
+    await page.locator('.account-item').first().click({ timeout: 5000 });
+    await page.getByPlaceholder('Enter your login password').fill(testUser.password);
+    await page.getByRole('button', { name: /Login/i }).click();
+    await page.getByText('Select an entry or create a new one').waitFor({ timeout: 10000 });
+
+    // Open settings
+    await page.getByRole('button', { name: /Settings/i }).click();
+    await page.getByText('Settings', { exact: false }).waitFor({ timeout: 10000 });
+
+    // Click import button
+    await page.getByRole('button', { name: /Import.*password|Import.*store/i }).click();
+
+    // Import dialog should appear
+    await page.getByText('Import Password Store', { exact: false }).waitFor({ timeout: 5000 });
+    await expect(page.getByText('Import Password Store', { exact: false })).toBeVisible();
+
+    // Verify file inputs are present
+    await expect(page.locator('input[type="file"][accept=".tar.gz,.tgz,.tar"]')).toBeVisible();
+    await expect(page.locator('input[type="file"][accept=".asc,.pgp,.key,.gpg"]')).toBeVisible();
+    await expect(page.getByPlaceholder('Enter private key passphrase')).toBeVisible();
+
+    // Close import dialog by clicking on the overlay (outside the modal)
+    await page.locator('.modal-overlay').first().click({ position: { x: 50, y: 50 } });
+    await page.waitForTimeout(500); // Wait for animation
+  });
+
   test('setup 2FA from settings', async ({ page }) => {
     testUser = generateTestUser();
     await registerAndLogin(page, testUser);
@@ -156,9 +208,83 @@ test.describe('Settings', () => {
     await expect(page.locator('canvas')).toBeVisible();
 
     // Secret should be displayed
-    const secretText = await page.locator('.totp-secret').textContent();
+    const secretElement = page.locator('.totp-secret');
+    const secretText = await secretElement.textContent();
     expect(secretText).toBeTruthy();
     expect(secretText!.length).toBeGreaterThan(10);
+
+    // Extract the TOTP secret (remove spaces)
+    const totpSecret = secretText?.replace(/\s/g, '') || '';
+
+    // Generate a valid TOTP code using the secret
+    const otpauth = await import('otpauth');
+    const totp = new otpauth.TOTP({
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: otpauth.Secret.fromBase32(totpSecret),
+    });
+    const totpCode = totp.generate();
+
+    // Enter the TOTP code
+    await page.getByPlaceholder('6-digit code').fill(totpCode);
+
+    // Click verify button
+    await page.getByRole('button', { name: /Verify/i }).click();
+
+    // Wait for success message
+    await page.getByText(/2FA enabled|Two-factor authentication enabled/i).waitFor({ timeout: 10000 });
+
+    // Close settings
+    await page.getByRole('button', { name: '✕' }).click();
+    await page.waitForTimeout(500);
+
+    // Lock session to test 2FA login
+    await page.getByRole('button', { name: 'Lock Session' }).click();
+    await page.getByRole('heading', { name: 'WebPass' }).waitFor({ timeout: 10000 });
+
+    // Login with password
+    await page.locator('.account-item').first().click({ timeout: 5000 });
+    await page.getByPlaceholder('Enter your login password').fill(testUser.password);
+    await page.getByRole('button', { name: /Login/i }).click();
+
+    // 2FA code input should appear
+    await page.getByPlaceholder('6-digit code').waitFor({ timeout: 5000 });
+
+    // Generate a new TOTP code
+    const totpCode2 = totp.generate();
+
+    // Enter TOTP code
+    await page.getByPlaceholder('6-digit code').fill(totpCode2);
+    await page.getByRole('button', { name: /Verify/i }).click();
+
+    // Should login successfully
+    await page.getByText('Select an entry or create a new one').waitFor({ timeout: 10000 });
+    await expect(page.getByText('Select an entry or create a new one')).toBeVisible();
+  });
+
+  test('clear local data - cancel', async ({ page }) => {
+    testUser = generateTestUser();
+    await registerAndLogin(page, testUser);
+
+    // Open settings
+    await page.getByRole('button', { name: /Settings/i }).click();
+    await page.getByText('Settings', { exact: false }).waitFor({ timeout: 10000 });
+
+    // Scroll to danger zone using heading
+    await page.getByRole('heading', { name: 'Danger Zone' }).scrollIntoViewIfNeeded();
+
+    // Click clear local data button
+    await page.getByRole('button', { name: /Clear Local Data/i }).click();
+
+    // Passphrase prompt dialog should appear
+    await page.getByText('Enter your PGP passphrase', { exact: false }).waitFor({ timeout: 10000 });
+
+    // Click the first cancel button (in the passphrase prompt)
+    await page.getByRole('button', { name: 'Cancel' }).first().click();
+
+    // Modal should still be open
+    await expect(page.getByText('Settings', { exact: false })).toBeVisible();
   });
 
   test('delete account - cancel', async ({ page }) => {
@@ -229,5 +355,124 @@ test.describe('Settings', () => {
 
     // Git sync button should be visible
     await expect(page.getByRole('button', { name: /Git.*Sync|Sync.*Git/i })).toBeVisible();
+  });
+
+  test('clear local data only', async ({ page }) => {
+    testUser = generateTestUser();
+    const pgpPassphrase = `pgp-pass-${Date.now()}`;
+
+    // Register and login
+    await page.goto('/');
+    await page.getByRole('button', { name: /Get Started/i }).click();
+    await page.waitForSelector('input[type="url"]', { timeout: 5000 });
+    await page.getByRole('button', { name: /Next/i }).first().click();
+    await page.getByText('Choose Password', { exact: false }).waitFor({ timeout: 5000 });
+
+    await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
+    await page.getByPlaceholder('Confirm your password').fill(testUser.password);
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
+
+    await page.getByPlaceholder('Choose a PGP passphrase').fill(pgpPassphrase);
+    await page.getByPlaceholder('Confirm your PGP passphrase').fill(pgpPassphrase);
+    await page.getByRole('button', { name: /Generate Keypair/i }).click();
+    await page.getByText('Key ready!', { exact: false }).waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: /Next/i }).last().click();
+    await page.getByText('Enable 2FA', { exact: false }).waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: /Complete Setup/i }).click();
+    await page.getByRole('heading', { name: 'WebPass' }).waitFor({ timeout: 10000 });
+
+    // Verify account is listed
+    await expect(page.locator('.account-item')).toHaveCount(1);
+
+    // Login
+    await page.locator('.account-item').first().click({ timeout: 5000 });
+    await page.getByPlaceholder('Enter your login password').fill(testUser.password);
+    await page.getByRole('button', { name: /Login/i }).click();
+    await page.getByText('Select an entry or create a new one').waitFor({ timeout: 10000 });
+
+    // Open settings
+    await page.getByRole('button', { name: /Settings/i }).click();
+    await page.getByText('Settings', { exact: false }).waitFor({ timeout: 10000 });
+
+    // Scroll to danger zone
+    await page.getByRole('heading', { name: 'Danger Zone' }).scrollIntoViewIfNeeded();
+
+    // Click clear local data button
+    await page.getByRole('button', { name: /Clear Local Data/i }).click();
+
+    // Passphrase prompt dialog should appear
+    await page.getByText('Enter your PGP passphrase', { exact: false }).waitFor({ timeout: 10000 });
+
+    // Enter the PGP passphrase
+    await page.getByPlaceholder('Enter your PGP passphrase').fill(pgpPassphrase);
+
+    // Click confirm button
+    await page.getByRole('button', { name: /Confirm/i }).last().click();
+
+    // Wait for success message and redirect to welcome page
+    await page.getByRole('heading', { name: 'WebPass' }).waitFor({ timeout: 10000 });
+    await page.getByText('Zero-knowledge password manager').waitFor({ timeout: 5000 });
+
+    // Account should no longer be listed (local data cleared)
+    await expect(page.locator('.account-item')).toHaveCount(0);
+  });
+
+  test('full account deletion', async ({ page }) => {
+    testUser = generateTestUser();
+    const pgpPassphrase = `pgp-pass-${Date.now()}`;
+
+    // Register and login
+    await page.goto('/');
+    await page.getByRole('button', { name: /Get Started/i }).click();
+    await page.waitForSelector('input[type="url"]', { timeout: 5000 });
+    await page.getByRole('button', { name: /Next/i }).first().click();
+    await page.getByText('Choose Password', { exact: false }).waitFor({ timeout: 5000 });
+
+    await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
+    await page.getByPlaceholder('Confirm your password').fill(testUser.password);
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
+
+    await page.getByPlaceholder('Choose a PGP passphrase').fill(pgpPassphrase);
+    await page.getByPlaceholder('Confirm your PGP passphrase').fill(pgpPassphrase);
+    await page.getByRole('button', { name: /Generate Keypair/i }).click();
+    await page.getByText('Key ready!', { exact: false }).waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: /Next/i }).last().click();
+    await page.getByText('Enable 2FA', { exact: false }).waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: /Complete Setup/i }).click();
+    await page.getByRole('heading', { name: 'WebPass' }).waitFor({ timeout: 10000 });
+
+    // Login
+    await page.locator('.account-item').first().click({ timeout: 5000 });
+    await page.getByPlaceholder('Enter your login password').fill(testUser.password);
+    await page.getByRole('button', { name: /Login/i }).click();
+    await page.getByText('Select an entry or create a new one').waitFor({ timeout: 10000 });
+
+    // Open settings
+    await page.getByRole('button', { name: /Settings/i }).click();
+    await page.getByText('Settings', { exact: false }).waitFor({ timeout: 10000 });
+
+    // Scroll to danger zone
+    await page.getByRole('heading', { name: 'Danger Zone' }).scrollIntoViewIfNeeded();
+
+    // Click delete account button
+    await page.getByRole('button', { name: /Permanently Delete Account/i }).click();
+
+    // Passphrase prompt dialog should appear
+    await page.getByText('Enter your PGP passphrase', { exact: false }).waitFor({ timeout: 10000 });
+
+    // Enter the PGP passphrase
+    await page.getByPlaceholder('Enter your PGP passphrase').fill(pgpPassphrase);
+
+    // Click confirm delete button
+    await page.getByRole('button', { name: /Confirm|Delete/i }).last().click();
+
+    // Wait for confirmation message and redirect to welcome/setup page
+    await page.getByRole('heading', { name: 'WebPass' }).waitFor({ timeout: 10000 });
+    await page.getByText('Zero-knowledge password manager').waitFor({ timeout: 5000 });
+
+    // Account should no longer be listed
+    await expect(page.locator('.account-item')).toHaveCount(0);
   });
 });

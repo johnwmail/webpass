@@ -87,25 +87,32 @@ Configure in Repository Settings → Variables → Actions:
 | Export | ✅ Complete | Downloads .tar.gz |
 | **Import** | ✅ Complete | **Client-side decrypt/re-encrypt** |
 | Git Sync | ✅ Complete | Manual push/pull |
-| 2FA (TOTP) | ✅ Complete | Settings → Enable 2FA |
+| 2FA (TOTP) | ✅ Complete | Settings → Enable 2FA, real TOTP login tested |
 | Delete Account | ✅ Complete | Settings → Danger Zone |
 
 ### Recent Changes (Latest Commit)
 
-**Import Feature** - Fully implemented with:
+**Import Feature** - Fully implemented and tested with:
 - Client-side tar.gz extraction (fflate)
 - Client-side PGP decrypt/re-encrypt
-- External PGP key import support
+- External PGP key import support (armored & binary formats)
+- Account migration flow (export → delete → import)
 - Multi-format content (base64, armored PGP)
 - Duplicate overwrite handling
 - Partial failure handling
 - Security: Keys cleared from memory
 
-**Logout** - Fixed to properly clear session
+**2FA Testing** - Real TOTP code generation and login:
+- Tests capture TOTP secret from QR code screen
+- Generate valid TOTP codes using otpauth library
+- Test complete 2FA enrollment and login flow
+- No GPG CLI dependency (uses WebPass export/import)
 
-**Dependencies**:
-- Frontend: openpgp v6.3.0, fflate v0.8.2
-- Backend: Standard Go modules (see go.mod)
+**Test Suite** - 26 E2E tests, all passing:
+- 6 Authentication tests (including 2FA login)
+- 6 Entry Management tests
+- 1 Import test (account migration flow)
+- 13 Settings tests (including 2FA from settings)
 
 ---
 
@@ -150,6 +157,9 @@ go test ./...
 cd frontend && npm test
 
 # Frontend E2E tests (Playwright)
+./frontend/playwright-e2e-test.sh
+
+# Or manually:
 cd frontend && npx playwright test
 
 # E2E tests with UI (interactive)
@@ -157,6 +167,10 @@ cd frontend && npx playwright test --ui
 
 # E2E tests with visible browser
 cd frontend && npx playwright test --headed
+
+# Run specific tests
+cd frontend && npx playwright test --grep "import"
+cd frontend && npx playwright test --grep "2FA"
 
 # View E2E test report
 cd frontend && npx playwright show-report
@@ -196,15 +210,10 @@ go run cmd/debug-import/main.go
 
 ## Known Issues / TODOs
 
-### Import Feature
-- [ ] Test suite needs file upload handling setup
-- [ ] Consider adding progress bar UI improvement
-- [ ] Add import preview (show entries before importing)
-
 ### General
-- [ ] Add e2e tests (Playwright or similar)
 - [ ] Consider adding rate limiting
 - [ ] Add backup reminder for users
+- [ ] Add import preview (show entries before importing)
 
 ---
 
