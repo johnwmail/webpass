@@ -53,6 +53,7 @@ jobs:
           DB_PATH=:memory: \
           STATIC_DIR=frontend/dist \
           DISABLE_FRONTEND=false \
+          GIT_REPO_ROOT=./git-repos \
           ./webpass-server &
           echo "Server started with PID $!"
 
