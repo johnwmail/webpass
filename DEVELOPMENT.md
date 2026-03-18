@@ -146,12 +146,23 @@ webpass/
 # Backend tests
 go test ./...
 
-# Frontend tests
+# Frontend unit tests
 cd frontend && npm test
 
-# Import test suite (requires running server)
-TEST_BASE_URL=http://localhost:8080 go test -v ./cmd/test-import/...
+# Frontend E2E tests (Playwright)
+cd frontend && npx playwright test
+
+# E2E tests with UI (interactive)
+cd frontend && npx playwright test --ui
+
+# E2E tests with visible browser
+cd frontend && npx playwright test --headed
+
+# View E2E test report
+cd frontend && npx playwright show-report
 ```
+
+See [PLAYWRIGHT.md](PLAYWRIGHT.md) for E2E test documentation.
 
 ### Build for Production
 

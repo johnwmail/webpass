@@ -58,6 +58,8 @@ frontend/dist/
 frontend/.vite/
 frontend/coverage/
 frontend/.eslintcache
+frontend/playwright-report/
+frontend/test-results/
 
 # Logs
 logs/
