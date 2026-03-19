@@ -120,7 +120,6 @@ export async function processImport(
 
       } catch (err) {
         // Log error but continue with other entries
-        console.error(`Failed to process ${entry.path}:`, err);
         // We'll handle errors at upload time
         // For now, skip this entry
       }

@@ -199,8 +199,6 @@ export class ApiClient {
 
   /** POST /api/:fp/import */
   async importArchive(file: File | Blob): Promise<{ imported: number }> {
-    console.log('[API] importArchive called, file size:', file.size, 'type:', file.type);
-    console.log('[API] Import URL:', this.url(`/api/${this.fingerprint}/import`));
     const res = await fetch(
       this.url(`/api/${this.fingerprint}/import`),
       {
@@ -212,24 +210,20 @@ export class ApiClient {
         body: file,
       }
     );
-    console.log('[API] Import response status:', res.status, res.ok);
     if (!res.ok) {
       const errorText = await res.text().catch(() => 'unknown');
-      console.error('[API] Import failed, response:', errorText);
       throw new Error(`Import failed (${res.status})`);
     }
     const result = await res.json();
-    console.log('[API] Import result:', result);
     return result;
   }
 
   /** POST /api/:fp/import — batch import with JSON array */
-  async importBatch(entries: Array<{ path: string; content: string }>): Promise<{ 
-    imported: number; 
+  async importBatch(entries: Array<{ path: string; content: string }>): Promise<{
+    imported: number;
     overwritten?: number;
     errors?: Array<{ path: string; error: string }>;
   }> {
-    console.log('[API] importBatch called, entries:', entries.length);
     const res = await fetch(
       this.url(`/api/${this.fingerprint}/import`),
       {
@@ -243,11 +237,9 @@ export class ApiClient {
     );
     if (!res.ok) {
       const errorText = await res.text().catch(() => 'unknown');
-      console.error('[API] Import batch failed, response:', errorText);
       throw new Error(`Import failed (${res.status})`);
     }
     const result = await res.json();
-    console.log('[API] Import batch result:', result);
     return result;
   }
 
@@ -412,6 +404,26 @@ export class ApiClient {
   async fetchVersion(): Promise<{ version: string; commit: string; build_time: string }> {
     const res = await fetch(this.url('/api/version'));
     if (!res.ok) throw new Error(`Version fetch failed (${res.status})`);
+    return res.json();
+  }
+
+  /** POST /api/:fp/password — change password */
+  async changePassword(currentPassword: string, newPassword: string): Promise<{ status: string }> {
+    const res = await fetch(
+      this.url(`/api/${this.fingerprint}/password`),
+      {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({
+          current_password: currentPassword,
+          new_password: newPassword,
+        }),
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || `Password change failed (${res.status})`);
+    }
     return res.json();
   }
 }

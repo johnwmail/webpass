@@ -107,6 +107,9 @@ func (s *Server) Handler() http.Handler {
 	// Account deletion
 	mux.HandleFunc("DELETE /api/{fingerprint}/account", s.requireAuth(s.handleDeleteAccount))
 
+	// Password change
+	mux.HandleFunc("POST /api/{fingerprint}/password", s.requireAuth(s.handleChangePassword))
+
 	// Health check
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -606,6 +609,66 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
+// POST /api/{fingerprint}/password — change password
+// ---------------------------------------------------------------------------
+
+func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	fp := r.PathValue("fingerprint")
+	if fp == "" {
+		jsonError(w, "fingerprint required", http.StatusBadRequest)
+		return
+	}
+
+	var body struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	if body.CurrentPassword == "" || body.NewPassword == "" {
+		jsonError(w, "current_password and new_password required", http.StatusBadRequest)
+		return
+	}
+
+	// Get user to verify current password
+	user, err := s.Q.GetUser(r.Context(), fp)
+	if err != nil {
+		jsonError(w, "invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	// Verify current password
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(body.CurrentPassword)); err != nil {
+		jsonError(w, "invalid current password", http.StatusUnauthorized)
+		return
+	}
+
+	// Generate new password hash
+	newHash, err := bcrypt.GenerateFromPassword([]byte(body.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		slog.Error("bcrypt hash", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Update password
+	if err := s.Q.UpdatePassword(r.Context(), dbgen.UpdatePasswordParams{
+		PasswordHash: string(newHash),
+		Fingerprint:  fp,
+	}); err != nil {
+		slog.Error("update password", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	slog.Info("password changed successfully", "fingerprint", fp)
+	jsonOK(w, map[string]string{"status": "success"})
+}
+
+// ---------------------------------------------------------------------------
 // POST /api/{fingerprint}/entries/move — move/rename entry
 // ---------------------------------------------------------------------------
 
@@ -891,7 +954,7 @@ func (s *Server) handleGitGetConfig(w http.ResponseWriter, r *http.Request) {
 
 	jsonOK(w, map[string]interface{}{
 		"configured":        true,
-		"repo_url":          config.RepoURL,
+		"repo_url":          config.RepoUrl,
 		"encrypted_pat":     config.EncryptedPat,
 		"has_encrypted_pat": config.EncryptedPat != "",
 	})
@@ -1035,15 +1098,19 @@ func (s *Server) handleGitLog(w http.ResponseWriter, r *http.Request) {
 	entries := make([]logEntry, len(logs))
 	for i, log := range logs {
 		msg := ""
-		if log.Message.Valid {
-			msg = log.Message.String
+		if log.Message != nil {
+			msg = *log.Message
+		}
+		entriesChanged := int64(0)
+		if log.EntriesChanged != nil {
+			entriesChanged = *log.EntriesChanged
 		}
 		entries[i] = logEntry{
 			ID:             log.ID,
 			Operation:      log.Operation,
 			Status:         log.Status,
 			Message:        msg,
-			EntriesChanged: log.EntriesChanged,
+			EntriesChanged: entriesChanged,
 			CreatedAt:      log.CreatedAt,
 		}
 	}

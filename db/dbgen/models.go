@@ -17,6 +17,24 @@ type Entry struct {
 	Updated     *time.Time `json:"updated"`
 }
 
+type GitConfig struct {
+	Fingerprint  string    `json:"fingerprint"`
+	RepoUrl      string    `json:"repo_url"`
+	EncryptedPat string    `json:"encrypted_pat"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type GitSyncLog struct {
+	ID             int64     `json:"id"`
+	Fingerprint    string    `json:"fingerprint"`
+	Operation      string    `json:"operation"`
+	Status         string    `json:"status"`
+	Message        *string   `json:"message"`
+	EntriesChanged *int64    `json:"entries_changed"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
 type Migration struct {
 	MigrationNumber int64     `json:"migration_number"`
 	MigrationName   string    `json:"migration_name"`

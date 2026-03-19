@@ -56,8 +56,8 @@ func TestGitServiceConfigure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get git config: %v", err)
 	}
-	if config.RepoURL != repoURL {
-		t.Errorf("expected repo URL %s, got %s", repoURL, config.RepoURL)
+	if config.RepoUrl != repoURL {
+		t.Errorf("expected repo URL %s, got %s", repoURL, config.RepoUrl)
 	}
 	if config.EncryptedPat != encryptedPAT {
 		t.Errorf("expected encrypted PAT %s, got %s", encryptedPAT, config.EncryptedPat)
@@ -97,8 +97,8 @@ func TestGitServiceConfigureUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get git config: %v", err)
 	}
-	if config.RepoURL != repoURL2 {
-		t.Errorf("expected repo URL %s, got %s", repoURL2, config.RepoURL)
+	if config.RepoUrl != repoURL2 {
+		t.Errorf("expected repo URL %s, got %s", repoURL2, config.RepoUrl)
 	}
 }
 
@@ -273,12 +273,14 @@ func TestGitServiceLogGitSync(t *testing.T) {
 	}
 
 	// Log a sync operation
+	msg := "test message"
+	var entriesChanged int64 = 5
 	err := s.Q.LogGitSync(ctx, dbgen.LogGitSyncParams{
 		Fingerprint:    fingerprint,
 		Operation:      "push",
 		Status:         "success",
-		Message:        "test message",
-		EntriesChanged: 5,
+		Message:        &msg,
+		EntriesChanged: &entriesChanged,
 	})
 	if err != nil {
 		t.Fatalf("failed to log git sync: %v", err)
@@ -298,7 +300,7 @@ func TestGitServiceLogGitSync(t *testing.T) {
 	if logs[0].Status != "success" {
 		t.Errorf("expected status 'success', got %s", logs[0].Status)
 	}
-	if logs[0].EntriesChanged != 5 {
-		t.Errorf("expected 5 entries changed, got %d", logs[0].EntriesChanged)
+	if logs[0].EntriesChanged == nil || *logs[0].EntriesChanged != 5 {
+		t.Errorf("expected 5 entries changed, got %v", logs[0].EntriesChanged)
 	}
 }

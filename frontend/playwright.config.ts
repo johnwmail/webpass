@@ -86,7 +86,7 @@ export default defineConfig({
    * Set TEST_SKIP_WEBSERVER=true if running server manually (e.g., via Docker)
    */
   webServer: process.env.TEST_SKIP_WEBSERVER === 'true' ? undefined : {
-    command: 'go run ../../cmd/srv',
+    command: 'go run ../cmd/srv',
     url: 'http://localhost:8080',
     timeout: 120 * 1000,
     reuseExistingServer: !process.env.CI,
@@ -95,6 +95,7 @@ export default defineConfig({
       DB_PATH: process.env.DB_PATH || ':memory:',
       DISABLE_FRONTEND: 'false',
       STATIC_DIR: 'dist',
+      GIT_REPO_ROOT: '/tmp/git-repos',
     },
   },
 });

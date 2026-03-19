@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'preact/hooks';
 import { session } from '../lib/session';
-import { getAccount, deleteAccount as deleteAccountFromDB } from '../lib/storage';
+import { getAccount, deleteAccount as deleteAccountFromDB, saveAccount, aesDecrypt, aesEncrypt } from '../lib/storage';
 import { decryptPAT } from '../lib/crypto';
 import QRCode from 'qrcode';
 import { GitSync } from './GitSync';
@@ -51,6 +51,13 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
   const [patPassphrase, setPatPassphrase] = useState('');
   const [patAction, setPatAction] = useState<'push' | 'pull' | null>(null);
   const [patLoading, setPatLoading] = useState(false);
+
+  // Password change state
+  const [showPasswordChange, setShowPasswordChange] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordChangeLoading, setPasswordChangeLoading] = useState(false);
 
   const fp = session.fingerprint || '';
   const apiUrl = session.api?.baseUrl || '';
@@ -241,6 +248,62 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
       setError(e.message || 'Invalid code');
     }
     setTotpLoading(false);
+  };
+
+  // Change password
+  const handleChangePassword = async () => {
+    if (!session.api) return;
+    if (newPassword !== confirmPassword) {
+      setError('New passwords do not match');
+      return;
+    }
+    if (!currentPassword || !newPassword) {
+      setError('All password fields are required');
+      return;
+    }
+
+    setPasswordChangeLoading(true);
+    setError('');
+    try {
+      // Get current account to re-encrypt API URL with new password
+      const account = await getAccount(fp);
+      if (!account) {
+        throw new Error('Account not found');
+      }
+
+      // Decrypt API URL with current password
+      const apiUrl = await aesDecrypt(account.apiUrlEncrypted, currentPassword, account.apiUrlSalt, account.apiUrlIv);
+
+      // Re-encrypt API URL with new password
+      const newEncrypted = await aesEncrypt(apiUrl, newPassword);
+
+      // Save updated account to IndexedDB
+      await saveAccount({
+        ...account,
+        apiUrlEncrypted: newEncrypted.encrypted,
+        apiUrlSalt: newEncrypted.salt,
+        apiUrlIv: newEncrypted.iv,
+      });
+
+      // Call backend to change password
+      await session.api.changePassword(currentPassword, newPassword);
+      setSuccess('Password changed successfully. Please login with your new password.');
+
+      // Clear password fields
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setShowPasswordChange(false);
+
+      // Close settings modal after a short delay to show success message
+      setTimeout(() => {
+        session.clear();
+        onLock();
+      }, 1500);
+    } catch (e: any) {
+      setError(e.message || 'Password change failed');
+    }
+    setPasswordChangeLoading(false);
   };
 
   // Delete local data only (IndexedDB)
@@ -527,6 +590,83 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
               >
                 {totpLoading ? <><span class="spinner" /> Setting up...</> : '🔐 Enable 2FA'}
               </button>
+            )}
+          </div>
+
+          {/* Security - Change Password */}
+          <div class="settings-section">
+            <h3>🔒 Security</h3>
+            {!showPasswordChange ? (
+              <button
+                class="btn btn-sm"
+                onClick={() => {
+                  setShowPasswordChange(true);
+                  setCurrentPassword('');
+                  setNewPassword('');
+                  setConfirmPassword('');
+                  setError('');
+                }}
+              >
+                🔑 Change Password
+              </button>
+            ) : (
+              <div style="display: flex; flex-direction: column; gap: 12px;">
+                <div class="field">
+                  <label class="label">Current Password</label>
+                  <input
+                    class="input"
+                    type="password"
+                    value={currentPassword}
+                    onInput={(e) => setCurrentPassword((e.target as HTMLInputElement).value)}
+                    placeholder="Enter current password"
+                    disabled={passwordChangeLoading}
+                  />
+                </div>
+                <div class="field">
+                  <label class="label">New Password</label>
+                  <input
+                    class="input"
+                    type="password"
+                    value={newPassword}
+                    onInput={(e) => setNewPassword((e.target as HTMLInputElement).value)}
+                    placeholder="Enter new password"
+                    disabled={passwordChangeLoading}
+                  />
+                </div>
+                <div class="field">
+                  <label class="label">Confirm New Password</label>
+                  <input
+                    class="input"
+                    type="password"
+                    value={confirmPassword}
+                    onInput={(e) => setConfirmPassword((e.target as HTMLInputElement).value)}
+                    placeholder="Confirm new password"
+                    disabled={passwordChangeLoading}
+                  />
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <button
+                    class="btn btn-primary btn-sm"
+                    onClick={handleChangePassword}
+                    disabled={passwordChangeLoading}
+                  >
+                    {passwordChangeLoading ? <><span class="spinner" /> Changing...</> : '💾 Save New Password'}
+                  </button>
+                  <button
+                    class="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      setShowPasswordChange(false);
+                      setCurrentPassword('');
+                      setNewPassword('');
+                      setConfirmPassword('');
+                      setError('');
+                    }}
+                    disabled={passwordChangeLoading}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
             )}
           </div>
 

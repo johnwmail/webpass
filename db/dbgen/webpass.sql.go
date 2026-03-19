@@ -189,6 +189,22 @@ func (q *Queries) MoveEntry(ctx context.Context, arg MoveEntryParams) error {
 	return err
 }
 
+const updatePassword = `-- name: UpdatePassword :exec
+UPDATE users
+SET password_hash = ?
+WHERE fingerprint = ?
+`
+
+type UpdatePasswordParams struct {
+	PasswordHash string `json:"password_hash"`
+	Fingerprint  string `json:"fingerprint"`
+}
+
+func (q *Queries) UpdatePassword(ctx context.Context, arg UpdatePasswordParams) error {
+	_, err := q.db.ExecContext(ctx, updatePassword, arg.PasswordHash, arg.Fingerprint)
+	return err
+}
+
 const updateUserTOTP = `-- name: UpdateUserTOTP :exec
 UPDATE users
 SET totp_secret = ?, totp_enabled = ?

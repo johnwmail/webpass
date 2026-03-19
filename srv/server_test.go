@@ -523,6 +523,120 @@ func TestDeleteAccount_WithGitRepo(t *testing.T) {
 	}
 }
 
+func TestChangePassword(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	// 1. Create user
+	body := `{"password":"original123","public_key":"test-key","fingerprint":"test-fp"}`
+	resp := doReq(t, ts, "POST", "/api", body, "")
+	expectStatus(t, resp, http.StatusCreated)
+	fp := "test-fp"
+
+	// 2. Login with original password
+	resp = doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"original123"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	var loginResp map[string]string
+	decodeJSON(t, resp, &loginResp)
+	token := loginResp["token"]
+
+	// 3. Change password
+	changeBody := `{"current_password":"original123","new_password":"newpass456"}`
+	resp = doReq(t, ts, "POST", "/api/"+fp+"/password", changeBody, token)
+	expectStatus(t, resp, http.StatusOK)
+	var changeResp map[string]string
+	decodeJSON(t, resp, &changeResp)
+	if changeResp["status"] != "success" {
+		t.Fatalf("expected success, got %s", changeResp["status"])
+	}
+
+	// 4. Login with new password should work
+	resp = doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"newpass456"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+
+	// 5. Login with old password should fail
+	resp = doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"original123"}`, "")
+	expectStatus(t, resp, http.StatusUnauthorized)
+}
+
+func TestChangePasswordWrongCurrent(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	// 1. Create user
+	body := `{"password":"correct123","public_key":"test-key","fingerprint":"test-fp2"}`
+	resp := doReq(t, ts, "POST", "/api", body, "")
+	expectStatus(t, resp, http.StatusCreated)
+	fp := "test-fp2"
+
+	// 2. Login to get token
+	resp = doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"correct123"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	var loginResp map[string]string
+	decodeJSON(t, resp, &loginResp)
+	token := loginResp["token"]
+
+	// 3. Try to change password with wrong current password
+	changeBody := `{"current_password":"wrongpassword","new_password":"newpass456"}`
+	resp = doReq(t, ts, "POST", "/api/"+fp+"/password", changeBody, token)
+	expectStatus(t, resp, http.StatusUnauthorized)
+}
+
+func TestChangePasswordWith2FA(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	// 1. Create user
+	body := `{"password":"pass123","public_key":"test-key","fingerprint":"test-fp3"}`
+	resp := doReq(t, ts, "POST", "/api", body, "")
+	expectStatus(t, resp, http.StatusCreated)
+	fp := "test-fp3"
+
+	// 2. Setup TOTP
+	loginResp := doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"pass123"}`, "")
+	expectStatus(t, loginResp, http.StatusOK)
+	var loginData map[string]string
+	decodeJSON(t, loginResp, &loginData)
+	loginToken := loginData["token"]
+
+	totpResp := doReq(t, ts, "POST", "/api/"+fp+"/totp/setup", "", loginToken)
+	expectStatus(t, totpResp, http.StatusOK)
+	var totpData map[string]string
+	decodeJSON(t, totpResp, &totpData)
+	totpSecret := totpData["secret"]
+
+	// Generate valid TOTP code
+	code, _ := totp.GenerateCode(totpSecret, time.Now())
+
+	// 3. Confirm TOTP
+	confirmBody := `{"secret":"` + totpSecret + `","code":"` + code + `"}`
+	confirmResp := doReq(t, ts, "POST", "/api/"+fp+"/totp/confirm", confirmBody, loginToken)
+	expectStatus(t, confirmResp, http.StatusOK)
+
+	// 4. Login with 2FA to get new token
+	login2faCode, _ := totp.GenerateCode(totpSecret, time.Now())
+	login2faBody := `{"password":"pass123","totp_code":"` + login2faCode + `"}`
+	login2faResp := doReq(t, ts, "POST", "/api/"+fp+"/login/2fa", login2faBody, "")
+	expectStatus(t, login2faResp, http.StatusOK)
+	var login2faData map[string]string
+	decodeJSON(t, login2faResp, &login2faData)
+	token := login2faData["token"]
+
+	// 5. Change password
+	changeBody := `{"current_password":"pass123","new_password":"newpass789"}`
+	resp = doReq(t, ts, "POST", "/api/"+fp+"/password", changeBody, token)
+	expectStatus(t, resp, http.StatusOK)
+
+	// 6. Login with new password and 2FA should work
+	newLogin2faCode, _ := totp.GenerateCode(totpSecret, time.Now())
+	newLogin2faBody := `{"password":"newpass789","totp_code":"` + newLogin2faCode + `"}`
+	newLogin2faResp := doReq(t, ts, "POST", "/api/"+fp+"/login/2fa", newLogin2faBody, "")
+	expectStatus(t, newLogin2faResp, http.StatusOK)
+}
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------

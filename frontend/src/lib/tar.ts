@@ -18,30 +18,22 @@ export interface TarEntry {
  * @returns Array of entries with path and content
  */
 export async function extractTarGz(file: File): Promise<TarEntry[]> {
-  console.log('[tar.ts] Extracting archive:', file.name, 'size:', file.size, 'type:', file.type);
-
   // Read file as ArrayBuffer
   const arrayBuffer = await file.arrayBuffer();
   const data = new Uint8Array(arrayBuffer);
-  console.log('[tar.ts] Read', data.length, 'bytes');
 
   // Auto-detect format: gzip (magic bytes 0x1f 0x8b) or plain tar
   let tarData: Uint8Array;
   if (data.length >= 2 && data[0] === 0x1f && data[1] === 0x8b) {
     // Gzip compressed - decompress first
-    console.log('[tar.ts] Detected gzip format, decompressing...');
     tarData = await decompressGzip(data);
   } else {
     // Plain tar - use directly
-    console.log('[tar.ts] Detected plain tar format');
     tarData = data;
   }
-  console.log('[tar.ts] Tar data size:', tarData.length, 'bytes');
 
   // Parse tar archive
-  console.log('[tar.ts] Parsing tar archive...');
   const entries = parseTar(tarData);
-  console.log('[tar.ts] Found', entries.length, '.gpg entries');
 
   return entries;
 }

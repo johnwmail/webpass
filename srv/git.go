@@ -79,7 +79,7 @@ func (g *GitService) Configure(ctx context.Context, fingerprint, repoURL, encryp
 
 	if err := g.q.UpsertGitConfig(ctx, dbgen.UpsertGitConfigParams{
 		Fingerprint:  fingerprint,
-		RepoURL:      repoURL,
+		RepoUrl:      repoURL,
 		EncryptedPat: encryptedPAT,
 	}); err != nil {
 		return fmt.Errorf("save config: %w", err)
@@ -122,7 +122,7 @@ func (g *GitService) GetStatus(ctx context.Context, fingerprint string) (*SyncSt
 
 	return &SyncStatus{
 		Configured:      true,
-		RepoURL:         row.RepoURL,
+		RepoURL:         row.RepoUrl,
 		HasEncryptedPat: row.EncryptedPat != "",
 		SuccessCount:    row.SuccessCount,
 		FailedCount:     row.FailedCount,
@@ -183,7 +183,7 @@ func (g *GitService) Push(ctx context.Context, fingerprint string, token string)
 	repoDir := g.repoDir(fingerprint)
 
 	// Ensure repo is initialized
-	if err := g.initRepo(fingerprint, config.RepoURL, token); err != nil {
+	if err := g.initRepo(fingerprint, config.RepoUrl, token); err != nil {
 		return nil, fmt.Errorf("init repo: %w", err)
 	}
 
@@ -193,7 +193,7 @@ func (g *GitService) Push(ctx context.Context, fingerprint string, token string)
 	}
 
 	// Set credentials for push
-	pushURL := g.authURL(config.RepoURL, token)
+	pushURL := g.authURL(config.RepoUrl, token)
 	if err := g.runGitCommand(repoDir, "remote", "set-url", "origin", pushURL); err != nil {
 		return nil, fmt.Errorf("set remote url: %w", err)
 	}
@@ -236,22 +236,24 @@ func (g *GitService) Push(ctx context.Context, fingerprint string, token string)
 	// Push
 	if err := g.runGitCommand(repoDir, "push", "origin", "main"); err != nil {
 		// Log failure
+		errMsg := err.Error()
 		_ = g.q.LogGitSync(ctx, dbgen.LogGitSyncParams{
 			Fingerprint: fingerprint,
 			Operation:   "push",
 			Status:      "failed",
-			Message:     err.Error(),
+			Message:     &errMsg,
 		})
 		return nil, fmt.Errorf("git push: %w", err)
 	}
 
 	// Log success
+	var entriesChanged int64 = 1
 	if err := g.q.LogGitSync(ctx, dbgen.LogGitSyncParams{
 		Fingerprint:    fingerprint,
 		Operation:      "push",
 		Status:         "success",
-		Message:        commitMsg,
-		EntriesChanged: 1,
+		Message:        &commitMsg,
+		EntriesChanged: &entriesChanged,
 	}); err != nil {
 		slog.Warn("log git sync failed", "error", err)
 	}
@@ -280,12 +282,12 @@ func (g *GitService) Pull(ctx context.Context, fingerprint string, token string,
 	repoDir := g.repoDir(fingerprint)
 
 	// Ensure repo is initialized
-	if err := g.initRepo(fingerprint, config.RepoURL, token); err != nil {
+	if err := g.initRepo(fingerprint, config.RepoUrl, token); err != nil {
 		return nil, fmt.Errorf("init repo: %w", err)
 	}
 
 	// Set credentials for pull
-	fetchURL := g.authURL(config.RepoURL, token)
+	fetchURL := g.authURL(config.RepoUrl, token)
 	if err := g.runGitCommand(repoDir, "remote", "set-url", "origin", fetchURL); err != nil {
 		return nil, fmt.Errorf("set remote url: %w", err)
 	}
@@ -325,11 +327,12 @@ func (g *GitService) Pull(ctx context.Context, fingerprint string, token string,
 		if !forceTheirs {
 			if err := g.runGitCommand(repoDir, "pull", "--strategy-option=ours", "origin", "main"); err != nil {
 				// Log failure
+				errMsg := err.Error()
 				_ = g.q.LogGitSync(ctx, dbgen.LogGitSyncParams{
 					Fingerprint: fingerprint,
 					Operation:   "pull",
 					Status:      "failed",
-					Message:     err.Error(),
+					Message:     &errMsg,
 				})
 				return nil, fmt.Errorf("git pull: %w", err)
 			}
@@ -345,12 +348,14 @@ func (g *GitService) Pull(ctx context.Context, fingerprint string, token string,
 	}
 
 	// Log success
+	entriesChangedInt64 := int64(entriesChanged)
+	successMsg := fmt.Sprintf("pulled %d entries from remote", entriesChanged)
 	if err := g.q.LogGitSync(ctx, dbgen.LogGitSyncParams{
 		Fingerprint:    fingerprint,
 		Operation:      "pull",
 		Status:         "success",
-		Message:        fmt.Sprintf("pulled %d entries from remote", entriesChanged),
-		EntriesChanged: int64(entriesChanged),
+		Message:        &successMsg,
+		EntriesChanged: &entriesChangedInt64,
 	}); err != nil {
 		slog.Warn("log git sync failed", "error", err)
 	}

@@ -38,19 +38,45 @@ log_error() {
 
 # Cleanup function
 cleanup() {
-    if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
-        kill "$SERVER_PID" 2>/dev/null || true
-        wait "$SERVER_PID" 2>/dev/null || true
+    local exit_code=$?
+    
+    log_warn "Cleaning up..."
+    
+    # Kill server process and all children
+    if [ -n "$SERVER_PID" ]; then
+        # Kill process group (includes child processes)
+        kill -TERM -$SERVER_PID 2>/dev/null || true
+        kill -TERM $SERVER_PID 2>/dev/null || true
+        sleep 1
+        # Force kill if still running
+        kill -KILL -$SERVER_PID 2>/dev/null || true
+        kill -KILL $SERVER_PID 2>/dev/null || true
+        wait $SERVER_PID 2>/dev/null || true
+    fi
+    
+    # Kill any orphaned server processes on port 8080
+    if command -v fuser &> /dev/null; then
+        fuser -k 8080/tcp 2>/dev/null || true
+    elif command -v lsof &> /dev/null; then
+        lsof -ti:8080 | xargs kill -9 2>/dev/null || true
     fi
     
     # Remove git-repos directory if it exists
     if [ -d "$GIT_REPO_ROOT" ]; then
         rm -rf "$GIT_REPO_ROOT"
     fi
+    
+    # Remove any core dumps or temp files
+    rm -f "$ROOT_DIR/core" 2>/dev/null || true
+    
+    log_info "Cleanup complete"
+    
+    # Preserve the original exit code
+    return $exit_code
 }
 
-# Set trap to cleanup on exit
-trap cleanup EXIT INT TERM
+# Set trap to cleanup on exit, interrupt, or termination
+trap cleanup EXIT INT TERM HUP
 
 cd "$ROOT_DIR"
 

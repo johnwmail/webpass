@@ -39,6 +39,11 @@ UPDATE users
 SET totp_secret = ?, totp_enabled = ?
 WHERE fingerprint = ?;
 
+-- name: UpdatePassword :exec
+UPDATE users
+SET password_hash = ?
+WHERE fingerprint = ?;
+
 -- name: ListEntriesContent :many
 SELECT * FROM entries
 WHERE fingerprint = ?
