@@ -112,6 +112,9 @@ docker-compose.override.yml
 .settings/
 *.iml
 
+# AI assistant configuration
+.qwen/
+
 # Local development
 .local/
 .devcontainer/
