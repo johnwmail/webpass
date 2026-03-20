@@ -746,8 +746,11 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
                   placeholder="Enter your PGP passphrase"
                   disabled={deleteLoading}
                   autofocus
-                  autocomplete="off"
+                  autocomplete="one-time-code"
                   name="pgp-passphrase-delete"
+                  data-lpignore="true"
+                  data-bwignore="true"
+                  data-1p-ignore="true"
                 />
               </div>
               {error && <p class="error-msg">{error}</p>}
@@ -799,8 +802,11 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
                   placeholder="Enter your PGP passphrase"
                   disabled={patLoading}
                   autofocus
-                  autocomplete="off"
+                  autocomplete="one-time-code"
                   name="pgp-passphrase-git"
+                  data-lpignore="true"
+                  data-bwignore="true"
+                  data-1p-ignore="true"
                 />
               </div>
               {gitError && <p class="error-msg">{gitError}</p>}

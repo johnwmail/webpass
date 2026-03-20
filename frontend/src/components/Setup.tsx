@@ -409,8 +409,11 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                           value={pgpPassphrase}
                           onInput={(e) => setPgpPassphrase((e.target as HTMLInputElement).value)}
                           placeholder="Choose a PGP passphrase"
-                          autocomplete="off"
+                          autocomplete="one-time-code"
                           name="pgp-passphrase-new"
+                          data-lpignore="true"
+                          data-bwignore="true"
+                          data-1p-ignore="true"
                         />
                       </div>
                       <div class="field">
@@ -421,8 +424,11 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                           value={pgpPassphraseConfirm}
                           onInput={(e) => setPgpPassphraseConfirm((e.target as HTMLInputElement).value)}
                           placeholder="Confirm your PGP passphrase"
-                          autocomplete="off"
+                          autocomplete="one-time-code"
                           name="pgp-passphrase-confirm"
+                          data-lpignore="true"
+                          data-bwignore="true"
+                          data-1p-ignore="true"
                         />
                         {pgpPassphraseConfirm && pgpPassphrase !== pgpPassphraseConfirm && (
                           <p class="error-msg">Passphrases do not match</p>
@@ -493,8 +499,11 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                           value={importPassphrase}
                           onInput={(e) => setImportPassphrase((e.target as HTMLInputElement).value)}
                           placeholder="Passphrase for this key"
-                          autocomplete="off"
+                          autocomplete="one-time-code"
                           name="pgp-import-passphrase"
+                          data-lpignore="true"
+                          data-bwignore="true"
+                          data-1p-ignore="true"
                           disabled={loading}
                         />
                       </div>

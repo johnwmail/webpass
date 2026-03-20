@@ -45,8 +45,11 @@ export function PassphrasePrompt({ title, message, onSubmit, onCancel }: Props) 
                 value={passphrase}
                 onInput={(e) => setPassphrase((e.target as HTMLInputElement).value)}
                 placeholder="Enter your PGP passphrase"
-                autocomplete="off"
+                autocomplete="one-time-code"
                 name="pgp-passphrase"
+                data-lpignore="true"
+                data-bwignore="true"
+                data-1p-ignore="true"
               />
             </div>
           </div>

@@ -237,8 +237,11 @@ export function ImportDialog({ onClose, onSuccess }: Props) {
                   handleImport();
                 }
               }}
-              autoComplete="off"
+              autoComplete="one-time-code"
               name="pgp-import-passphrase"
+              data-lpignore="true"
+              data-bwignore="true"
+              data-1p-ignore="true"
             />
           </div>
 
