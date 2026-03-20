@@ -112,8 +112,8 @@ docker-compose.override.yml
 .settings/
 *.iml
 
-# AI assistant configuration
-.qwen/
+# AI assistant configuration (optional, can be committed if desired)
+# .qwen/
 
 # Local development
 .local/
