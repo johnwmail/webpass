@@ -237,6 +237,8 @@ export function ImportDialog({ onClose, onSuccess }: Props) {
                   handleImport();
                 }
               }}
+              autoComplete="off"
+              name="pgp-import-passphrase"
             />
           </div>
 

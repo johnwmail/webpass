@@ -410,6 +410,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                           onInput={(e) => setPgpPassphrase((e.target as HTMLInputElement).value)}
                           placeholder="Choose a PGP passphrase"
                           autocomplete="off"
+                          name="pgp-passphrase-new"
                         />
                       </div>
                       <div class="field">
@@ -421,6 +422,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                           onInput={(e) => setPgpPassphraseConfirm((e.target as HTMLInputElement).value)}
                           placeholder="Confirm your PGP passphrase"
                           autocomplete="off"
+                          name="pgp-passphrase-confirm"
                         />
                         {pgpPassphraseConfirm && pgpPassphrase !== pgpPassphraseConfirm && (
                           <p class="error-msg">Passphrases do not match</p>
@@ -492,6 +494,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                           onInput={(e) => setImportPassphrase((e.target as HTMLInputElement).value)}
                           placeholder="Passphrase for this key"
                           autocomplete="off"
+                          name="pgp-import-passphrase"
                           disabled={loading}
                         />
                       </div>

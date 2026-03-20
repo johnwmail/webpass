@@ -115,6 +115,7 @@ export function ReencryptDialog({ entryPath, onReencryptComplete, onCancel }: Pr
               onInput={(e) => setPassphrase((e.target as HTMLInputElement).value)}
               placeholder="Enter passphrase for the original key"
               autoComplete="off"
+              name="pgp-passphrase-original"
             />
           </div>
 

@@ -207,6 +207,7 @@ export function EncryptModal({ onClose }: Props) {
                     onInput={(e) => setPassphrase((e.target as HTMLInputElement).value)}
                     placeholder="Enter your PGP passphrase"
                     autocomplete="off"
+                    name="pgp-passphrase-decrypt"
                   />
                 </div>
               )}

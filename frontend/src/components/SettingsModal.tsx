@@ -746,6 +746,8 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
                   placeholder="Enter your PGP passphrase"
                   disabled={deleteLoading}
                   autofocus
+                  autocomplete="off"
+                  name="pgp-passphrase-delete"
                 />
               </div>
               {error && <p class="error-msg">{error}</p>}
@@ -797,6 +799,8 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
                   placeholder="Enter your PGP passphrase"
                   disabled={patLoading}
                   autofocus
+                  autocomplete="off"
+                  name="pgp-passphrase-git"
                 />
               </div>
               {gitError && <p class="error-msg">{gitError}</p>}

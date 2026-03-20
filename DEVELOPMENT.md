@@ -202,13 +202,6 @@ make db-generate
 # Migrations are in db/migrations/
 ```
 
-### Debug Import Feature
-
-```bash
-# Use debug-import tool to test import flow
-go run cmd/debug-import/main.go
-```
-
 ---
 
 ## Known Issues / TODOs

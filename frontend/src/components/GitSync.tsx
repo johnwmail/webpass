@@ -386,6 +386,8 @@ export function GitSync({ onClose, onSuccess }: Props) {
                     value={pat}
                     onInput={(e) => setPat((e.target as HTMLInputElement).value)}
                     style="width: 100%; margin-top: 4px;"
+                    autocomplete="off"
+                    name="git-pat-token"
                   />
                   <p class="help-text" style="font-size: 11px; margin-top: 4px;">
                     PAT will be encrypted with your PGP public key.
@@ -474,6 +476,8 @@ export function GitSync({ onClose, onSuccess }: Props) {
                       value={pat}
                       onInput={(e) => setPat((e.target as HTMLInputElement).value)}
                       style="width: 100%; margin-top: 4px;"
+                      autocomplete="off"
+                      name="git-pat-update"
                     />
                   </div>
                 </div>
@@ -513,6 +517,8 @@ export function GitSync({ onClose, onSuccess }: Props) {
                     }}
                     style="width: 100%; margin-bottom: 16px;"
                     autoFocus
+                    autocomplete="off"
+                    name="pgp-passphrase-git-pat"
                   />
                   <div class="settings-buttons">
                     <button
