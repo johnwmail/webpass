@@ -28,11 +28,12 @@ import (
 
 // Server is the WebPass API server.
 type Server struct {
-	DB         *sql.DB
-	Q          *dbgen.Queries
-	JWTKey     []byte
-	StaticDir  string // path to frontend dist/ directory (optional)
-	GitService *GitService
+	DB              *sql.DB
+	Q               *dbgen.Queries
+	JWTKey          []byte
+	StaticDir       string // path to frontend dist/ directory (optional)
+	GitService      *GitService
+	sessionDuration time.Duration
 	// Version info (set from main package)
 	Version   string
 	BuildTime string
@@ -40,7 +41,7 @@ type Server struct {
 }
 
 // New creates a new Server, opening the database and running migrations.
-func New(dbPath string, jwtKey []byte) (*Server, error) {
+func New(dbPath string, jwtKey []byte, sessionDurationMin int) (*Server, error) {
 	wdb, err := db.Open(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
@@ -54,6 +55,7 @@ func New(dbPath string, jwtKey []byte) (*Server, error) {
 		Q:      dbgen.New(wdb),
 		JWTKey: jwtKey,
 	}
+	s.sessionDuration = time.Duration(sessionDurationMin) * time.Minute
 
 	// Initialize Git service
 	repoRoot := os.Getenv("GIT_REPO_ROOT")
@@ -187,7 +189,7 @@ func parseCORSOrigins(raw string) map[string]bool {
 func (s *Server) createToken(fingerprint string) (string, error) {
 	claims := jwt.MapClaims{
 		"fp":  fingerprint,
-		"exp": time.Now().Add(5 * time.Minute).Unix(),
+		"exp": time.Now().Add(s.sessionDuration).Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(s.JWTKey)

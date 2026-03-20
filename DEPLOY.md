@@ -14,7 +14,9 @@ This guide covers Docker Compose and standalone Docker deployments for the backe
 # Copy example env file
 cp .env.example .env
 
-# Generate JWT secret
+# Generate JWT secret (or set a fixed value for production)
+# Note: Random key is fine for single-instance with short sessions
+# For multi-instance or long sessions, use a fixed value
 openssl rand -hex 32 >> .env
 ```
 
@@ -48,7 +50,9 @@ docker build -t webpass:latest .
 ### Run Container
 
 ```bash
-# Generate JWT secret
+# Generate JWT secret (or use a fixed value for production)
+# Random key is fine for single-instance with short sessions
+# For multi-instance or long sessions, use a fixed value
 JWT_SECRET=$(openssl rand -hex 32)
 
 docker run -d \

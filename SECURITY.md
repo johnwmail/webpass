@@ -51,7 +51,7 @@ Always use the latest version for the most secure experience.
 ### For Users
 
 - **Always use HTTPS** in production
-- **Set strong JWT_SECRET**: Use `openssl rand -hex 32`
+- **Set strong JWT_SECRET**: Use `openssl rand -hex 32` (or use random key for single-instance with short sessions)
 - **Enable 2FA**: Add TOTP for server access
 - **Regular backups**: Use git sync feature
 - **Update regularly**: Keep up with latest releases

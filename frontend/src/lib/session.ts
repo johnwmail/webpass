@@ -1,7 +1,7 @@
 import { ApiClient } from './api';
 import type { SessionState } from '../types';
 
-const SESSION_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+const SESSION_DURATION_MS = 5 * 60 * 1000; // 5 minutes (matches server default)
 const STORAGE_KEY = 'webpass_session';
 
 class Session {

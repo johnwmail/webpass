@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strconv"
 
 	"srv.exe.dev/srv"
 )
@@ -69,6 +70,22 @@ func run() error {
 		listenAddr = ":" + port
 	}
 
+	// Session duration (default 5 minutes, range: 5-480)
+	sessionDurationMin := 5 // default
+	if durationStr := os.Getenv("SESSION_DURATION_MINUTES"); durationStr != "" {
+		if duration, err := strconv.Atoi(durationStr); err == nil {
+			if duration >= 5 && duration <= 480 {
+				sessionDurationMin = duration
+			} else if duration < 5 {
+				fmt.Printf("WARNING: SESSION_DURATION_MINUTES=%d too low, using minimum: 5\n", duration)
+			} else {
+				fmt.Printf("WARNING: SESSION_DURATION_MINUTES=%d too high, using maximum: 480\n", duration)
+			}
+		} else {
+			fmt.Printf("WARNING: Invalid SESSION_DURATION_MINUTES=%s, using default: 5\n", durationStr)
+		}
+	}
+
 	// Print configuration
 	fmt.Println("Configuration:")
 	fmt.Printf("  Listen Address:  %s\n", listenAddr)
@@ -77,6 +94,7 @@ func run() error {
 	fmt.Printf("  Disable Frontend:%s\n", disableFrontend)
 	fmt.Printf("  Git Repo Root:   %s\n", gitRepoRoot)
 	fmt.Printf("  CORS Origins:    %s\n", corsOrigins)
+	fmt.Printf("  Session Duration:%d minutes\n", sessionDurationMin)
 	fmt.Println()
 
 	jwtKey := make([]byte, 32)
@@ -88,7 +106,7 @@ func run() error {
 		}
 	}
 
-	server, err := srv.New(dbPath, jwtKey)
+	server, err := srv.New(dbPath, jwtKey, sessionDurationMin)
 	if err != nil {
 		return fmt.Errorf("create server: %w", err)
 	}

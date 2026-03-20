@@ -26,6 +26,8 @@ Create `.env` file with:
 
 ```bash
 # JWT Secret (32-byte hex)
+# Random key is fine for development with short sessions
+# For production or multi-instance, use a fixed value
 JWT_SECRET=$(openssl rand -hex 32)
 
 # Docker registry secrets (for CI/CD)
@@ -54,6 +56,7 @@ npm run dev
 
 # Backend (in another terminal)
 cd /path/to/webpass
+# Random JWT secret is fine for local dev
 JWT_SECRET=$(openssl rand -hex 32) go run ./cmd/srv
 ```
 

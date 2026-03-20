@@ -69,13 +69,14 @@ npm run typecheck
 
 | Variable            | Description                              |
 | ----------------- | ---------------------------------------- |
-| `JWT_SECRET`      | 32-byte hex for JWT signing (required)   |
+| `JWT_SECRET`      | 32-byte hex for JWT signing (required). If not set, random key generated on startup (fine for single-instance with short sessions). Set fixed value for multi-instance or long sessions. |
 | `DB_PATH`         | SQLite path (default: `/data/db/db.sqlite3`) |
 | `STATIC_DIR`      | Frontend dist dir (default: `frontend/dist`) |
 | `DISABLE_FRONTEND`| Disable frontend serving (`1`/`true` to disable, even if `STATIC_DIR` exists) |
 | `PORT`            | HTTP listen port (default: `8080`)       |
 | `CORS_ORIGINS`    | Comma-separated allowed origins          |
 | `GIT_REPO_ROOT`   | Git repos directory (default: `/data/git-repos`) |
+| `SESSION_DURATION_MINUTES` | JWT session expiry time in minutes (default: 5, valid range: 5-480) |
 
 ## Database
 
