@@ -84,6 +84,7 @@ dist/
 
 # Dependency directories
 vendor/
+node_modules/
 
 # Kubernetes secrets (use sealed-secrets or external-secrets)
 k8s/*secret*.yaml
