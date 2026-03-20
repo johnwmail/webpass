@@ -93,6 +93,16 @@ cd db && sqlc generate
 2. **Login**: Password verified → JWT returned (5-min expiry)
 3. **2FA** (optional): TOTP code required after password verification
 
+## Auto-Hide Feature
+
+Password and notes fields auto-hide after **15 seconds** of being visible:
+
+- **Countdown timer**: Shows remaining seconds on eye button (e.g., "👁️ 15s")
+- **Independent timers**: Password and notes have separate countdowns
+- **Manual toggle**: Click eye icon to show/hide content
+- **OTP always visible**: TOTP codes stay visible (user can manually hide)
+- **Toast notification**: "Content hidden for security" appears on auto-hide
+
 ## Git Sync
 
 Manual push/pull sync to any Git repository (GitHub, GitLab, Gitea):

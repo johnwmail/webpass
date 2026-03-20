@@ -92,6 +92,7 @@ Configure in Repository Settings → Variables → Actions:
 | Git Sync | ✅ Complete | Manual push/pull |
 | 2FA (TOTP) | ✅ Complete | Settings → Enable 2FA, real TOTP login tested |
 | Delete Account | ✅ Complete | Settings → Danger Zone |
+| **Auto-Hide** | ✅ Complete | **15s countdown timer on password/notes** |
 
 ### Recent Changes (Latest Commit)
 
@@ -111,9 +112,10 @@ Configure in Repository Settings → Variables → Actions:
 - Test complete 2FA enrollment and login flow
 - No GPG CLI dependency (uses WebPass export/import)
 
-**Test Suite** - 26 E2E tests, all passing:
+**Test Suite** - 32 E2E tests, all passing:
 - 6 Authentication tests (including 2FA login)
 - 6 Entry Management tests
+- 7 Entry Detail Toggle tests (auto-hide, show/hide)
 - 1 Import test (account migration flow)
 - 13 Settings tests (including 2FA from settings)
 

@@ -19,6 +19,7 @@ A web-based password manager with zero-knowledge architecture. All cryptography 
 - **Git sync** — Backup and sync encrypted entries to any Git repository (GitHub, GitLab, Gitea)
 - **Theme toggle** — Auto-switching light/dark themes based on time of day (8AM-10PM)
 - **Account management** — Clear local data or permanently delete account with passphrase confirmation
+- **Auto-hide sensitive content** — Password and notes auto-hide after 15 seconds with countdown timer
 
 ## 🏗️ Architecture
 
@@ -191,12 +192,18 @@ All endpoints require JWT authentication.
 
 ## ⚙️ Environment Variables
 
+See [`.env.example`](.env.example) for all available options with detailed comments.
+
 | Variable       | Required | Description                              |
 | -------------- | -------- | ---------------------------------------- |
 | `JWT_SECRET`   | Yes      | 32-byte hex string for JWT signing       |
 | `DB_PATH`      | No       | Path to SQLite database (default: `db.sqlite3`) |
 | `STATIC_DIR`   | No       | Path to frontend `dist/` directory       |
 | `CORS_ORIGINS` | No       | Comma-separated allowed origins          |
+| `PORT`         | No       | HTTP listen port (default: `8080`)       |
+| `GIT_REPO_ROOT`| No       | Git repos directory (default: `/data/git-repos`) |
+| `SESSION_DURATION_MINUTES` | No | JWT session expiry in minutes (default: 5, range: 5-480) |
+| `DISABLE_FRONTEND` | No   | Disable frontend (`1` or `true`)         |
 
 ## 🎨 Theme System
 

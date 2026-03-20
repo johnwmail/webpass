@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useState, useEffect, useRef } from 'preact/hooks';
 import { session } from '../lib/session';
 import { getAccount } from '../lib/storage';
 import { decryptPrivateKey, decryptBinary, WrongKeyError } from '../lib/crypto';
@@ -25,12 +25,23 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
   const [content, setContent] = useState<EntryContent | null>(null);
   const [rawContent, setRawContent] = useState<string>('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
   const [showPassphrasePrompt, setShowPassphrasePrompt] = useState(false);
   const [showReencryptDialog, setShowReencryptDialog] = useState(false);
   const [decrypting, setDecrypting] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [autoHidden, setAutoHidden] = useState(false);
+  const [passwordTimeRemaining, setPasswordTimeRemaining] = useState<number>(0);
+  const [notesTimeRemaining, setNotesTimeRemaining] = useState<number>(0);
+
+  const passwordHideTimerRef = useRef<number | null>(null);
+  const passwordCountdownRef = useRef<number | null>(null);
+  const notesHideTimerRef = useRef<number | null>(null);
+  const notesCountdownRef = useRef<number | null>(null);
+
+  const AUTO_HIDE_SECONDS = 15;
 
   const pathParts = path.split('/');
   const name = pathParts[pathParts.length - 1];
@@ -88,6 +99,120 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
       setError(e.message || 'Delete failed');
     }
   };
+
+  // Reset password auto-hide timer and countdown
+  const resetPasswordTimer = () => {
+    if (passwordHideTimerRef.current) {
+      window.clearTimeout(passwordHideTimerRef.current);
+    }
+    if (passwordCountdownRef.current) {
+      window.clearInterval(passwordCountdownRef.current);
+    }
+    
+    setPasswordTimeRemaining(AUTO_HIDE_SECONDS);
+    
+    // Countdown timer - decrements every second
+    passwordCountdownRef.current = window.setInterval(() => {
+      setPasswordTimeRemaining(prev => {
+        if (prev <= 1) {
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    
+    // Auto-hide after 15 seconds
+    passwordHideTimerRef.current = window.setTimeout(() => {
+      setShowPassword(false);
+      setPasswordTimeRemaining(0);
+      setAutoHidden(true);
+      setTimeout(() => setAutoHidden(false), 3000);
+    }, AUTO_HIDE_SECONDS * 1000);
+  };
+
+  // Reset notes auto-hide timer and countdown
+  const resetNotesTimer = () => {
+    if (notesHideTimerRef.current) {
+      window.clearTimeout(notesHideTimerRef.current);
+    }
+    if (notesCountdownRef.current) {
+      window.clearInterval(notesCountdownRef.current);
+    }
+    
+    setNotesTimeRemaining(AUTO_HIDE_SECONDS);
+    
+    // Countdown timer - decrements every second
+    notesCountdownRef.current = window.setInterval(() => {
+      setNotesTimeRemaining(prev => {
+        if (prev <= 1) {
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    
+    // Auto-hide after 15 seconds
+    notesHideTimerRef.current = window.setTimeout(() => {
+      setShowNotes(false);
+      setNotesTimeRemaining(0);
+      setAutoHidden(true);
+      setTimeout(() => setAutoHidden(false), 3000);
+    }, AUTO_HIDE_SECONDS * 1000);
+  };
+
+  // Password timer effect
+  useEffect(() => {
+    if (!content) return;
+    
+    if (passwordHideTimerRef.current) {
+      window.clearTimeout(passwordHideTimerRef.current);
+    }
+    if (passwordCountdownRef.current) {
+      window.clearInterval(passwordCountdownRef.current);
+    }
+    
+    if (showPassword) {
+      resetPasswordTimer();
+    } else {
+      setPasswordTimeRemaining(0);
+    }
+
+    return () => {
+      if (passwordHideTimerRef.current) {
+        window.clearTimeout(passwordHideTimerRef.current);
+      }
+      if (passwordCountdownRef.current) {
+        window.clearInterval(passwordCountdownRef.current);
+      }
+    };
+  }, [content, showPassword]);
+
+  // Notes timer effect
+  useEffect(() => {
+    if (!content) return;
+    
+    if (notesHideTimerRef.current) {
+      window.clearTimeout(notesHideTimerRef.current);
+    }
+    if (notesCountdownRef.current) {
+      window.clearInterval(notesCountdownRef.current);
+    }
+    
+    if (showNotes) {
+      resetNotesTimer();
+    } else {
+      setNotesTimeRemaining(0);
+    }
+
+    return () => {
+      if (notesHideTimerRef.current) {
+        window.clearTimeout(notesHideTimerRef.current);
+      }
+      if (notesCountdownRef.current) {
+        window.clearInterval(notesCountdownRef.current);
+      }
+    };
+  }, [content, showNotes]);
 
   return (
     <div class="entry-detail">
@@ -160,8 +285,10 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
                   class="btn btn-ghost btn-icon btn-sm"
                   onClick={() => setShowPassword(!showPassword)}
                   title={showPassword ? 'Hide' : 'Show'}
+                  style={{ minWidth: 'auto', padding: '4px 8px' }}
                 >
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  {showPassword && <span style={{ fontSize: '11px', marginLeft: '4px' }}>{passwordTimeRemaining}s</span>}
                 </button>
                 <button
                   class="btn btn-ghost btn-icon btn-sm"
@@ -177,7 +304,22 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
           {content.notes && (
             <div class="entry-field">
               <div class="entry-field-label">Notes</div>
-              <div class="notes-display">{content.notes}</div>
+              <div class="password-display">
+                <span class="value" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  {showNotes ? content.notes : '•'.repeat(Math.min(content.notes.length, 48))}
+                </span>
+                <div class="actions">
+                  <button
+                    class="btn btn-ghost btn-icon btn-sm"
+                    onClick={() => setShowNotes(!showNotes)}
+                    title={showNotes ? 'Hide' : 'Show'}
+                    style={{ minWidth: 'auto', padding: '4px 8px' }}
+                  >
+                    {showNotes ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {showNotes && <span style={{ fontSize: '11px', marginLeft: '4px' }}>{notesTimeRemaining}s</span>}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -206,6 +348,7 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
       ) : null}
 
       {copied && <div class="toast">Password copied — auto-clears in 45s</div>}
+      {autoHidden && <div class="toast">Content hidden for security</div>}
     </div>
   );
 }

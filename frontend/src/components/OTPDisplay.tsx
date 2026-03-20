@@ -7,7 +7,7 @@ import {
   findInvalidOTPUris,
   getTOTPErrorHint,
 } from '../lib/otp';
-import { Copy, Check, AlertTriangle } from 'lucide-preact';
+import { Copy, Check, AlertTriangle, Eye, EyeOff } from 'lucide-preact';
 
 interface Props {
   content: string;
@@ -17,6 +17,7 @@ export function OTPDisplay({ content }: Props) {
   const [code, setCode] = useState<string>('');
   const [expiresIn, setExpiresIn] = useState<number>(0);
   const [period, setPeriod] = useState<number>(30);
+  const [showOTP, setShowOTP] = useState(true);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string>('');
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -106,15 +107,24 @@ export function OTPDisplay({ content }: Props) {
       <div class="entry-field-label">TOTP Code</div>
       <div class="otp-display">
         <div class="otp-code-container">
-          <code class="otp-code">{code}</code>
-          <button
-            class="otp-copy"
-            onClick={copyCode}
-            title="Copy to clipboard"
-            disabled={!code}
-          >
-            {copied ? <Check size={16} style={{ color: 'var(--success)' }} /> : <Copy size={16} />}
-          </button>
+          <code class="otp-code">{showOTP ? code : '•'.repeat(6)}</code>
+          <div style={{ display: 'flex', gap: '4px' }}>
+            <button
+              class="otp-copy"
+              onClick={(e) => { e.stopPropagation(); copyCode(); }}
+              title="Copy to clipboard"
+              disabled={!code || !showOTP}
+            >
+              {copied ? <Check size={16} style={{ color: 'var(--success)' }} /> : <Copy size={16} />}
+            </button>
+            <button
+              class="otp-copy"
+              onClick={() => setShowOTP(!showOTP)}
+              title={showOTP ? 'Hide' : 'Show'}
+            >
+              {showOTP ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
         </div>
 
         <div class="otp-progress">
