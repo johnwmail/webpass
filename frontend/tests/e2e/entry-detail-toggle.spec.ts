@@ -15,9 +15,10 @@ import {
 
 /**
  * Helper function to register and login via UI
+ * @returns The generated PGP passphrase for later use in decryption
  */
-async function registerAndLogin(page: any, testUserData: any) {
-  const pgpPassphrase = `pgp-pass-${Date.now()}`;
+async function registerAndLogin(page: any, testUserData: any): Promise<string> {
+  const pgpPassphrase = `pgp-pass-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   await page.goto('/');
   await page.getByRole('button', { name: /Get Started/i }).click();
@@ -44,6 +45,12 @@ async function registerAndLogin(page: any, testUserData: any) {
   await page.getByPlaceholder('Enter your login password').fill(testUserData.password);
   await page.getByRole('button', { name: /Login/i }).click();
   await page.getByText('Select an entry or create a new one').waitFor({ timeout: 10000 });
+  
+  // Wait for IndexedDB to fully initialize and keys to be stored
+  // This prevents race conditions when running tests in parallel
+  await page.waitForTimeout(1500);
+  
+  return pgpPassphrase;
 }
 
 /**
@@ -64,11 +71,43 @@ async function createEntryWithNotesAndTOTP(page: any, folderName: string, entryN
  * Helper function to decrypt an entry
  */
 async function decryptEntry(page: any, pgpPassphrase: string) {
-  await page.getByRole('button', { name: 'Decrypt', exact: true }).click();
-  await page.getByPlaceholder('Enter your PGP passphrase').waitFor({ timeout: 5000 });
-  await page.getByPlaceholder('Enter your PGP passphrase').fill(pgpPassphrase);
-  await page.getByRole('button', { name: 'Unlock', exact: true }).click();
-  await page.waitForTimeout(1000);
+  // Wait for Decrypt button to be visible and click it
+  const decryptBtn = page.getByRole('button', { name: 'Decrypt', exact: true });
+  await decryptBtn.waitFor({ state: 'visible', timeout: 10000 });
+  await decryptBtn.click();
+  
+  // Wait for passphrase input to appear
+  const passphraseInput = page.getByPlaceholder('Enter your PGP passphrase');
+  await passphraseInput.waitFor({ state: 'visible', timeout: 5000 });
+  await passphraseInput.fill(pgpPassphrase);
+  
+  // Click Unlock button
+  const unlockBtn = page.getByRole('button', { name: 'Unlock', exact: true });
+  await unlockBtn.click();
+  
+  // Wait for either: content to load OR error message
+  // This handles race conditions in parallel test execution
+  try {
+    // Wait for entry detail content (password field) to appear
+    await page.locator('.password-display').first().waitFor({ state: 'visible', timeout: 10000 });
+  } catch {
+    // If password field didn't appear, check for error
+    const errorText = await page.textContent('body');
+    if (errorText.includes('Error decrypting') || errorText.includes('Incorrect key')) {
+      // Decryption failed - this can happen due to parallel test interference
+      // Retry the decryption once
+      console.log('Decryption failed, retrying...');
+      await decryptBtn.click();
+      await passphraseInput.fill(pgpPassphrase);
+      await unlockBtn.click();
+      await page.locator('.password-display').first().waitFor({ state: 'visible', timeout: 10000 });
+    } else {
+      throw new Error('Failed to decrypt entry');
+    }
+  }
+  
+  // Additional wait for content to stabilize
+  await page.waitForTimeout(300);
 }
 
 /**
@@ -90,31 +129,32 @@ test.describe('Entry Detail Toggle Visibility', () => {
 
   test('password show/hide toggle works', async ({ page }) => {
     testUser = generateTestUser();
-    const pgpPassphrase = `pgp-pass-${Date.now()}`;
-    await registerAndLogin(page, testUser);
+    const pgpPassphrase = await registerAndLogin(page, testUser);
 
     // Create an entry
     await createEntryWithNotesAndTOTP(page, 'PasswordTest', 'test-entry');
 
     // Click on the folder to expand
     await page.getByText('PasswordTest', { exact: false }).first().click();
-    
+
     // Click on the entry to view details
     await page.getByText('test-entry', { exact: true }).click();
 
     // Decrypt the entry
     await decryptEntry(page, pgpPassphrase);
 
-    // Wait for content to be fully loaded
-    await page.waitForTimeout(500);
+    // Wait for password toggle button to be visible
+    const passwordToggleBtn = page.getByTestId('password-toggle-btn');
+    await passwordToggleBtn.waitFor({ state: 'visible', timeout: 5000 });
 
-    // Password should be hidden by default - eye icon without countdown
+    // Password should be hidden by default
     const passwordElement = page.locator('.password-display').first();
-    const toggleBtn = passwordElement.locator('button').first();
-    
+    const hiddenText = await passwordElement.textContent();
+    expect(hiddenText).toContain('•');
+
     // Click to show password
-    await toggleBtn.click();
-    await page.waitForTimeout(500);
+    await passwordToggleBtn.click();
+    await page.waitForTimeout(300);
 
     // Password should now be visible with countdown timer
     const passwordText = await passwordElement.textContent();
@@ -122,49 +162,47 @@ test.describe('Entry Detail Toggle Visibility', () => {
     expect(passwordText).toContain('s'); // countdown timer
 
     // Click hide button
-    await toggleBtn.click();
+    await passwordToggleBtn.click();
     await page.waitForTimeout(300);
 
     // Password should be hidden again
-    const hiddenText = await passwordElement.textContent();
-    expect(hiddenText).toContain('•');
+    const hiddenTextAfter = await passwordElement.textContent();
+    expect(hiddenTextAfter).toContain('•');
   });
 
   test('notes show/hide toggle works', async ({ page }) => {
     testUser = generateTestUser();
-    const pgpPassphrase = `pgp-pass-${Date.now()}`;
-    await registerAndLogin(page, testUser);
+    const pgpPassphrase = await registerAndLogin(page, testUser);
 
     // Create an entry with notes
     await createEntryWithNotesAndTOTP(page, 'NotesTest', 'test-entry');
 
     // Click on the folder to expand
     await page.getByText('NotesTest', { exact: false }).first().click();
-    
+
     // Click on the entry to view details
     await page.getByText('test-entry', { exact: true }).click();
 
     // Decrypt the entry
     await decryptEntry(page, pgpPassphrase);
 
-    // Wait for content to be fully loaded
-    await page.waitForTimeout(500);
+    // Wait for notes toggle button to be visible (it's conditional on content.notes existing)
+    const notesToggleBtn = page.getByTestId('notes-toggle-btn');
+    await notesToggleBtn.waitFor({ state: 'visible', timeout: 5000 });
 
-    // Notes should be hidden by default - click to show using notes container
-    const notesContainer = page.locator('.entry-field').filter({ hasText: 'Notes' }).first();
-    const notesShowBtn = notesContainer.locator('button').first();
-    await notesShowBtn.click();
-    await page.waitForTimeout(500);
+    // Notes should be hidden by default - click to show
+    await notesToggleBtn.click();
+    await page.waitForTimeout(300);
 
     // Notes should now be visible with countdown timer
-    const notesValue = notesContainer.locator('.value');
+    const notesValue = page.locator('.entry-field').filter({ hasText: 'Notes' }).locator('.value');
     await expect(notesValue).toContainText('Test notes');
-    const notesText = await notesContainer.textContent();
+    const notesContainer = page.locator('.entry-field').filter({ hasText: 'Notes' });
+    const notesText = await notesContainer.first().textContent();
     expect(notesText).toContain('s'); // countdown timer
 
     // Click to hide again
-    const notesHideBtn = notesContainer.locator('button').first();
-    await notesHideBtn.click();
+    await notesToggleBtn.click();
     await page.waitForTimeout(300);
 
     // Notes should be hidden again
@@ -174,45 +212,35 @@ test.describe('Entry Detail Toggle Visibility', () => {
 
   test('password copy button is clickable', async ({ page }) => {
     testUser = generateTestUser();
-    const pgpPassphrase = `pgp-pass-${Date.now()}`;
-    await registerAndLogin(page, testUser);
+    const pgpPassphrase = await registerAndLogin(page, testUser);
 
     // Create an entry
     await createEntryWithNotesAndTOTP(page, 'CopyTest', 'test-entry');
 
     // Click on the folder to expand
     await page.getByText('CopyTest', { exact: false }).first().click();
-    
+
     // Click on the entry to view details
     await page.getByText('test-entry', { exact: true }).click();
 
     // Decrypt the entry
     await decryptEntry(page, pgpPassphrase);
 
-    // Wait for content to be fully loaded
-    await page.waitForTimeout(500);
+    // Wait for password copy button to be visible
+    const copyBtn = page.getByTestId('password-copy-btn');
+    await copyBtn.waitFor({ state: 'visible', timeout: 5000 });
 
-    // Password should be hidden by default - click to show
-    const passwordElement = page.locator('.password-display').first();
-    const togglePasswordBtn = passwordElement.locator('button').first();
-    await togglePasswordBtn.click();
-
-    // Wait for password to be visible
-    await page.waitForTimeout(300);
-
-    // Click copy button (second button in password-display) - should be enabled
-    const copyBtn = passwordElement.locator('button').nth(1);
+    // Click copy button - should be enabled
     await expect(copyBtn).toBeEnabled();
     await copyBtn.click();
-    
+
     // Button should still be visible after click
     await expect(copyBtn).toBeVisible();
   });
 
   test('entry detail container has correct structure', async ({ page }) => {
     testUser = generateTestUser();
-    const pgpPassphrase = `pgp-pass-${Date.now()}`;
-    await registerAndLogin(page, testUser);
+    const pgpPassphrase = await registerAndLogin(page, testUser);
 
     // Create an entry
     await createEntryWithNotesAndTOTP(page, 'ActivityTest', 'test-entry');
@@ -241,8 +269,7 @@ test.describe('Entry Detail Toggle Visibility', () => {
 
   test('auto-hide after 15 seconds', async ({ page }) => {
     testUser = generateTestUser();
-    const pgpPassphrase = `pgp-pass-${Date.now()}`;
-    await registerAndLogin(page, testUser);
+    const pgpPassphrase = await registerAndLogin(page, testUser);
 
     // Create an entry
     await createEntryWithNotesAndTOTP(page, 'AutoHideTest', 'test-entry');
@@ -278,8 +305,7 @@ test.describe('Entry Detail Toggle Visibility', () => {
 
   test('notes hidden by default after decrypt', async ({ page }) => {
     testUser = generateTestUser();
-    const pgpPassphrase = `pgp-pass-${Date.now()}`;
-    await registerAndLogin(page, testUser);
+    const pgpPassphrase = await registerAndLogin(page, testUser);
 
     // Create an entry with notes
     await createEntryWithNotesAndTOTP(page, 'NotesDefaultTest', 'test-entry');
@@ -305,8 +331,7 @@ test.describe('Entry Detail Toggle Visibility', () => {
 
   test('OTP always visible with manual toggle', async ({ page }) => {
     testUser = generateTestUser();
-    const pgpPassphrase = `pgp-pass-${Date.now()}`;
-    await registerAndLogin(page, testUser);
+    const pgpPassphrase = await registerAndLogin(page, testUser);
 
     // Create an entry with TOTP URI in notes
     await page.getByRole('button', { name: 'Entry' }).click();

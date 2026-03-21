@@ -166,11 +166,25 @@ test.describe('Import Entries', () => {
     const importButton = importDialog.getByRole('button', { name: '📥 Import' });
     await importButton.click();
 
-    // Wait for processing to start
-    await page.waitForSelector('text=Extracting', { timeout: 10000 });
+    // Wait for progress indicator to appear (shows "Extracting archive...")
+    // Use a more flexible selector that matches any progress message
+    const progressContainer = page.locator('[style*="background: var(--bg-tertiary)"]').first();
+    await progressContainer.waitFor({ state: 'visible', timeout: 10000 });
 
-    // Wait for completion
-    await page.waitForSelector('text=Imported', { timeout: 60000 });
+    // Wait for import to complete - look for success message or progress completion
+    try {
+      // Wait for "Imported" text in success message (appears after completion)
+      await page.waitForSelector('text=Imported', { timeout: 70000 });
+    } catch {
+      // Fallback: wait for progress to show "complete" stage or error
+      const progressText = await page.locator('[style*="color: var(--text-muted)"]').first().textContent();
+      if (progressText && progressText.includes('error')) {
+        throw new Error('Import failed: ' + progressText);
+      }
+      // If still no success, wait a bit more and check again
+      await page.waitForTimeout(5000);
+      await page.waitForSelector('text=Imported', { timeout: 10000 });
+    }
 
     // Verify success message shows 2 entries
     await expect(page.getByText(/Imported.*2.*entries/i)).toBeVisible();

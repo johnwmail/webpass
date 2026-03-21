@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'preact/hooks';
+import { useState, useEffect, useRef, useCallback } from 'preact/hooks';
 import { session } from '../lib/session';
 import { getAccount } from '../lib/storage';
 import { decryptPrivateKey, decryptBinary, WrongKeyError } from '../lib/crypto';
@@ -100,119 +100,113 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
     }
   };
 
-  // Reset password auto-hide timer and countdown
-  const resetPasswordTimer = () => {
-    if (passwordHideTimerRef.current) {
-      window.clearTimeout(passwordHideTimerRef.current);
-    }
-    if (passwordCountdownRef.current) {
-      window.clearInterval(passwordCountdownRef.current);
-    }
-    
-    setPasswordTimeRemaining(AUTO_HIDE_SECONDS);
-    
-    // Countdown timer - decrements every second
-    passwordCountdownRef.current = window.setInterval(() => {
-      setPasswordTimeRemaining(prev => {
-        if (prev <= 1) {
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    
-    // Auto-hide after 15 seconds
-    passwordHideTimerRef.current = window.setTimeout(() => {
-      setShowPassword(false);
-      setPasswordTimeRemaining(0);
-      setAutoHidden(true);
-      setTimeout(() => setAutoHidden(false), 3000);
-    }, AUTO_HIDE_SECONDS * 1000);
-  };
-
-  // Reset notes auto-hide timer and countdown
-  const resetNotesTimer = () => {
-    if (notesHideTimerRef.current) {
-      window.clearTimeout(notesHideTimerRef.current);
-    }
-    if (notesCountdownRef.current) {
-      window.clearInterval(notesCountdownRef.current);
-    }
-    
-    setNotesTimeRemaining(AUTO_HIDE_SECONDS);
-    
-    // Countdown timer - decrements every second
-    notesCountdownRef.current = window.setInterval(() => {
-      setNotesTimeRemaining(prev => {
-        if (prev <= 1) {
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    
-    // Auto-hide after 15 seconds
-    notesHideTimerRef.current = window.setTimeout(() => {
-      setShowNotes(false);
-      setNotesTimeRemaining(0);
-      setAutoHidden(true);
-      setTimeout(() => setAutoHidden(false), 3000);
-    }, AUTO_HIDE_SECONDS * 1000);
-  };
-
-  // Password timer effect
-  useEffect(() => {
-    if (!content) return;
-    
-    if (passwordHideTimerRef.current) {
-      window.clearTimeout(passwordHideTimerRef.current);
-    }
-    if (passwordCountdownRef.current) {
-      window.clearInterval(passwordCountdownRef.current);
-    }
-    
-    if (showPassword) {
-      resetPasswordTimer();
-    } else {
-      setPasswordTimeRemaining(0);
-    }
-
-    return () => {
+  const handlePasswordToggle = useCallback(() => {
+    setShowPassword(prev => {
+      const newValue = !prev;
+      // Clear any existing timers when manually toggling
       if (passwordHideTimerRef.current) {
         window.clearTimeout(passwordHideTimerRef.current);
+        passwordHideTimerRef.current = null;
       }
       if (passwordCountdownRef.current) {
         window.clearInterval(passwordCountdownRef.current);
+        passwordCountdownRef.current = null;
       }
-    };
-  }, [content, showPassword]);
+      // Start new timer if showing
+      if (newValue) {
+        setPasswordTimeRemaining(AUTO_HIDE_SECONDS);
+        passwordCountdownRef.current = window.setInterval(() => {
+          setPasswordTimeRemaining(prevTime => {
+            if (prevTime <= 1) {
+              return 0;
+            }
+            return prevTime - 1;
+          });
+        }, 1000);
+        passwordHideTimerRef.current = window.setTimeout(() => {
+          setShowPassword(false);
+          setPasswordTimeRemaining(0);
+          setAutoHidden(true);
+          setTimeout(() => setAutoHidden(false), 3000);
+        }, AUTO_HIDE_SECONDS * 1000);
+      } else {
+        setPasswordTimeRemaining(0);
+      }
+      return newValue;
+    });
+  }, []);
 
-  // Notes timer effect
-  useEffect(() => {
-    if (!content) return;
-    
-    if (notesHideTimerRef.current) {
-      window.clearTimeout(notesHideTimerRef.current);
-    }
-    if (notesCountdownRef.current) {
-      window.clearInterval(notesCountdownRef.current);
-    }
-    
-    if (showNotes) {
-      resetNotesTimer();
-    } else {
-      setNotesTimeRemaining(0);
-    }
-
-    return () => {
+  const handleNotesToggle = useCallback(() => {
+    setShowNotes(prev => {
+      const newValue = !prev;
+      // Clear any existing timers when manually toggling
       if (notesHideTimerRef.current) {
         window.clearTimeout(notesHideTimerRef.current);
+        notesHideTimerRef.current = null;
       }
       if (notesCountdownRef.current) {
         window.clearInterval(notesCountdownRef.current);
+        notesCountdownRef.current = null;
+      }
+      // Start new timer if showing
+      if (newValue) {
+        setNotesTimeRemaining(AUTO_HIDE_SECONDS);
+        notesCountdownRef.current = window.setInterval(() => {
+          setNotesTimeRemaining(prevTime => {
+            if (prevTime <= 1) {
+              return 0;
+            }
+            return prevTime - 1;
+          });
+        }, 1000);
+        notesHideTimerRef.current = window.setTimeout(() => {
+          setShowNotes(false);
+          setNotesTimeRemaining(0);
+          setAutoHidden(true);
+          setTimeout(() => setAutoHidden(false), 3000);
+        }, AUTO_HIDE_SECONDS * 1000);
+      } else {
+        setNotesTimeRemaining(0);
+      }
+      return newValue;
+    });
+  }, []);
+
+  // Password timer effect - simplified to just handle auto-hide trigger
+  useEffect(() => {
+    if (!content) return;
+
+    // Timer is now managed by handlePasswordToggle
+    // This effect just cleans up on unmount
+    return () => {
+      if (passwordHideTimerRef.current) {
+        window.clearTimeout(passwordHideTimerRef.current);
+        passwordHideTimerRef.current = null;
+      }
+      if (passwordCountdownRef.current) {
+        window.clearInterval(passwordCountdownRef.current);
+        passwordCountdownRef.current = null;
       }
     };
-  }, [content, showNotes]);
+  }, [content]);
+
+  // Notes timer effect - simplified to just handle auto-hide trigger
+  useEffect(() => {
+    if (!content) return;
+
+    // Timer is now managed by handleNotesToggle
+    // This effect just cleans up on unmount
+    return () => {
+      if (notesHideTimerRef.current) {
+        window.clearTimeout(notesHideTimerRef.current);
+        notesHideTimerRef.current = null;
+      }
+      if (notesCountdownRef.current) {
+        window.clearInterval(notesCountdownRef.current);
+        notesCountdownRef.current = null;
+      }
+    };
+  }, [content]);
 
   return (
     <div class="entry-detail">
@@ -283,9 +277,10 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
               <div class="actions">
                 <button
                   class="btn btn-ghost btn-icon btn-sm"
-                  onClick={() => setShowPassword(!showPassword)}
+                  onClick={handlePasswordToggle}
                   title={showPassword ? 'Hide' : 'Show'}
                   style={{ minWidth: 'auto', padding: '4px 8px' }}
+                  data-testid="password-toggle-btn"
                 >
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   {showPassword && <span style={{ fontSize: '11px', marginLeft: '4px' }}>{passwordTimeRemaining}s</span>}
@@ -294,6 +289,7 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
                   class="btn btn-ghost btn-icon btn-sm"
                   onClick={copyPassword}
                   title="Copy password"
+                  data-testid="password-copy-btn"
                 >
                   {copied ? <Check size={16} style={{ color: 'var(--success)' }} /> : <Copy size={16} />}
                 </button>
@@ -311,9 +307,10 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
                 <div class="actions">
                   <button
                     class="btn btn-ghost btn-icon btn-sm"
-                    onClick={() => setShowNotes(!showNotes)}
+                    onClick={handleNotesToggle}
                     title={showNotes ? 'Hide' : 'Show'}
                     style={{ minWidth: 'auto', padding: '4px 8px' }}
+                    data-testid="notes-toggle-btn"
                   >
                     {showNotes ? <EyeOff size={16} /> : <Eye size={16} />}
                     {showNotes && <span style={{ fontSize: '11px', marginLeft: '4px' }}>{notesTimeRemaining}s</span>}

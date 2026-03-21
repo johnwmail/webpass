@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'preact/hooks';
+import { useState, useRef, useEffect, useCallback } from 'preact/hooks';
 import { Lock } from 'lucide-preact';
 
 interface Props {
@@ -11,25 +11,38 @@ interface Props {
 export function PassphrasePrompt({ title, message, onSubmit, onCancel }: Props) {
   const [passphrase, setPassphrase] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const passphraseRef = useRef('');
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  const handleSubmit = (e: Event) => {
+  // Optimized input handler - update ref immediately for instant response
+  // State update is synchronous for test reliability
+  const handleInput = useCallback((e: Event) => {
+    const value = (e.target as HTMLInputElement).value;
+    passphraseRef.current = value;
+    setPassphrase(value);
+  }, []);
+
+  const handleSubmit = useCallback((e: Event) => {
     e.preventDefault();
-    if (passphrase) onSubmit(passphrase);
-  };
+    if (passphraseRef.current) onSubmit(passphraseRef.current);
+  }, [onSubmit]);
+
+  const handleCancel = useCallback(() => {
+    onCancel();
+  }, [onCancel]);
 
   return (
-    <div class="modal-overlay" onClick={onCancel}>
-      <div class="modal" onClick={(e) => e.stopPropagation()}>
+    <div class="modal-overlay" onClick={handleCancel} style="will-change: opacity;">
+      <div class="modal modal-no-blur" onClick={(e) => e.stopPropagation()} style="will-change: transform;">
         <div class="modal-header">
           <h2>
             <Lock size={18} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
             {title || 'Enter PGP Passphrase'}
           </h2>
-          <button class="btn btn-ghost btn-icon" onClick={onCancel}>
+          <button class="btn btn-ghost btn-icon" onClick={handleCancel}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
@@ -43,9 +56,13 @@ export function PassphrasePrompt({ title, message, onSubmit, onCancel }: Props) 
                 class="input"
                 type="password"
                 value={passphrase}
-                onInput={(e) => setPassphrase((e.target as HTMLInputElement).value)}
+                onInput={handleInput}
                 placeholder="Enter your PGP passphrase"
-                autocomplete="one-time-code"
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck={false}
+                inputmode="text"
                 name="pgp-passphrase"
                 data-lpignore="true"
                 data-bwignore="true"
@@ -54,7 +71,7 @@ export function PassphrasePrompt({ title, message, onSubmit, onCancel }: Props) 
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn" onClick={onCancel}>Cancel</button>
+            <button type="button" class="btn" onClick={handleCancel}>Cancel</button>
             <button type="submit" class="btn btn-primary" disabled={!passphrase}>Unlock</button>
           </div>
         </form>
