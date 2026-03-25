@@ -17,9 +17,6 @@ func TestGitServiceNew(t *testing.T) {
 	srv := newTestServer(t)
 	gs := NewGitService(dbPath, srv.Q, repoRoot)
 
-	if gs == nil {
-		t.Fatal("expected GitService to be created")
-	}
 	if gs.repoRoot != repoRoot {
 		t.Errorf("expected repoRoot %s, got %s", repoRoot, gs.repoRoot)
 	}
