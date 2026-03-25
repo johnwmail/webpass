@@ -51,7 +51,7 @@ jobs:
         run: cd frontend && npx playwright test
         env:
           TEST_BASE_URL: http://localhost:8080
-          JWT_SECRET: ${{ secrets.JWT_SECRET || 'test-secret-key-32-bytes-long!!!' }}
+          JWT_SECRET: test-secret-key-32-bytes-long!!!
           DB_PATH: :memory:
           STATIC_DIR: frontend/dist
           DISABLE_FRONTEND: 'false'
