@@ -52,9 +52,9 @@ jobs:
         env:
           TEST_BASE_URL: http://localhost:8080
           JWT_SECRET: "test-secret-key-32-bytes-long!!!"
-          DB_PATH: :memory:
+          DB_PATH: /tmp/webpass-test.db
           STATIC_DIR: frontend/dist
-          DISABLE_FRONTEND: "false"
+          DISABLE_FRONTEND: false
           GIT_REPO_ROOT: /tmp/git-repos
           WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
           WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
