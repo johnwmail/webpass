@@ -44,32 +44,6 @@ jobs:
       - name: Build frontend
         run: cd frontend && npm run build
 
-      - name: Build backend binary
-        run: go build -o webpass-server ./cmd/srv
-
-      - name: Start server
-        run: |
-          JWT_SECRET=$(openssl rand -hex 32) \
-          DB_PATH=:memory: \
-          STATIC_DIR=frontend/dist \
-          DISABLE_FRONTEND=false \
-          GIT_REPO_ROOT=/tmp/git-repos \
-          ./webpass-server &
-          echo "Server started with PID $!"
-
-      - name: Wait for server health
-        run: |
-          for i in {1..30}; do
-            if curl -s http://localhost:8080/api/health | grep -q '"status":"ok"'; then
-              echo "Server is healthy!"
-              exit 0
-            fi
-            echo "Waiting for server... ($i/30)"
-            sleep 2
-          done
-          echo "Server failed to start"
-          exit 1
-
       - name: Install Playwright browsers
         run: cd frontend && npx playwright install --with-deps chromium
 
@@ -77,7 +51,11 @@ jobs:
         run: cd frontend && npx playwright test
         env:
           TEST_BASE_URL: http://localhost:8080
-          TEST_SKIP_WEBSERVER: "true"
+          JWT_SECRET: ${{ secrets.JWT_SECRET || 'test-secret-key-32-bytes-long!!!' }}
+          DB_PATH: :memory:
+          STATIC_DIR: frontend/dist
+          DISABLE_FRONTEND: 'false'
+          GIT_REPO_ROOT: /tmp/git-repos
           WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
           WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
 

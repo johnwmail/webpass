@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Run Playwright E2E tests locally
-# Starts the server, runs tests, and cleans up on exit
+# Playwright starts the server automatically via webServer config
 #
 # Usage: ./scripts/test-e2e.sh [playwright args...]
 #
@@ -39,38 +39,24 @@ log_error() {
 # Cleanup function
 cleanup() {
     local exit_code=$?
-    
+
     log_warn "Cleaning up..."
-    
-    # Kill server process and all children
-    if [ -n "$SERVER_PID" ]; then
-        # Kill process group (includes child processes)
-        kill -TERM -$SERVER_PID 2>/dev/null || true
-        kill -TERM $SERVER_PID 2>/dev/null || true
-        sleep 1
-        # Force kill if still running
-        kill -KILL -$SERVER_PID 2>/dev/null || true
-        kill -KILL $SERVER_PID 2>/dev/null || true
-        wait $SERVER_PID 2>/dev/null || true
+
+    # Remove temp database file if it exists
+    if [ -n "$DB_FILE" ] && [ -f "$DB_FILE" ]; then
+        rm -f "$DB_FILE"
     fi
-    
-    # Kill any orphaned server processes on port 8080
-    if command -v fuser &> /dev/null; then
-        fuser -k 8080/tcp 2>/dev/null || true
-    elif command -v lsof &> /dev/null; then
-        lsof -ti:8080 | xargs kill -9 2>/dev/null || true
-    fi
-    
+
     # Remove git-repos directory if it exists
     if [ -d "$GIT_REPO_ROOT" ]; then
         rm -rf "$GIT_REPO_ROOT"
     fi
-    
+
     # Remove any core dumps or temp files
     rm -f "$ROOT_DIR/core" 2>/dev/null || true
-    
+
     log_info "Cleanup complete"
-    
+
     # Preserve the original exit code
     return $exit_code
 }
@@ -121,9 +107,12 @@ if [ -z "$JWT_SECRET" ]; then
     JWT_SECRET=$(openssl rand -hex 32)
 fi
 
-# Set environment variables
+# Use temp file for database (more reliable than :memory: for local testing)
+DB_FILE="/tmp/webpass-test-$(date +%s).db"
+
+# Set environment variables (passed to Playwright, which passes to server)
 export JWT_SECRET
-export DB_PATH=:memory:
+export DB_PATH="$DB_FILE"
 export STATIC_DIR=frontend/dist
 export DISABLE_FRONTEND=false
 export GIT_REPO_ROOT="$ROOT_DIR/git-repos"
@@ -131,30 +120,11 @@ export GIT_REPO_ROOT="$ROOT_DIR/git-repos"
 # Create git repos directory if it doesn't exist
 mkdir -p "$GIT_REPO_ROOT"
 
-log_info "Starting server..."
+log_info "Test configuration:"
 log_info "  JWT_SECRET: ${JWT_SECRET:0:8}... (truncated)"
 log_info "  DB_PATH: $DB_PATH"
 log_info "  STATIC_DIR: $STATIC_DIR"
 log_info "  GIT_REPO_ROOT: $GIT_REPO_ROOT"
-
-# Start server in background
-go run ./cmd/srv &
-SERVER_PID=$!
-
-# Wait for server to be healthy
-log_info "Waiting for server to start..."
-for i in {1..30}; do
-    if curl -s http://localhost:8080/api/health | grep -q '"status":"ok"'; then
-        log_info "Server is healthy!"
-        break
-    fi
-    if [ $i -eq 30 ]; then
-        log_error "Server failed to start after 60 seconds"
-        exit 1
-    fi
-    echo "  Waiting for server... ($i/30)"
-    sleep 2
-done
 
 # Install Playwright browsers if needed
 log_info "Ensuring Playwright browsers are installed..."
@@ -164,11 +134,6 @@ npx playwright install chromium
 
 # Run Playwright tests
 log_info "Running Playwright tests..."
-cd "$FRONTEND_DIR"
-
-# Set test environment variables
-export TEST_BASE_URL=http://localhost:8080
-export TEST_SKIP_WEBSERVER=true
 
 # Log test configuration
 log_info "Test configuration:"
@@ -184,6 +149,7 @@ else
 fi
 
 # Run tests with any additional arguments passed to the script
+# Playwright will start the server automatically via webServer config
 if [ $# -gt 0 ]; then
     npx playwright test "$@"
 else
