@@ -203,10 +203,7 @@ Git token can be provided in two ways:
 {
   "status": "failed",
   "operation": "pull",
-  "error": "CONFLICT: 2 entries have local changes that conflict with remote",
-  "conflicts": [
-    {"path": "Email/gmail.com.gpg", "local_modified": true, "remote_modified": true}
-  ]
+  "error": "local has unpushed changes, please push first"
 }
 ```
 
@@ -531,26 +528,32 @@ To view sync history:
 **Rationale**:
 - Simpler architecture — no background sync logic
 - User has full control over when data leaves their device
-- Easier to reason about sync state and conflicts
+- Easier to reason about sync state
 
 **Trade-offs**:
 - User must remember to push changes
 - Risk of data loss if user forgets to push before device failure
 - Mitigation: Show "Last synced" timestamp prominently
 
-### Conflict Resolution: Manual
+### Conflict Resolution: Simplified
 
-**Decision**: Detect conflicts and show UI dialog; do NOT auto-merge.
+**Decision**: No conflict detection. Git's native non-fast-forward errors guide users.
 
 **Rationale**:
-- Password data is sensitive — user should explicitly resolve conflicts
-- Auto-merge strategies (`--strategy-option=ours`) can cause data loss
-- Clear visibility into what changed on remote vs local
+- Zero-knowledge architecture makes content comparison impossible
+- Path-based conflict detection is unreliable (encrypted blobs differ randomly)
+- Simple error messages are clearer than complex conflict dialogs
+- Reset button provides nuclear option for confused states
 
 **Trade-offs**:
-- More complex UI (conflict dialog with keep-local/keep-remote/skip)
-- User must intervene to complete sync
-- Safer — no accidental overwrites
+- User must manually resolve by pulling/pushing in correct order
+- May require Reset operation if sync state becomes confused
+- Much simpler implementation, no conflict UI needed
+
+**Error Messages**:
+- Push fails: "Remote has changes, please pull first"
+- Pull fails: "Local has unpushed changes, please push first"
+- Resolution: Use Reset button to discard local and re-clone from remote
 
 ### Session Token Cache
 
@@ -594,6 +597,38 @@ To view sync history:
 
 ---
 
+#### "Remote has changes, please pull first"
+
+**Cause**: Git push was rejected because remote repository has newer commits (non-fast-forward).
+
+**Solution**:
+1. Click "Pull" to download remote changes first
+2. After pull completes, click "Push" again
+
+---
+
+#### "Local has unpushed changes, please push first"
+
+**Cause**: Git pull would require non-fast-forward merge because local has unpushed commits.
+
+**Solution**:
+1. Click "Push" to upload your local changes first
+2. After push completes, click "Pull" again
+
+---
+
+#### "Sync state is confused / Reset not working"
+
+**Cause**: Local git repository state is inconsistent with remote.
+
+**Solution**:
+1. Go to Settings → Git Sync
+2. Click "Reset Local" button (nuclear option)
+3. This will delete local repo and re-clone from remote
+4. **Warning**: All unpushed local changes will be lost
+
+---
+
 #### "git push: permission denied"
 
 **Cause**: Invalid or expired PAT, or insufficient permissions.
@@ -608,26 +643,35 @@ To view sync history:
 
 ---
 
-#### "CONFLICT: X entries have local changes that conflict with remote"
+#### "Remote has changes, please pull first"
 
-**Cause**: Both local database and remote repository have unpushed changes to the same entry.
-
-**What Happens**:
-- Git sync detects the conflict before merging
-- Shows a dialog with conflicting files
-- Displays commit timestamps for both local and remote versions
-- Waits for user to choose which version to keep
+**Cause**: Git push was rejected because remote repository has newer commits (non-fast-forward).
 
 **Solution**:
-1. Review the conflicting files in the conflict dialog
-2. Compare timestamps to see which version is more recent
-3. Choose one of:
-   - **Keep Local (Push)**: Overwrite remote with your local changes
-   - **Keep Remote (Pull)**: Overwrite local with remote changes
-   - **Skip**: Cancel the sync operation (no changes made)
-4. After resolution, perform the sync operation again
+1. Click "Pull" to download remote changes first
+2. After pull completes, click "Push" again
 
-**Note**: Git uses commit history (not file timestamps) to detect conflicts. The displayed times are commit timestamps, which help you decide which version to keep.
+---
+
+#### "Local has unpushed changes, please push first"
+
+**Cause**: Git pull would require non-fast-forward merge because local has unpushed commits.
+
+**Solution**:
+1. Click "Push" to upload your local changes first
+2. After push completes, click "Pull" again
+
+---
+
+#### "Sync state is confused / Reset not working"
+
+**Cause**: Local git repository state is inconsistent with remote.
+
+**Solution**:
+1. Go to Settings → Git Sync
+2. Click "Reset Local" button (nuclear option)
+3. This will delete local repo and re-clone from remote
+4. **Warning**: All unpushed local changes will be lost
 
 ---
 
@@ -727,13 +771,13 @@ To enable verbose logging for Git operations:
 
 ### [✓] Conflict Resolution
 
-**Decision**: Manual resolution via UI dialog.
+**Decision**: No conflict detection. Git's native non-fast-forward errors guide users.
 
 **Implementation**:
-- Detect conflicts by comparing file hashes (local SQLite vs remote `.gpg`)
-- Show conflict list with paths and modification times
-- User chooses: keep local, keep remote, or skip
-- After resolution, user can pull again (or push if they chose keep-local)
+- Push fails with "remote has changes, please pull first"
+- Pull fails with "local has unpushed changes, please push first"
+- User manually resolves by pulling/pushing in correct order
+- Reset button available for confused states
 
 ---
 
@@ -796,61 +840,22 @@ Users manually push when ready. No debouncing needed.
 - Show errors in UI toast (manual operations) — show exact error message
 - Log all errors to `git_sync_log` table
 - No automatic retry (user can click Pull/Push again)
-- Conflict errors: show dialog with resolution options
-
----
-
-### [✓] Conflict Resolution
-
-**Decision**: Detect conflicts and show UI dialog with timestamps; user chooses which version to keep.
-
-**Implementation**:
-- Before pulling, run `git status --porcelain` to detect local modifications
-- For each conflicting file:
-  - Get local commit time: `git log -1 --format=%cI -- <file>`
-  - Get remote commit time: `git log origin/main -1 --format=%cI -- <file>`
-  - Display both times in UI (converted to local timezone)
-- User chooses: Keep Local, Keep Remote, or Skip
-
-**Conflict Detection Flow**:
-```
-1. User clicks "Pull"
-2. Client decrypts PAT, sends to server
-3. Server: git fetch origin
-4. Server: detectConflicts() → compare DB entries vs remote content
-5. If conflicts found (same path, different content):
-   - Get commit timestamps for both sides
-   - Return conflict list to client
-   - Abort pull (don't merge yet)
-6. Client shows conflict dialog with timestamps
-7. User chooses which version to keep
-8. Based on choice:
-   - Keep Local → User clicks "Push" to overwrite remote
-   - Keep Remote → User clicks "Pull" again (with force_theirs=true)
-   - Skip → Operation cancelled
-```
-
-**Safety**:
-- Pull never automatically overwrites local changes
-- Push never automatically overwrites remote changes
-- User explicitly chooses which version to keep
-- Deleted entries are NOT removed (safety net)
+- Clear error messages: "remote has changes, please pull first" / "local has unpushed changes, please push first"
 
 ---
 
 ## Implementation Checklist
 
-- [ ] Database schema (`git_config` with `encrypted_pat`, `git_sync_log`)
-- [ ] sqlc queries
-- [ ] Git service layer (`srv/git.go`)
-- [ ] Session token cache
-- [ ] API endpoints
-- [ ] Frontend crypto (OpenPGP.js for PAT encryption/decryption)
-- [ ] Frontend Git Sync UI (push/pull buttons, PGP passphrase prompt)
-- [ ] Conflict detection and UI dialog
-- [ ] Error toasts in UI (show exact error messages)
-- [ ] Write tests (`srv/git_test.go`)
-- [ ] Update README.md (document git sync feature)
+- [x] Database schema (`git_config` with `encrypted_pat`, `git_sync_log`)
+- [x] sqlc queries
+- [x] Git service layer (`srv/git.go`)
+- [x] Session token cache
+- [x] API endpoints
+- [x] Frontend crypto (OpenPGP.js for PAT encryption/decryption)
+- [x] Frontend Git Sync UI (push/pull buttons, PGP passphrase prompt)
+- [x] Error toasts in UI (show exact error messages)
+- [x] Write tests (`srv/git_test.go`)
+- [x] E2E tests (`frontend/tests/e2e/git-sync.spec.ts`)
 
 ---
 
@@ -933,9 +938,7 @@ Users manually push when ready. No debouncing needed.
 **A:** Yes, but manually:
 1. Device A: Push changes to remote
 2. Device B: Pull changes from remote
-3. Resolve any conflicts if both devices made changes
-
-Automatic multi-device sync is planned for Phase 3.
+3. If conflicts occur: pull first, then push
 
 ### Q: Is the `.password-store/` format compatible with `pass`?
 
@@ -954,22 +957,6 @@ The server **cannot** decrypt any of this data without your PGP private key.
 
 ---
 
-## Implementation Checklist
-
-- [ ] Database schema (`git_config` with `encrypted_pat`, `git_sync_log`)
-- [ ] sqlc queries
-- [ ] Git service layer (`srv/git.go`)
-- [ ] Session token cache
-- [ ] API endpoints
-- [ ] Frontend crypto (OpenPGP.js for PAT encryption/decryption)
-- [ ] Frontend Git Sync UI (push/pull buttons, PGP passphrase prompt)
-- [ ] Conflict detection and UI dialog
-- [ ] Error toasts in UI (show exact error messages)
-- [ ] Write tests (`srv/git_test.go`)
-- [ ] Update README.md (document git sync feature)
-
----
-
 ## Environment Variables
 
 | Variable        | Default       | Description                          |
@@ -978,15 +965,13 @@ The server **cannot** decrypt any of this data without your PGP private key.
 
 ---
 
-## Future Enhancements (Phase 2+)
+## Future Enhancements
 
 1. **SSH Key Support**: Store encrypted SSH key, use for git auth
-2. **Conflict UI**: Show conflicts in browser, let user resolve manually
-3. **Multi-Device Sync**: Detect and merge concurrent edits
-4. **Webhook Integration**: Trigger pull on git push (real-time sync)
-5. **CLI Client**: `webpass sync` command for terminal users
-6. **Encrypted Commit Messages**: Sign commits with PGP key
-7. **Branch per Device**: Each device has own branch, merge on sync
+2. **Multi-Device Sync**: Detect and merge concurrent edits
+3. **Webhook Integration**: Trigger pull on git push (real-time sync)
+4. **CLI Client**: `webpass sync` command for terminal users
+5. **Encrypted Commit Messages**: Sign commits with PGP key
 
 ---
 

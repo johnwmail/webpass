@@ -4,7 +4,7 @@ import preact from '@preact/preset-vite';
 export default defineConfig(({ mode }) => {
   // Load environment variables
   const env = loadEnv(mode, process.cwd(), '');
-  
+
   return {
     plugins: [preact()],
     define: {
@@ -14,6 +14,10 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: 'dist',
+      minify: 'esbuild',
+      esbuild: {
+        drop: [], // Don't drop console or debugger
+      },
     },
     server: {
       port: 3000,

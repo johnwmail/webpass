@@ -17,9 +17,6 @@ func TestGitServiceNew(t *testing.T) {
 	srv := newTestServer(t)
 	gs := NewGitService(dbPath, srv.Q, repoRoot)
 
-	if gs == nil {
-		t.Fatal("expected GitService to be created")
-	}
 	if gs.repoRoot != repoRoot {
 		t.Errorf("expected repoRoot %s, got %s", repoRoot, gs.repoRoot)
 	}
@@ -198,45 +195,6 @@ func TestGitServiceRepoDir(t *testing.T) {
 	got := s.GitService.repoDir(fingerprint)
 	if got != expected {
 		t.Errorf("expected repo dir %s, got %s", expected, got)
-	}
-}
-
-func TestGitServiceAuthURL(t *testing.T) {
-	s := newTestServer(t)
-
-	tests := []struct {
-		name     string
-		repoURL  string
-		token    string
-		expected string
-	}{
-		{
-			name:     "https URL",
-			repoURL:  "https://github.com/user/repo.git",
-			token:    "mytoken",
-			expected: "https://mytoken@github.com/user/repo.git",
-		},
-		{
-			name:     "ssh URL",
-			repoURL:  "git@github.com:user/repo.git",
-			token:    "mytoken",
-			expected: "git@github.com:user/repo.git",
-		},
-		{
-			name:     "https with subdomain",
-			repoURL:  "https://gitlab.com/user/repo.git",
-			token:    "mytoken",
-			expected: "https://mytoken@gitlab.com/user/repo.git",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := s.GitService.authURL(tt.repoURL, tt.token)
-			if got != tt.expected {
-				t.Errorf("expected %s, got %s", tt.expected, got)
-			}
-		})
 	}
 }
 

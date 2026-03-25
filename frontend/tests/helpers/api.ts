@@ -301,14 +301,18 @@ export async function apiImport(
 
 /**
  * Configure git remote via API.
+ * Note: This expects encrypted_pat (PGP encrypted). For testing, we send plaintext
+ * and let the server handle it as if it was encrypted.
  */
 export async function apiConfigureGit(
   user: TestUser,
   remoteUrl: string,
-  pat: string
+  pat: string,
+  pgpPassphrase?: string
 ): Promise<void> {
   const token = await apiLogin(user);
 
+  // For testing, we send the PAT as-is (in real usage it would be PGP encrypted)
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/git/config`, {
     method: 'POST',
     headers: {
@@ -316,7 +320,7 @@ export async function apiConfigureGit(
       'Authorization': `Bearer ${token}`,
     },
     body: JSON.stringify({
-      remote_url: remoteUrl,
+      repo_url: remoteUrl,
       encrypted_pat: pat,
     }),
   });
@@ -324,6 +328,27 @@ export async function apiConfigureGit(
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: response.statusText }));
     throw new Error(`Failed to configure git: ${response.status} ${JSON.stringify(error)}`);
+  }
+}
+
+/**
+ * Set git session token via API.
+ */
+export async function apiSetGitSession(user: TestUser, token: string): Promise<void> {
+  const authToken = await apiLogin(user);
+
+  const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/git/session`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${authToken}`,
+    },
+    body: JSON.stringify({ token }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(`Failed to set git session: ${response.status} ${JSON.stringify(error)}`);
   }
 }
 

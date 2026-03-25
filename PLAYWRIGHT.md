@@ -1,6 +1,6 @@
 # E2E Testing with Playwright
 
-WebPass uses Playwright for end-to-end testing. This guide covers everything you need to know about running and writing E2E tests.
+WebPass uses Playwright for end-to-end (E2E) testing. This guide covers everything you need to know about running, writing, and configuring E2E tests.
 
 ---
 
@@ -13,6 +13,14 @@ WebPass uses Playwright for end-to-end testing. This guide covers everything you
 # Or use npx directly (requires server running)
 cd frontend && npx playwright test
 ```
+
+---
+
+## Prerequisites
+
+- Go 1.26+
+- Node.js 24+
+- Playwright (installed automatically by test script)
 
 ---
 
@@ -29,7 +37,7 @@ The `frontend/playwright-e2e-test.sh` script handles everything:
 2. Builds the frontend
 3. Starts the backend server (in-memory database)
 4. Installs Playwright browsers
-5. Runs all 26 tests
+5. Runs all tests
 6. Cleans up on exit (stops server, removes temp files)
 
 **Options:**
@@ -37,6 +45,7 @@ The `frontend/playwright-e2e-test.sh` script handles everything:
 # Run specific tests
 ./frontend/playwright-e2e-test.sh --grep "import"
 ./frontend/playwright-e2e-test.sh --grep "2FA"
+./frontend/playwright-e2e-test.sh git-sync
 
 # Run with UI (interactive)
 ./frontend/playwright-e2e-test.sh --ui
@@ -46,15 +55,19 @@ The `frontend/playwright-e2e-test.sh` script handles everything:
 
 # Run in debug mode
 ./frontend/playwright-e2e-test.sh --debug
+
+# Run with HTML report
+./frontend/playwright-e2e-test.sh
+npx playwright show-report
 ```
 
 ---
 
 ## Test Suite Overview
 
-**Total: 26 tests** (all must pass)
+### Core Tests: 26 tests (all must pass)
 
-### Authentication (6 tests)
+#### Authentication (6 tests)
 
 | Test | Description |
 |------|-------------|
@@ -65,7 +78,7 @@ The `frontend/playwright-e2e-test.sh` script handles everything:
 | `logout and session cleanup` | Session cleared on logout |
 | `import private key during setup` | Import key from exported account |
 
-### Entry Management (6 tests)
+#### Entry Management (6 tests)
 
 | Test | Description |
 |------|-------------|
@@ -76,13 +89,13 @@ The `frontend/playwright-e2e-test.sh` script handles everything:
 | `search entries` | Filter by name |
 | `multiple entries - list view` | List multiple entries |
 
-### Import (1 test)
+#### Import (1 test)
 
 | Test | Description |
 |------|-------------|
 | `import entries - account migration flow` | **Export → Delete Account → Import to new account** |
 
-### Settings (13 tests)
+#### Settings (13 tests)
 
 | Test | Description |
 |------|-------------|
@@ -99,6 +112,85 @@ The `frontend/playwright-e2e-test.sh` script handles everything:
 | `git sync button visible` | Git sync UI |
 | `clear local data only` | Clear local data (keep server) |
 | `full account deletion` | Delete account completely |
+
+### Git Sync Tests: 8 tests
+
+| Test | Description |
+|------|-------------|
+| `configure git sync with valid URL and PAT` | Configure with real Gitea repo |
+| `configure git sync - cancel closes modal` | Cancel configuration |
+| `configure git sync - validation (empty fields)` | Empty field validation |
+| `error message stays visible on pull error` | Network error handling |
+| `pull with wrong passphrase shows error` | Wrong passphrase error |
+| `git sync button opens configuration modal` | Modal opens correctly |
+| `create entry then push to git` | Push with real entries |
+| `pull entries from git after configure` | Pull and sync entries |
+
+---
+
+## Git Sync Test Configuration
+
+The Git Sync E2E tests require a real Git repository to test push/pull functionality.
+
+### Option 1: Local .env File (Recommended for Development)
+
+Create a `.env` file in the project root (already gitignored):
+
+```bash
+# Copy example and edit
+cp .env.example .env
+nano .env  # or your preferred editor
+```
+
+Add your Git credentials:
+
+```bash
+# E2E Test Configuration
+WEBPASS_REPO_URL="https://gitea.example.com/user/password-store.git"
+WEBPASS_REPO_PAT="your-personal-access-token"
+```
+
+Then run tests normally:
+
+```bash
+./frontend/playwright-e2e-test.sh git-sync
+```
+
+### Option 2: Environment Variables
+
+Set environment variables before running tests:
+
+```bash
+export WEBPASS_REPO_URL="https://gitea.example.com/user/password-store.git"
+export WEBPASS_REPO_PAT="your-personal-access-token"
+./frontend/playwright-e2e-test.sh git-sync
+```
+
+### Option 3: GitHub Secrets (CI/CD)
+
+For GitHub Actions, add these secrets to your repository:
+
+- `WEBPASS_REPO_URL` - Git repository URL
+- `WEBPASS_REPO_PAT` - Personal Access Token
+
+The test script will automatically load them.
+
+### Test Output
+
+The test script will show:
+
+```
+[INFO] Test configuration:
+[INFO]   WEBPASS_REPO_URL: https://gitea.example.com/user/password-store.git
+[INFO]   WEBPASS_REPO_PAT: ***REDACTED***
+```
+
+If credentials are not set, Git Sync tests will be **skipped** with a warning:
+
+```
+[WARN]   WEBPASS_REPO_URL: not set (git-sync tests will be skipped)
+[WARN]   WEBPASS_REPO_PAT: not set (git-sync tests will be skipped)
+```
 
 ---
 
@@ -121,6 +213,7 @@ npx playwright test --grep "login"
 # By file
 npx playwright test tests/e2e/auth.spec.ts
 npx playwright test tests/e2e/import.spec.ts
+npx playwright test tests/e2e/git-sync.spec.ts
 
 # By line number
 npx playwright test tests/e2e/auth.spec.ts:171
@@ -158,7 +251,8 @@ frontend/tests/
 │   ├── auth.spec.ts          # Authentication tests
 │   ├── entries.spec.ts       # Entry management tests
 │   ├── import.spec.ts        # Import tests
-│   └── settings.spec.ts      # Settings tests
+│   ├── settings.spec.ts      # Settings tests
+│   └── git-sync.spec.ts      # Git sync tests
 └── helpers/
     ├── api.ts                # API helpers for setup/teardown
     └── test-data.ts          # Test data generators
@@ -283,6 +377,25 @@ test.describe('My Feature', () => {
 
 ## Troubleshooting
 
+### Tests Fail with "address already in use"
+
+Another process is using port 8080. Kill it:
+
+```bash
+fuser -k 8080/tcp
+# or
+lsof -ti:8080 | xargs kill -9
+```
+
+### Browser Not Found
+
+Install Playwright browsers:
+
+```bash
+cd frontend
+npx playwright install chromium
+```
+
 ### Browser Installation Fails
 
 ```bash
@@ -326,6 +439,13 @@ npx playwright test --repeat-each=5
 npx playwright test --retries=2
 ```
 
+### Git Sync Tests Failing
+
+1. Verify Gitea credentials are correct
+2. Ensure the repository exists and is accessible
+3. Check PAT has correct permissions (read/write repository)
+4. Verify network connectivity to Gitea server
+
 ---
 
 ## CI/CD Integration
@@ -347,6 +467,15 @@ The `integration-test.yml` workflow runs E2E tests on:
 
 ---
 
+## Security Notes
+
+- **Never commit `.env` file** - it's gitignored by default
+- **Use separate test repository** - don't use production data
+- **Rotate PAT regularly** - especially if accidentally exposed
+- **Use GitHub Secrets in CI** - never hardcode credentials in workflow files
+
+---
+
 ## Test Coverage
 
 ### Current Coverage
@@ -358,10 +487,11 @@ The `integration-test.yml` workflow runs E2E tests on:
 - ✅ Settings management
 - ✅ Account deletion
 - ✅ Git sync UI
+- ✅ Git sync push/pull with real entries
 
 ### Future Tests
 
-- [ ] Git sync push/pull (requires Git server)
+- [ ] Git sync conflict scenarios (requires manipulating remote repo directly)
 - [ ] Batch entry operations
 - [ ] Offline mode
 - [ ] Cross-browser testing (Firefox, Safari)
@@ -377,5 +507,5 @@ The `integration-test.yml` workflow runs E2E tests on:
 
 ---
 
-**Last Updated**: 2026-03-18
-**Test Count**: 26 tests (all passing)
+**Last Updated**: 2026-03-24  
+**Test Count**: 34 tests total (26 core + 8 git-sync, all passing)

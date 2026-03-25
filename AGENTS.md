@@ -15,7 +15,7 @@ WebPass is a zero-knowledge password manager with:
 ├── cmd/srv/main.go      # Binary entrypoint
 ├── srv/
 │   ├── server.go        # HTTP handlers + auth middleware
-│   └── git.go           # Git sync service (push, pull, conflict detection)
+│   └── git.go           # Git sync service (push, pull, reset)
 ├── db/
 │   ├── db.go           # SQLite connection + migrations
 │   ├── migrations/     # SQL migration files
@@ -110,7 +110,7 @@ Manual push/pull sync to any Git repository (GitHub, GitLab, Gitea):
 - **PGP-encrypted PAT**: PAT → PGP encrypt → stored in `git_config.encrypted_pat`
 - **Manual sync only**: User clicks Push/Pull buttons in Settings
 - **Zero-knowledge**: Server stores encrypted blob, can't decrypt
-- **Conflict detection**: Shows UI dialog if local and remote both modified
+- **Simplified conflict handling**: Git errors guide users ("pull first" / "push first")
 
 See [GITSYNC.md](GITSYNC.md) for full documentation.
 
