@@ -73,11 +73,13 @@ jobs:
       - name: Install Playwright browsers
         run: cd frontend && npx playwright install --with-deps chromium
 
-      - name: Run Playwright E2E tests
+      - name: Run Playwright E2E tests (core + git-sync)
         run: cd frontend && npx playwright test
         env:
           TEST_BASE_URL: http://localhost:8080
           TEST_SKIP_WEBSERVER: "true"
+          WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
+          WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
 
       - name: Upload test results (HTML report)
         if: always()

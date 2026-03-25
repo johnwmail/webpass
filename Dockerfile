@@ -61,6 +61,9 @@ COPY . .
 # Copy built frontend from stage 1
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
+# Create empty data directory structure (will be populated at runtime)
+RUN mkdir -p /app/data/db /app/data/git-repos
+
 # Build binary (CGO disabled - using pure-Go SQLite)
 RUN CGO_ENABLED=0 GOOS=linux go build -o webpass-server \
     -ldflags="-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME} -X main.Commit=${COMMIT}" \
@@ -70,33 +73,23 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o webpass-server \
 # ============================================
 # Stage 3: Runtime Image
 # ============================================
-FROM alpine:3.21
+# Distroless static - minimal secure image with only ca-certificates included
+# Runs as nonroot user (UID 8080) by default. No shell available.
+FROM gcr.io/distroless/static:nonroot
 
+USER 0
 WORKDIR /app
 
-# Install runtime dependencies
-# - ca-certificates: HTTPS/TLS support
-# - git: Git Sync feature
-# - wget: healthcheck
-RUN apk add --no-cache ca-certificates git wget
-
-# Create non-root user and group with specific UID/GID
-RUN addgroup -g 8080 appgroup && \
-    adduser -D -u 8080 -G appgroup appuser
-
-# Copy binary from builder (owned by root)
+# Copy binary from builder (owned by root, will be run by UID 8080)
 COPY --from=backend-builder /app/webpass-server .
 
-# Copy frontend assets (owned by root)
+# Copy frontend assets
 COPY --from=backend-builder /app/frontend/dist ./frontend/dist
 
-# Create data directory for SQLite and git repos with proper ownership
-RUN mkdir -p /data/db /data/git-repos && \
-    chown -R 8080:8080 /data && \
-    chmod 700 /data
-
-# Drop privileges and set read-only filesystem
-USER 8080:8080
+# Create data directory with proper ownership using COPY --chown
+# Distroless nonroot user is UID 8080 (standard nobody user)
+# We create an empty directory in builder and copy with --chown
+COPY --chown=8080:8080 --from=backend-builder /app/data/ /data/
 
 # Default environment variables
 ENV PORT=8080
@@ -104,7 +97,9 @@ ENV DB_PATH=/data/db/db.sqlite3
 ENV STATIC_DIR=/app/frontend/dist
 ENV GIT_REPO_ROOT=/data/git-repos
 
+USER 8080:8080
 EXPOSE 8080
 
 # Run with read-only root filesystem (only /data is writable)
+# Distroless static:nonroot already runs as UID 8080 (nonroot)
 CMD ["./webpass-server"]

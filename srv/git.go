@@ -7,12 +7,16 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"srv.exe.dev/db/dbgen"
 )
 
@@ -31,7 +35,7 @@ type SessionToken struct {
 	ExpiresAt time.Time
 }
 
-// SyncStatus represents the current sync state
+// SyncStatus represents the current sync status
 type SyncStatus struct {
 	Configured      bool   `json:"configured"`
 	RepoURL         string `json:"repo_url,omitempty"`
@@ -40,22 +44,12 @@ type SyncStatus struct {
 	FailedCount     int64  `json:"failed_count"`
 }
 
-// Conflict represents a file that has conflicting changes
-type Conflict struct {
-	Path           string `json:"path"`
-	LocalModified  bool   `json:"local_modified"`
-	RemoteModified bool   `json:"remote_modified"`
-	LocalTime      string `json:"local_time,omitempty"`  // RFC3339 format
-	RemoteTime     string `json:"remote_time,omitempty"` // RFC3339 format
-}
-
 // PullResult represents the result of a pull operation
 type PullResult struct {
-	Status         string     `json:"status"`
-	Operation      string     `json:"operation"`
-	EntriesChanged int        `json:"entries_changed"`
-	Message        string     `json:"message"`
-	Conflicts      []Conflict `json:"conflicts,omitempty"`
+	Status         string `json:"status"`
+	Operation      string `json:"operation"`
+	EntriesChanged int    `json:"entries_changed"`
+	Message        string `json:"message"`
 }
 
 // NewGitService creates a new GitService
@@ -148,20 +142,19 @@ func (g *GitService) initRepo(fingerprint, repoURL, token string) error {
 		return fmt.Errorf("create dir: %w", err)
 	}
 
-	// Clone repo with credentials
-	cloneURL := g.authURL(repoURL, token)
-	if err := g.runGitCommand(repoDir, "clone", cloneURL, "."); err != nil {
-		// If clone fails, initialize new repo
-		slog.Info("clone failed, initializing new repo", "dir", repoDir)
-		if err := g.runGitCommand(repoDir, "init"); err != nil {
-			return fmt.Errorf("init: %w", err)
-		}
-		if err := g.runGitCommand(repoDir, "checkout", "-b", "main"); err != nil {
-			return fmt.Errorf("create main branch: %w", err)
-		}
-		if err := g.runGitCommand(repoDir, "remote", "add", "origin", repoURL); err != nil {
-			return fmt.Errorf("add remote: %w", err)
-		}
+	// Clone with authentication
+	auth := &http.BasicAuth{
+		Username: "token", // Username can be anything for PAT
+		Password: token,
+	}
+
+	_, err := git.PlainClone(repoDir, false, &git.CloneOptions{
+		URL:      repoURL,
+		Auth:     auth,
+		Progress: nil,
+	})
+	if err != nil {
+		return fmt.Errorf("clone: %w", err)
 	}
 
 	return nil
@@ -188,32 +181,45 @@ func (g *GitService) Push(ctx context.Context, fingerprint string, token string)
 	}
 
 	// Export database entries to .password-store directory
+	entries, err := g.q.ListEntriesContent(ctx, fingerprint)
+	if err != nil {
+		return nil, fmt.Errorf("list entries: %w", err)
+	}
+
 	if err := g.exportPasswordStore(ctx, fingerprint); err != nil {
 		return nil, fmt.Errorf("export password store: %w", err)
 	}
 
-	// Set credentials for push
-	pushURL := g.authURL(config.RepoUrl, token)
-	if err := g.runGitCommand(repoDir, "remote", "set-url", "origin", pushURL); err != nil {
-		return nil, fmt.Errorf("set remote url: %w", err)
+	slog.Info("PUSH: exporting entries to git repo",
+		"fingerprint", fingerprint,
+		"entries", len(entries))
+
+	// Open repo
+	repo, err := git.PlainOpen(repoDir)
+	if err != nil {
+		return nil, fmt.Errorf("open repo: %w", err)
 	}
 
-	// Check if there are any changes to commit
-	if err := g.runGitCommand(repoDir, "add", "-A", "."); err != nil {
+	// Stage all changes
+	w, err := repo.Worktree()
+	if err != nil {
+		return nil, fmt.Errorf("get worktree: %w", err)
+	}
+
+	err = w.AddWithOptions(&git.AddOptions{All: true})
+	if err != nil {
 		return nil, fmt.Errorf("git add: %w", err)
 	}
 
-	// Check for changes
-	statusCmd := exec.Command("git", "status", "--porcelain")
-	statusCmd.Dir = repoDir
-	output, err := statusCmd.Output()
+	// Check if there are any changes to commit
+	status, err := w.Status()
 	if err != nil {
 		return nil, fmt.Errorf("git status: %w", err)
 	}
 
 	// If no changes, skip commit
-	if len(output) == 0 {
-		slog.Info("git push: no changes to push", "fingerprint", fingerprint)
+	if status.IsClean() {
+		slog.Info("PUSH: no changes to push", "fingerprint", fingerprint)
 		return &PullResult{
 			Status:    "success",
 			Operation: "push",
@@ -223,18 +229,33 @@ func (g *GitService) Push(ctx context.Context, fingerprint string, token string)
 
 	// Commit changes
 	commitMsg := fmt.Sprintf("Sync: %s", time.Now().Format(time.RFC3339))
-	if err := g.runGitCommand(repoDir, "config", "user.email", "webpass@local"); err != nil {
-		return nil, fmt.Errorf("git config email: %w", err)
-	}
-	if err := g.runGitCommand(repoDir, "config", "user.name", "WebPass"); err != nil {
-		return nil, fmt.Errorf("git config name: %w", err)
-	}
-	if err := g.runGitCommand(repoDir, "commit", "-m", commitMsg); err != nil {
+	hash, err := w.Commit(commitMsg, &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  "WebPass",
+			Email: "webpass@local",
+			When:  time.Now(),
+		},
+	})
+	if err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
+	slog.Info("PUSH: committed changes", "fingerprint", fingerprint, "hash", hash.String())
 
-	// Push
-	if err := g.runGitCommand(repoDir, "push", "origin", "main"); err != nil {
+	// Push with authentication
+	auth := &http.BasicAuth{Username: "token", Password: token}
+	err = repo.Push(&git.PushOptions{
+		RemoteName: "origin",
+		Auth:       auth,
+		RefSpecs:   []gitconfig.RefSpec{gitconfig.RefSpec("+refs/heads/main:refs/heads/main")},
+	})
+
+	if err != nil {
+		if err == git.ErrNonFastForwardUpdate {
+			// Remote has newer commits - user must pull first
+			slog.Warn("PUSH: REJECTED - remote has changes, user must pull first",
+				"fingerprint", fingerprint)
+			return nil, errors.New("remote has changes, please pull first")
+		}
 		// Log failure
 		errMsg := err.Error()
 		_ = g.q.LogGitSync(ctx, dbgen.LogGitSyncParams{
@@ -247,27 +268,30 @@ func (g *GitService) Push(ctx context.Context, fingerprint string, token string)
 	}
 
 	// Log success
-	var entriesChanged int64 = 1
+	entriesChangedInt64 := int64(len(entries))
+	slog.Info("PUSH: successfully pushed to remote",
+		"fingerprint", fingerprint,
+		"entries", len(entries))
 	if err := g.q.LogGitSync(ctx, dbgen.LogGitSyncParams{
 		Fingerprint:    fingerprint,
 		Operation:      "push",
 		Status:         "success",
 		Message:        &commitMsg,
-		EntriesChanged: &entriesChanged,
+		EntriesChanged: &entriesChangedInt64,
 	}); err != nil {
 		slog.Warn("log git sync failed", "error", err)
 	}
 
-	slog.Info("git push successful", "fingerprint", fingerprint)
 	return &PullResult{
-		Status:    "success",
-		Operation: "push",
-		Message:   "pushed to remote",
+		Status:         "success",
+		Operation:      "push",
+		EntriesChanged: len(entries),
+		Message:        fmt.Sprintf("pushed %d entries to remote", len(entries)),
 	}, nil
 }
 
 // Pull pulls changes from remote and merges
-func (g *GitService) Pull(ctx context.Context, fingerprint string, token string, forceTheirs bool) (*PullResult, error) {
+func (g *GitService) Pull(ctx context.Context, fingerprint string, token string) (*PullResult, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
@@ -286,66 +310,162 @@ func (g *GitService) Pull(ctx context.Context, fingerprint string, token string,
 		return nil, fmt.Errorf("init repo: %w", err)
 	}
 
-	// Set credentials for pull
-	fetchURL := g.authURL(config.RepoUrl, token)
-	if err := g.runGitCommand(repoDir, "remote", "set-url", "origin", fetchURL); err != nil {
-		return nil, fmt.Errorf("set remote url: %w", err)
+	// Open repo
+	repo, err := git.PlainOpen(repoDir)
+	if err != nil {
+		return nil, fmt.Errorf("open repo: %w", err)
 	}
 
-	// Fetch first to get latest remote state
-	if err := g.runGitCommand(repoDir, "fetch", "origin"); err != nil {
+	// Pull with authentication
+	auth := &http.BasicAuth{Username: "token", Password: token}
+
+	// First, fetch to check remote state
+	err = repo.Fetch(&git.FetchOptions{
+		RemoteName: "origin",
+		Auth:       auth,
+	})
+
+	if err != nil && err != git.NoErrAlreadyUpToDate {
 		return nil, fmt.Errorf("git fetch: %w", err)
 	}
 
-	// Check for conflicts BEFORE pulling (compare DB vs remote)
-	conflicts, err := g.detectConflicts(ctx, fingerprint, repoDir)
+	// Check if we can fast-forward by comparing local and remote refs
+	head, err := repo.Head()
 	if err != nil {
-		slog.Warn("conflict detection failed", "error", err)
-		// Continue with pull anyway
+		return nil, fmt.Errorf("get HEAD: %w", err)
 	}
 
-	if len(conflicts) > 0 && !forceTheirs {
-		// Return conflicts without pulling (unless forceTheirs is true)
+	remoteRef, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", "main"), true)
+	if err != nil {
+		return nil, fmt.Errorf("get remote ref: %w", err)
+	}
+
+	// If local HEAD equals remote, already up to date
+	// But we still need to sync database from local git repo
+	if head.Hash() == remoteRef.Hash() {
+		slog.Info("PULL: already up to date, syncing database",
+			"fingerprint", fingerprint)
+
+		// Sync database from local git repo
+		entriesChanged, err := g.syncDatabase(ctx, fingerprint)
+		if err != nil {
+			slog.Error("PULL: sync database failed", "fingerprint", fingerprint, "error", err)
+			return nil, fmt.Errorf("sync database: %w", err)
+		}
+		slog.Info("PULL: database synced", "fingerprint", fingerprint, "entries", entriesChanged)
+
+		// Log success
+		entriesChangedInt64 := int64(entriesChanged)
+		successMsg := fmt.Sprintf("already up to date (%d entries in sync)", entriesChanged)
+		_ = g.q.LogGitSync(ctx, dbgen.LogGitSyncParams{
+			Fingerprint:    fingerprint,
+			Operation:      "pull",
+			Status:         "success",
+			Message:        &successMsg,
+			EntriesChanged: &entriesChangedInt64,
+		})
+
 		return &PullResult{
-			Status:    "conflict",
-			Operation: "pull",
-			Conflicts: conflicts,
-			Message:   fmt.Sprintf("%d conflicts detected", len(conflicts)),
+			Status:         "success",
+			Operation:      "pull",
+			EntriesChanged: entriesChanged,
+			Message:        successMsg,
 		}, nil
 	}
 
-	// Pull with fast-forward only, or force theirs if conflicts
-	var pullErr error
-	if forceTheirs {
-		slog.Info("pulling with --strategy-option=theirs to resolve conflicts")
-		pullErr = g.runGitCommand(repoDir, "pull", "--strategy-option=theirs", "origin", "main")
-	} else {
-		pullErr = g.runGitCommand(repoDir, "pull", "--ff-only", "origin", "main")
-	}
-	if pullErr != nil {
-		// Try with merge strategy if ff-only fails
-		if !forceTheirs {
-			if err := g.runGitCommand(repoDir, "pull", "--strategy-option=ours", "origin", "main"); err != nil {
-				// Log failure
-				errMsg := err.Error()
-				_ = g.q.LogGitSync(ctx, dbgen.LogGitSyncParams{
-					Fingerprint: fingerprint,
-					Operation:   "pull",
-					Status:      "failed",
-					Message:     &errMsg,
-				})
-				return nil, fmt.Errorf("git pull: %w", err)
+	slog.Info("PULL: checking fast-forward",
+		"fingerprint", fingerprint,
+		"local_head", head.Hash().String(),
+		"remote_head", remoteRef.Hash().String())
+
+	// Check if local HEAD is an ancestor of remote (can fast-forward)
+	// Walk commit history from remote to see if we find local HEAD
+	isAncestor := false
+	commitIter, err := repo.Log(&git.LogOptions{From: remoteRef.Hash()})
+	if err == nil {
+		defer commitIter.Close()
+		_ = commitIter.ForEach(func(c *object.Commit) error {
+			if c.Hash == head.Hash() {
+				isAncestor = true
+				return errors.New("found") // Stop iteration
 			}
-		} else {
-			return nil, fmt.Errorf("git pull: %w", pullErr)
-		}
+			return nil
+		})
 	}
 
-	// After pull, sync database with repo state
+	slog.Info("PULL: fast-forward check",
+		"fingerprint", fingerprint,
+		"isAncestor", isAncestor)
+
+	if !isAncestor {
+		// Local has commits that aren't in remote - can't fast-forward
+		slog.Warn("PULL: REJECTING - local has unpushed changes",
+			"fingerprint", fingerprint,
+			"local_head", head.Hash().String(),
+			"remote_head", remoteRef.Hash().String())
+		return nil, errors.New("local has unpushed changes, please push first")
+	}
+
+	slog.Info("PULL: fast-forward OK, proceeding", "fingerprint", fingerprint)
+
+	// Fast-forward is possible - do the pull
+	w, err := repo.Worktree()
+	if err != nil {
+		return nil, fmt.Errorf("get worktree: %w", err)
+	}
+
+	err = w.Pull(&git.PullOptions{
+		RemoteName: "origin",
+		Auth:       auth,
+	})
+
+	if err != nil {
+		if err == git.NoErrAlreadyUpToDate {
+			// Already up to date - still sync DB
+			slog.Info("PULL: already up to date, syncing database", "fingerprint", fingerprint)
+
+			// Sync database from local git repo
+			entriesChanged, err := g.syncDatabase(ctx, fingerprint)
+			if err != nil {
+				return nil, fmt.Errorf("sync database: %w", err)
+			}
+
+			slog.Info("PULL: database synced",
+				"fingerprint", fingerprint,
+				"entries", entriesChanged)
+
+			// Log success
+			entriesChangedInt64 := int64(entriesChanged)
+			successMsg := fmt.Sprintf("already up to date (%d entries in sync)", entriesChanged)
+			_ = g.q.LogGitSync(ctx, dbgen.LogGitSyncParams{
+				Fingerprint:    fingerprint,
+				Operation:      "pull",
+				Status:         "success",
+				Message:        &successMsg,
+				EntriesChanged: &entriesChangedInt64,
+			})
+
+			return &PullResult{
+				Status:         "success",
+				Operation:      "pull",
+				EntriesChanged: entriesChanged,
+				Message:        successMsg,
+			}, nil
+		}
+
+		// Other error
+		return nil, fmt.Errorf("PULL: %w", err)
+	}
+
+	// Sync database with updated worktree
 	entriesChanged, err := g.syncDatabase(ctx, fingerprint)
 	if err != nil {
 		return nil, fmt.Errorf("sync database: %w", err)
 	}
+
+	slog.Info("PULL: successfully pulled from remote",
+		"fingerprint", fingerprint,
+		"entries", entriesChanged)
 
 	// Log success
 	entriesChangedInt64 := int64(entriesChanged)
@@ -360,7 +480,6 @@ func (g *GitService) Pull(ctx context.Context, fingerprint string, token string,
 		slog.Warn("log git sync failed", "error", err)
 	}
 
-	slog.Info("git pull successful", "fingerprint", fingerprint, "entries", entriesChanged)
 	return &PullResult{
 		Status:         "success",
 		Operation:      "pull",
@@ -369,87 +488,50 @@ func (g *GitService) Pull(ctx context.Context, fingerprint string, token string,
 	}, nil
 }
 
-// detectConflicts checks for files that exist both locally (in DB) and remotely with different content
-func (g *GitService) detectConflicts(ctx context.Context, fingerprint, repoDir string) ([]Conflict, error) {
-	var conflicts []Conflict
+// Reset discards local repo and re-clones from remote
+func (g *GitService) Reset(ctx context.Context, fingerprint string, token string) (*PullResult, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 
-	// Get entries from database
-	dbEntries, err := g.q.ListEntriesContent(ctx, fingerprint)
+	config, err := g.q.GetGitConfig(ctx, fingerprint)
 	if err != nil {
-		return nil, fmt.Errorf("list db entries: %w", err)
+		return nil, fmt.Errorf("get config: %w", err)
+	}
+	if token == "" {
+		return nil, errors.New("git token required")
 	}
 
-	// Get list of tracked files in remote repo
-	cmd := exec.Command("git", "ls-tree", "-r", "--name-only", "origin/main", "--", ".password-store")
-	cmd.Dir = repoDir
-	remoteOutput, err := cmd.Output()
+	repoDir := g.repoDir(fingerprint)
+
+	// Delete local repo directory
+	if err := os.RemoveAll(repoDir); err != nil {
+		return nil, fmt.Errorf("remove local repo: %w", err)
+	}
+	slog.Info("deleted local repo", "dir", repoDir)
+
+	// Re-clone from remote
+	auth := &http.BasicAuth{Username: "token", Password: token}
+	_, err = git.PlainClone(repoDir, false, &git.CloneOptions{
+		URL:  config.RepoUrl,
+		Auth: auth,
+	})
 	if err != nil {
-		// Remote might not have any files yet
-		slog.Info("no remote files to compare")
-		return conflicts, nil
+		return nil, fmt.Errorf("clone from remote: %w", err)
+	}
+	slog.Info("cloned from remote", "fingerprint", fingerprint)
+
+	// Sync database with cloned state
+	entriesChanged, err := g.syncDatabase(ctx, fingerprint)
+	if err != nil {
+		return nil, fmt.Errorf("sync database: %w", err)
 	}
 
-	remoteFiles := strings.Split(strings.TrimSpace(string(remoteOutput)), "\n")
-	remoteFileSet := make(map[string]bool)
-	for _, file := range remoteFiles {
-		if file == "" {
-			continue
-		}
-		// Remove .password-store/ prefix and .gpg suffix
-		path := strings.TrimPrefix(file, ".password-store/")
-		path = strings.TrimSuffix(path, ".gpg")
-		remoteFileSet[path] = true
-	}
-
-	// Check each DB entry against remote
-	for _, entry := range dbEntries {
-		if !remoteFileSet[entry.Path] {
-			continue // Entry not in remote, no conflict
-		}
-
-		// Entry exists in both DB and remote - check if content differs
-		remotePath := ".password-store/" + entry.Path + ".gpg"
-
-		// Get remote file content hash
-		hashCmd := exec.Command("git", "show", "origin/main:"+remotePath)
-		hashCmd.Dir = repoDir
-		remoteContent, err := hashCmd.Output()
-		if err != nil {
-			continue
-		}
-
-		// Compare hashes
-		if string(remoteContent) != string(entry.Content) {
-			// Content differs - this is a conflict
-			conflict := Conflict{
-				Path:           entry.Path,
-				LocalModified:  true,
-				RemoteModified: true,
-			}
-
-			// Get local commit time (if committed)
-			localFile := ".password-store/" + entry.Path + ".gpg"
-			localTimeCmd := exec.Command("git", "log", "-1", "--format=%cI", "--", localFile)
-			localTimeCmd.Dir = repoDir
-			localTimeOutput, err := localTimeCmd.Output()
-			if err == nil {
-				conflict.LocalTime = strings.TrimSpace(string(localTimeOutput))
-			}
-
-			// Get remote commit time
-			remoteTimeCmd := exec.Command("git", "log", "-1", "--format=%cI", "--", remotePath)
-			remoteTimeCmd.Dir = repoDir
-			remoteTimeOutput, err := remoteTimeCmd.Output()
-			if err == nil {
-				conflict.RemoteTime = strings.TrimSpace(string(remoteTimeOutput))
-			}
-
-			conflicts = append(conflicts, conflict)
-			slog.Info("conflict detected", "path", entry.Path)
-		}
-	}
-
-	return conflicts, nil
+	return &PullResult{
+		Status:         "success",
+		Operation:      "reset",
+		EntriesChanged: entriesChanged,
+		Message:        fmt.Sprintf("reset and synced %d entries from remote", entriesChanged),
+	}, nil
 }
 
 // syncDatabase updates the database from the git repo after a pull
@@ -548,20 +630,4 @@ func (g *GitService) exportPasswordStore(ctx context.Context, fingerprint string
 
 func (g *GitService) repoDir(fingerprint string) string {
 	return filepath.Join(g.repoRoot, fingerprint)
-}
-
-func (g *GitService) authURL(repoURL, token string) string {
-	// Convert https://github.com/user/repo.git to https://token@github.com/user/repo.git
-	if strings.HasPrefix(repoURL, "https://") {
-		return strings.Replace(repoURL, "https://", "https://"+token+"@", 1)
-	}
-	return repoURL
-}
-
-func (g *GitService) runGitCommand(dir string, args ...string) error {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	return cmd.Run()
 }

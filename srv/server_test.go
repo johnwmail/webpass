@@ -28,7 +28,7 @@ func newTestServer(t *testing.T) *Server {
 	t.Setenv("GIT_REPO_ROOT", gitRepoRoot)
 
 	key := []byte("test-secret-key-32-bytes-long!!!") // exactly 32 bytes
-	srv, err := New(dbPath, key, 5) // 5 minutes for tests
+	srv, err := New(dbPath, key, 5)                   // 5 minutes for tests
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}

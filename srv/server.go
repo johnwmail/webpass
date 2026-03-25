@@ -709,10 +709,12 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
 	entries, err := s.Q.ListEntriesContent(r.Context(), fp)
 	if err != nil {
-		slog.Error("export entries", "error", err)
+		slog.Error("EXPORT: failed", "fingerprint", fp, "error", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+
+	slog.Info("EXPORT: exporting entries", "fingerprint", fp, "entries", len(entries))
 
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Disposition", "attachment; filename=\"password-store.tar.gz\"")
@@ -732,14 +734,16 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 			hdr.ModTime = *e.Updated
 		}
 		if err := tw.WriteHeader(hdr); err != nil {
-			slog.Error("tar write header", "error", err)
+			slog.Error("EXPORT: tar write header failed", "fingerprint", fp, "error", err)
 			return
 		}
 		if _, err := tw.Write(e.Content); err != nil {
-			slog.Error("tar write content", "error", err)
+			slog.Error("EXPORT: tar write content failed", "fingerprint", fp, "error", err)
 			return
 		}
 	}
+
+	slog.Info("EXPORT: completed", "fingerprint", fp, "entries", len(entries))
 }
 
 // ---------------------------------------------------------------------------
@@ -771,10 +775,12 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request, fp str
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&entries); err != nil {
-		slog.Error("import JSON decode", "error", err)
+		slog.Error("IMPORT JSON: decode failed", "fingerprint", fp, "error", err)
 		jsonError(w, "invalid json: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	slog.Info("IMPORT JSON: importing entries", "fingerprint", fp, "total", len(entries))
 
 	var count int
 	var overwritten int
@@ -793,7 +799,7 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request, fp str
 		// Convert content to bytes (support multiple formats)
 		content, err := parseImportContent(e.Content)
 		if err != nil {
-			slog.Error("import content parse", "error", err, "path", e.Path)
+			slog.Error("IMPORT JSON: content parse failed", "fingerprint", fp, "path", e.Path, "error", err)
 			errors = append(errors, map[string]interface{}{
 				"path":  e.Path,
 				"error": "Invalid content format: " + err.Error(),
@@ -806,7 +812,7 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request, fp str
 			Path:        e.Path,
 			Content:     content,
 		}); err != nil {
-			slog.Error("import upsert", "error", err, "path", e.Path)
+			slog.Error("IMPORT JSON: upsert failed", "fingerprint", fp, "path", e.Path, "error", err)
 			errors = append(errors, map[string]interface{}{
 				"path":  e.Path,
 				"error": err.Error(),
@@ -815,6 +821,8 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request, fp str
 			count++
 		}
 	}
+
+	slog.Info("IMPORT JSON: completed", "fingerprint", fp, "imported", count, "overwritten", overwritten, "errors", len(errors))
 
 	// Return partial success (always 200, even with errors)
 	jsonOK(w, map[string]interface{}{
@@ -865,11 +873,13 @@ func parseImportContent(content any) ([]byte, error) {
 func (s *Server) handleImportTarGz(w http.ResponseWriter, r *http.Request, fp string) {
 	gr, err := gzip.NewReader(r.Body)
 	if err != nil {
-		slog.Error("import gzip decode", "error", err)
+		slog.Error("IMPORT TAR.GZ: gzip decode failed", "fingerprint", fp, "error", err)
 		jsonError(w, "invalid gzip: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	defer func() { _ = gr.Close() }()
+
+	slog.Info("IMPORT TAR.GZ: importing", "fingerprint", fp)
 
 	tr := tar.NewReader(gr)
 	var count int
@@ -879,6 +889,7 @@ func (s *Server) handleImportTarGz(w http.ResponseWriter, r *http.Request, fp st
 			break
 		}
 		if err != nil {
+			slog.Error("IMPORT TAR.GZ: tar read failed", "fingerprint", fp, "error", err)
 			jsonError(w, "invalid tar", http.StatusBadRequest)
 			return
 		}
@@ -897,6 +908,7 @@ func (s *Server) handleImportTarGz(w http.ResponseWriter, r *http.Request, fp st
 
 		content, err := io.ReadAll(io.LimitReader(tr, 1<<20))
 		if err != nil {
+			slog.Error("IMPORT TAR.GZ: read entry failed", "fingerprint", fp, "path", path, "error", err)
 			jsonError(w, "read entry failed", http.StatusBadRequest)
 			return
 		}
@@ -906,13 +918,14 @@ func (s *Server) handleImportTarGz(w http.ResponseWriter, r *http.Request, fp st
 			Path:        path,
 			Content:     content,
 		}); err != nil {
-			slog.Error("import upsert", "error", err, "path", path)
+			slog.Error("IMPORT TAR.GZ: upsert failed", "fingerprint", fp, "path", path, "error", err)
 			jsonError(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		count++
 	}
 
+	slog.Info("IMPORT TAR.GZ: completed", "fingerprint", fp, "imported", count)
 	jsonOK(w, map[string]int{"imported": count})
 }
 
@@ -981,11 +994,12 @@ func (s *Server) handleGitConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.GitService.Configure(r.Context(), fp, body.RepoURL, body.EncryptedPAT); err != nil {
-		slog.Error("configure git", "error", err)
+		slog.Error("GIT CONFIG: failed", "fingerprint", fp, "error", err)
 		jsonError(w, "config failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	slog.Info("GIT CONFIG: successfully configured", "fingerprint", fp, "repo", body.RepoURL)
 	jsonOK(w, map[string]string{"status": "configured"})
 }
 
@@ -1045,8 +1059,7 @@ func (s *Server) handleGitPull(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
 
 	var body struct {
-		Token       string `json:"token"`
-		ForceTheirs bool   `json:"force_theirs"`
+		Token string `json:"token"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
@@ -1061,7 +1074,7 @@ func (s *Server) handleGitPull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.GitService.Pull(r.Context(), fp, token, body.ForceTheirs)
+	result, err := s.GitService.Pull(r.Context(), fp, token)
 	if err != nil {
 		slog.Error("git pull", "error", err)
 		jsonError(w, "pull failed: "+err.Error(), http.StatusInternalServerError)

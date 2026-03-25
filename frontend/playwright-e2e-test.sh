@@ -108,8 +108,18 @@ npm run build
 # Return to root directory
 cd "$ROOT_DIR"
 
-# Generate random JWT secret (32 bytes = 64 hex chars)
-JWT_SECRET=$(openssl rand -hex 32)
+# Load environment variables from .env file if it exists
+if [ -f "$ROOT_DIR/.env" ]; then
+    log_info "Loading environment variables from .env..."
+    set -a
+    source "$ROOT_DIR/.env"
+    set +a
+fi
+
+# Generate random JWT secret if not set (32 bytes = 64 hex chars)
+if [ -z "$JWT_SECRET" ]; then
+    JWT_SECRET=$(openssl rand -hex 32)
+fi
 
 # Set environment variables
 export JWT_SECRET
@@ -159,6 +169,19 @@ cd "$FRONTEND_DIR"
 # Set test environment variables
 export TEST_BASE_URL=http://localhost:8080
 export TEST_SKIP_WEBSERVER=true
+
+# Log test configuration
+log_info "Test configuration:"
+if [ -n "$WEBPASS_REPO_URL" ]; then
+    log_info "  WEBPASS_REPO_URL: $WEBPASS_REPO_URL"
+else
+    log_warn "  WEBPASS_REPO_URL: not set (git-sync tests will be skipped)"
+fi
+if [ -n "$WEBPASS_REPO_PAT" ]; then
+    log_info "  WEBPASS_REPO_PAT: ***REDACTED***"
+else
+    log_warn "  WEBPASS_REPO_PAT: not set (git-sync tests will be skipped)"
+fi
 
 # Run tests with any additional arguments passed to the script
 if [ $# -gt 0 ]; then

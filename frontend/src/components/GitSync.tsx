@@ -20,20 +20,11 @@ interface GitLogEntry {
   created_at: string;
 }
 
-interface Conflict {
-  path: string;
-  local_modified: boolean;
-  remote_modified: boolean;
-  local_time?: string;    // RFC3339 timestamp
-  remote_time?: string;   // RFC3339 timestamp
-}
-
 interface PullResult {
   status: string;
   operation: string;
   entries_changed?: number;
   message: string;
-  conflicts?: Conflict[];
 }
 
 interface Props {
@@ -48,8 +39,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showLogs, setShowLogs] = useState(false);
-  const [showConflictDialog, setShowConflictDialog] = useState(false);
-  const [conflicts, setConflicts] = useState<Conflict[]>([]);
+  const [, forceUpdate] = useState(0);
 
   // Config form
   const [repoUrl, setRepoUrl] = useState('');
@@ -78,7 +68,8 @@ export function GitSync({ onClose, onSuccess }: Props) {
     if (!session.api) return;
     try {
       const s = await session.api.getGitStatus();
-      setStatus(s);
+      // Create a new object to ensure Preact detects the change
+      setStatus({...s});
       if (s.configured && s.repo_url) {
         setRepoUrl(s.repo_url);
       }
@@ -142,12 +133,28 @@ export function GitSync({ onClose, onSuccess }: Props) {
       // Configure server
       await session.api.configureGit(repoUrl, encryptedPat);
 
+      // Directly update status to show configured state
+      setStatus({
+        configured: true,
+        repo_url: repoUrl,
+        has_encrypted_pat: true,
+        success_count: 0,
+        failed_count: 0
+      });
+      setEncryptedPat(encryptedPat);
+
       setSuccess('Git sync configured successfully');
       setTimeout(() => setSuccess(''), 3000);
       setPat(''); // Clear PAT after config
-      loadStatus();
-      onSuccess?.();
+
+      // Force a re-render
+      forceUpdate(n => n + 1);
+
+      // Don't call onSuccess() after config - we want to keep the modal open
+      // to show the status view. onSuccess is only for push/pull operations.
+      // onSuccess?.();
     } catch (e: any) {
+      console.error('[GitSync] configureGit error:', e);
       setError(e.message || 'Configuration failed');
     }
     setConfiguring(false);
@@ -215,7 +222,6 @@ export function GitSync({ onClose, onSuccess }: Props) {
   const handlePull = async () => {
     setLoading(true);
     setError('');
-    setConflicts([]);
 
     try {
       if (!session.api) throw new Error('Not logged in');
@@ -260,84 +266,15 @@ export function GitSync({ onClose, onSuccess }: Props) {
 
       // Pull
       const result: PullResult = await session.api.gitPull(patToUse);
-
-      if (result.status === 'conflict' && result.conflicts) {
-        setConflicts(result.conflicts);
-        setShowConflictDialog(true);
-        setError('');
-      } else {
-        setSuccess(result.message || 'Pulled from remote');
-        setTimeout(() => setSuccess(''), 3000);
-        loadStatus();
-        onSuccess?.();
-      }
+      setSuccess(result.message || 'Pulled from remote');
+      setTimeout(() => setSuccess(''), 3000);
+      loadStatus();
+      onSuccess?.();
     } catch (e: any) {
       setError(e.message || 'Pull failed');
     }
     setLoading(false);
     setShowPassphrasePrompt(false);
-  };
-
-  const handleResolveConflicts = async (resolution: 'local' | 'remote' | 'skip') => {
-    setShowConflictDialog(false);
-    setConflicts([]);
-
-    if (resolution === 'remote') {
-      // Force pull with --strategy-option=theirs to overwrite local with remote
-      setLoading(true);
-      setError('');
-      try {
-        if (!session.api) throw new Error('Not logged in');
-        
-        // Get passphrase to decrypt PAT
-        const passphrase = await promptForPassphrase('pull');
-        if (!passphrase) {
-          setError('Passphrase required');
-          setLoading(false);
-          return;
-        }
-
-        // Get encrypted PAT and decrypt it
-        if (!encryptedPat) {
-          setError('PAT not configured');
-          setLoading(false);
-          return;
-        }
-
-        const armoredPrivateKey = await getDecryptedPrivateKey(fp, passphrase);
-        if (!armoredPrivateKey) {
-          setError('Failed to get private key');
-          setLoading(false);
-          return;
-        }
-
-        const privateKey = await decryptPrivateKey(armoredPrivateKey, passphrase);
-        const patToUse = await decryptPAT(encryptedPat, privateKey);
-        if (!patToUse) {
-          setError('Failed to decrypt PAT');
-          setLoading(false);
-          return;
-        }
-
-        // Set session token
-        await session.api.setGitSession(patToUse);
-
-        // Pull with forceTheirs=true to resolve conflicts
-        const result = await session.api.gitPull(patToUse, true);
-        setSuccess(result.message || 'Pulled from remote (conflicts resolved)');
-        setTimeout(() => setSuccess(''), 3000);
-        loadStatus();
-        onSuccess?.();
-      } catch (e: any) {
-        setError(e.message || 'Pull failed');
-      }
-      setLoading(false);
-      setShowPassphrasePrompt(false);
-    } else if (resolution === 'local') {
-      // Push local changes
-      await handlePush();
-    }
-    // skip: do nothing
   };
 
   const handleViewLogs = async () => {
@@ -375,6 +312,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
                     value={repoUrl}
                     onInput={(e) => setRepoUrl((e.target as HTMLInputElement).value)}
                     style="width: 100%; margin-top: 4px;"
+                    data-testid="git-repo-url"
                   />
                 </div>
                 <div>
@@ -391,6 +329,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
                     data-lpignore="true"
                     data-bwignore="true"
                     data-1p-ignore="true"
+                    data-testid="git-pat"
                   />
                   <p class="help-text" style="font-size: 11px; margin-top: 4px;">
                     PAT will be encrypted with your PGP public key.
@@ -404,6 +343,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
                   class="btn btn-primary"
                   onClick={handleConfigure}
                   disabled={configuring || !repoUrl || !pat}
+                  data-testid="git-configure-btn"
                 >
                   {configuring ? <><span class="spinner" /> Configuring...</> : '✓ Configure'}
                 </button>
@@ -438,6 +378,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
                     class="btn btn-sm"
                     onClick={handlePush}
                     disabled={loading || configuring}
+                    data-testid="git-push-btn"
                   >
                     {loading ? <><span class="spinner" /> Pushing...</> : '⬆️ Push Now'}
                   </button>
@@ -445,12 +386,14 @@ export function GitSync({ onClose, onSuccess }: Props) {
                     class="btn btn-sm"
                     onClick={handlePull}
                     disabled={loading || configuring}
+                    data-testid="git-pull-btn"
                   >
                     {loading ? <><span class="spinner" /> Pulling...</> : '⬇️ Pull Now'}
                   </button>
                   <button
                     class="btn btn-sm"
                     onClick={handleViewLogs}
+                    data-testid="git-logs-btn"
                   >
                     📋 View Logs
                   </button>
@@ -528,6 +471,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
                     data-lpignore="true"
                     data-bwignore="true"
                     data-1p-ignore="true"
+                    data-testid="git-passphrase-prompt"
                   />
                   <div class="settings-buttons">
                     <button
@@ -539,6 +483,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
                         resolverRef.current?.(null);
                         resolverRef.current = null;
                       }}
+                      data-testid="git-passphrase-cancel"
                     >
                       Cancel
                     </button>
@@ -555,63 +500,9 @@ export function GitSync({ onClose, onSuccess }: Props) {
                         }
                       }}
                       disabled={!passphraseForPat}
+                      data-testid="git-passphrase-ok"
                     >
                       OK
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Conflict Dialog */}
-          {showConflictDialog && (
-            <div class="modal-overlay" onClick={() => setShowConflictDialog(false)}>
-              <div class="modal" style="max-width: 600px;" onClick={(e) => e.stopPropagation()}>
-                <div class="modal-header">
-                  <h2>⚠️ Sync Conflicts</h2>
-                  <button class="btn btn-ghost btn-icon" onClick={() => setShowConflictDialog(false)}>✕</button>
-                </div>
-                <div class="modal-body">
-                  <p class="help-text" style="margin-bottom: 16px;">
-                    {conflicts.length} file(s) have conflicting changes on local and remote.
-                    Choose which version to keep.
-                  </p>
-                  <div style="max-height: 250px; overflow-y: auto; margin-bottom: 16px;">
-                    {conflicts.map((c, i) => (
-                      <div key={i} style="margin-bottom: 12px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-                        <div style="font-weight: 600; margin-bottom: 8px; font-size: 13px;">{c.path}</div>
-                        <div style="display: flex; gap: 16px; font-size: 12px;">
-                          <div style="flex: 1;">
-                            <div style="color: #666; margin-bottom: 4px;">Local (Your Device)</div>
-                            <div>{c.local_time ? new Date(c.local_time).toLocaleString() : 'Unknown'}</div>
-                          </div>
-                          <div style="flex: 1;">
-                            <div style="color: #666; margin-bottom: 4px;">Remote (Backup)</div>
-                            <div>{c.remote_time ? new Date(c.remote_time).toLocaleString() : 'Unknown'}</div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div class="settings-buttons">
-                    <button
-                      class="btn btn-ghost"
-                      onClick={() => handleResolveConflicts('skip')}
-                    >
-                      Skip
-                    </button>
-                    <button
-                      class="btn btn-sm"
-                      onClick={() => handleResolveConflicts('local')}
-                    >
-                      Keep Local (Push)
-                    </button>
-                    <button
-                      class="btn btn-sm btn-primary"
-                      onClick={() => handleResolveConflicts('remote')}
-                    >
-                      Keep Remote (Pull)
                     </button>
                   </div>
                 </div>
