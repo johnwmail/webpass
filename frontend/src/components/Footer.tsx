@@ -28,6 +28,22 @@ export function Footer({ onSessionExpired }: Props) {
     return getAutoTheme();
   });
 
+  const [localTime, setLocalTime] = useState<string>(() => {
+    const now = new Date();
+    return now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  });
+
+  // Update time every minute
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      setLocalTime(now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }));
+    };
+    updateTime();
+    const interval = setInterval(updateTime, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Apply theme when mode or auto theme changes
   useEffect(() => {
     let theme: 'ocean' | 'daylight';
@@ -80,7 +96,27 @@ export function Footer({ onSessionExpired }: Props) {
               <circle cx="12" cy="12" r="3"/>
               <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42"/>
             </svg>
-            <span class="theme-toggle-text">Auto</span>
+            <span class="theme-toggle-text">
+              <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                Auto
+                <span style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontFamily: "'SF Mono', 'Consolas', monospace",
+                  fontSize: '12px',
+                  color: 'var(--accent)',
+                  paddingLeft: '8px',
+                  borderLeft: '1px solid var(--border)'
+                }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M12 6v6l4 2"/>
+                  </svg>
+                  {localTime}
+                </span>
+              </span>
+            </span>
           </>
         ) : themeMode === 'ocean' ? (
           <>
