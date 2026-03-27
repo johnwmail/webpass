@@ -226,7 +226,7 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 		RefSpecs:   []gitconfig.RefSpec{gitconfig.RefSpec("+refs/heads/main:refs/heads/main")},
 		Force:      true,
 	})
-	
+
 	// Check if error is "already up-to-date" which is actually success
 	if pushErr != nil {
 		if strings.Contains(pushErr.Error(), "already up-to-date") {
