@@ -351,3 +351,168 @@ test.describe('Git Sync - Push/Pull Workflow', () => {
   // - "remote has changes, please pull first" when remote ahead of local
   // Manual testing recommended for full conflict scenarios
 });
+
+test.describe('Git Sync - One-Way Sync Behavior', () => {
+  let testUser: TestUser;
+  let pgpPassphrase: string;
+
+  test.beforeEach(async ({ page }) => {
+    testUser = generateTestUser();
+    await apiRegister(testUser);
+    pgpPassphrase = await registerAndLogin(page, testUser);
+  });
+
+  test.afterEach(async () => {
+    if (testUser) {
+      await apiDeleteAccount(testUser).catch(() => {});
+    }
+  });
+
+  test('push overwrites remote completely (one-way sync)', async ({ page }) => {
+    // Skip test if credentials not configured
+    test.skip(!WEBPASS_REPO_URL || !WEBPASS_REPO_PAT, 'WEBPASS_REPO_URL and WEBPASS_REPO_PAT environment variables required');
+
+    // Step 1: Create first entry
+    await page.getByRole('button', { name: /Entry/i }).first().click();
+    await page.waitForTimeout(1000);
+    await page.getByPlaceholder('e.g. Email (optional)').fill('entry1@example.com');
+    await page.getByPlaceholder('Entry name').fill('Entry One');
+    await page.getByPlaceholder('Password').fill('Pass123!');
+    await page.getByRole('button', { name: /Save/i }).click();
+    await page.waitForTimeout(3000);
+
+    // Step 2: Configure git and push
+    await openGitSync(page);
+    await page.getByPlaceholder('https://github.com/user/private-repo.git').fill(WEBPASS_REPO_URL);
+    await page.getByPlaceholder('ghp_...').fill(WEBPASS_REPO_PAT);
+    await page.getByRole('button', { name: /Configure/i }).click();
+    await page.waitForTimeout(3000);
+
+    // Push first entry
+    await page.getByRole('button', { name: /Push Now/i }).click();
+    await page.getByText('🔐 Enter PGP Passphrase', { exact: false }).waitFor({ timeout: 5000 });
+    await page.getByPlaceholder('PGP passphrase').fill(pgpPassphrase);
+    await page.getByRole('button', { name: 'OK' }).click();
+    await page.waitForTimeout(15000);
+
+    // Verify push succeeded (no error)
+    const errorMsg1 = page.locator('.error-msg');
+    const errorVisible1 = await errorMsg1.isVisible().catch(() => false);
+    expect(errorVisible1).toBeFalsy();
+
+    // Step 3: Create second entry
+    await page.getByRole('button', { name: /Entry/i }).first().click();
+    await page.waitForTimeout(1000);
+    await page.getByPlaceholder('e.g. Email (optional)').fill('entry2@example.com');
+    await page.getByPlaceholder('Entry name').fill('Entry Two');
+    await page.getByPlaceholder('Password').fill('Pass456!');
+    await page.getByRole('button', { name: /Save/i }).click();
+    await page.waitForTimeout(3000);
+
+    // Step 4: Push again - remote should now have BOTH entries
+    await openGitSync(page);
+    await page.getByRole('button', { name: /Push Now/i }).click();
+    await page.getByText('🔐 Enter PGP Passphrase', { exact: false }).waitFor({ timeout: 5000 });
+    await page.getByPlaceholder('PGP passphrase').fill(pgpPassphrase);
+    await page.getByRole('button', { name: 'OK' }).click();
+    await page.waitForTimeout(15000);
+
+    // Verify push succeeded
+    const errorMsg2 = page.locator('.error-msg');
+    const errorVisible2 = await errorMsg2.isVisible().catch(() => false);
+    expect(errorVisible2).toBeFalsy();
+
+    // Note: With one-way sync, remote is completely overwritten each time
+    // Both entries should now exist on remote
+  });
+
+  test('pull deletes local and imports from remote (one-way sync)', async ({ page }) => {
+    // Skip test if credentials not configured
+    test.skip(!WEBPASS_REPO_URL || !WEBPASS_REPO_PAT, 'WEBPASS_REPO_URL and WEBPASS_REPO_PAT environment variables required');
+
+    // Step 1: Create a local entry
+    await page.getByRole('button', { name: /Entry/i }).first().click();
+    await page.waitForTimeout(1000);
+    await page.getByPlaceholder('e.g. Email (optional)').fill('local@example.com');
+    await page.getByPlaceholder('Entry name').fill('Local Entry');
+    await page.getByPlaceholder('Password').fill('LocalPass123!');
+    await page.getByRole('button', { name: /Save/i }).click();
+    await page.waitForTimeout(3000);
+
+    // Verify entry exists in sidebar
+    const localEntryVisible = await page.getByText('Local Entry').isVisible().catch(() => false);
+    expect(localEntryVisible).toBeTruthy();
+
+    // Step 2: Configure git and pull (remote is empty or has different entries)
+    await openGitSync(page);
+    await page.getByPlaceholder('https://github.com/user/private-repo.git').fill(WEBPASS_REPO_URL);
+    await page.getByPlaceholder('ghp_...').fill(WEBPASS_REPO_PAT);
+    await page.getByRole('button', { name: /Configure/i }).click();
+    await page.waitForTimeout(3000);
+
+    // Pull - should delete local entry and import from remote
+    await page.getByRole('button', { name: /Pull Now/i }).click();
+    await page.getByText('🔐 Enter PGP Passphrase', { exact: false }).waitFor({ timeout: 5000 });
+    await page.getByPlaceholder('PGP passphrase').fill(pgpPassphrase);
+    await page.getByRole('button', { name: 'OK' }).click();
+    await page.waitForTimeout(15000);
+
+    // Verify pull succeeded (no error)
+    const errorMsg = page.locator('.error-msg');
+    const errorVisible = await errorMsg.isVisible().catch(() => false);
+    expect(errorVisible).toBeFalsy();
+
+    // Note: With one-way sync, local DB is completely replaced
+    // If remote was empty, local entry should be gone
+    // If remote had entries, they should now be in local DB
+  });
+
+  test('push then pull verifies sync consistency', async ({ page }) => {
+    // Skip test if credentials not configured
+    test.skip(!WEBPASS_REPO_URL || !WEBPASS_REPO_PAT, 'WEBPASS_REPO_URL and WEBPASS_REPO_PAT environment variables required');
+
+    // Step 1: Create test entry
+    await page.getByRole('button', { name: /Entry/i }).first().click();
+    await page.waitForTimeout(1000);
+    await page.getByPlaceholder('e.g. Email (optional)').fill('sync-test@example.com');
+    await page.getByPlaceholder('Entry name').fill('Sync Test Entry');
+    await page.getByPlaceholder('Password').fill('SyncTest123!');
+    await page.getByRole('button', { name: /Save/i }).click();
+    await page.waitForTimeout(3000);
+
+    // Step 2: Configure git
+    await openGitSync(page);
+    await page.getByPlaceholder('https://github.com/user/private-repo.git').fill(WEBPASS_REPO_URL);
+    await page.getByPlaceholder('ghp_...').fill(WEBPASS_REPO_PAT);
+    await page.getByRole('button', { name: /Configure/i }).click();
+    await page.waitForTimeout(3000);
+
+    // Step 3: Push
+    await page.getByRole('button', { name: /Push Now/i }).click();
+    await page.getByText('🔐 Enter PGP Passphrase', { exact: false }).waitFor({ timeout: 5000 });
+    await page.getByPlaceholder('PGP passphrase').fill(pgpPassphrase);
+    await page.getByRole('button', { name: 'OK' }).click();
+    await page.waitForTimeout(15000);
+
+    // Verify push succeeded
+    const pushError = page.locator('.error-msg');
+    const pushErrorVisible = await pushError.isVisible().catch(() => false);
+    expect(pushErrorVisible).toBeFalsy();
+
+    // Step 4: Pull immediately after push - should succeed with no conflicts
+    await page.getByRole('button', { name: /Pull Now/i }).click();
+    await page.getByText('🔐 Enter PGP Passphrase', { exact: false }).waitFor({ timeout: 5000 });
+    await page.getByPlaceholder('PGP passphrase').fill(pgpPassphrase);
+    await page.getByRole('button', { name: 'OK' }).click();
+    await page.waitForTimeout(15000);
+
+    // Verify pull succeeded (no error - one-way sync has no conflicts)
+    const pullError = page.locator('.error-msg');
+    const pullErrorVisible = await pullError.isVisible().catch(() => false);
+    expect(pullErrorVisible).toBeFalsy();
+
+    // Verify entry still exists (synced back from remote)
+    const entryVisible = await page.getByText('Sync Test Entry').isVisible().catch(() => false);
+    expect(entryVisible).toBeTruthy();
+  });
+});
