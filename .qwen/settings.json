@@ -15,7 +15,9 @@
       "Bash(npx *)",
       "Bash(rm *)",
       "Bash(docker ps)",
-      "Bash(docker logs *)"
+      "Bash(docker logs *)",
+      "Bash(./playwright-e2e-test.sh *)",
+      "Bash(tee *)"
     ]
   },
   "$version": 3

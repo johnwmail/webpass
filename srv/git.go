@@ -220,15 +220,23 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 		Username: "token",
 		Password: token,
 	}
-	if err := repo.Push(&git.PushOptions{
+	pushErr := repo.Push(&git.PushOptions{
 		RemoteName: "origin",
 		Auth:       auth,
 		RefSpecs:   []gitconfig.RefSpec{gitconfig.RefSpec("+refs/heads/main:refs/heads/main")},
 		Force:      true,
-	}); err != nil {
-		return nil, fmt.Errorf("git push --force: %w", err)
+	})
+	
+	// Check if error is "already up-to-date" which is actually success
+	if pushErr != nil {
+		if strings.Contains(pushErr.Error(), "already up-to-date") {
+			slog.Info("[PUSH] Already up-to-date (no changes to push)")
+		} else {
+			return nil, fmt.Errorf("git push --force: %w", pushErr)
+		}
+	} else {
+		slog.Info("[PUSH] Pushed --force to origin/main")
 	}
-	slog.Info("[PUSH] Pushed --force to origin/main")
 
 	// Step 9: Cleanup after
 	if err := g.cleanupRepoDir(fingerprint); err != nil {
