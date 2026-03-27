@@ -957,6 +957,7 @@ func (s *Server) handleGitGetConfig(w http.ResponseWriter, r *http.Request) {
 			jsonOK(w, map[string]interface{}{
 				"configured":        false,
 				"repo_url":          "",
+				"branch":            "HEAD",
 				"encrypted_pat":     "",
 				"has_encrypted_pat": false,
 			})
@@ -970,6 +971,7 @@ func (s *Server) handleGitGetConfig(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]interface{}{
 		"configured":        true,
 		"repo_url":          config.RepoUrl,
+		"branch":            config.Branch,
 		"encrypted_pat":     config.EncryptedPat,
 		"has_encrypted_pat": config.EncryptedPat != "",
 	})
@@ -982,6 +984,7 @@ func (s *Server) handleGitConfig(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		RepoURL      string `json:"repo_url"`
 		EncryptedPAT string `json:"encrypted_pat"`
+		Branch       string `json:"branch"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, "invalid json", http.StatusBadRequest)
@@ -993,13 +996,19 @@ func (s *Server) handleGitConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.GitService.Configure(r.Context(), fp, body.RepoURL, body.EncryptedPAT); err != nil {
+	// Default branch to HEAD if not specified
+	branch := body.Branch
+	if branch == "" {
+		branch = "HEAD"
+	}
+
+	if err := s.GitService.Configure(r.Context(), fp, body.RepoURL, body.EncryptedPAT, branch); err != nil {
 		slog.Error("GIT CONFIG: failed", "fingerprint", fp, "error", err)
 		jsonError(w, "config failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	slog.Info("GIT CONFIG: successfully configured", "fingerprint", fp, "repo", body.RepoURL)
+	slog.Info("GIT CONFIG: successfully configured", "fingerprint", fp, "repo", body.RepoURL, "branch", branch)
 	jsonOK(w, map[string]string{"status": "configured"})
 }
 

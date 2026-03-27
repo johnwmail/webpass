@@ -288,7 +288,7 @@ export class ApiClient {
       {
         method: 'POST',
         headers: this.headers(),
-        body: JSON.stringify({ repo_url: repoUrl, encrypted_pat: encryptedPat }),
+        body: JSON.stringify({ repo_url: repoUrl, encrypted_pat: encryptedPat, branch: 'HEAD' }),
       }
     );
     if (!res.ok) {

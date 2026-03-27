@@ -23,6 +23,7 @@ type GitConfig struct {
 	EncryptedPat string    `json:"encrypted_pat"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+	Branch       string    `json:"branch"`
 }
 
 type GitSyncLog struct {

@@ -20,7 +20,7 @@ func (q *Queries) DeleteGitConfig(ctx context.Context, fingerprint string) error
 }
 
 const getGitConfig = `-- name: GetGitConfig :one
-SELECT fingerprint, repo_url, encrypted_pat, created_at, updated_at FROM git_config WHERE fingerprint = ?
+SELECT fingerprint, repo_url, encrypted_pat, created_at, updated_at, branch FROM git_config WHERE fingerprint = ?
 `
 
 func (q *Queries) GetGitConfig(ctx context.Context, fingerprint string) (GitConfig, error) {
@@ -32,6 +32,7 @@ func (q *Queries) GetGitConfig(ctx context.Context, fingerprint string) (GitConf
 		&i.EncryptedPat,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Branch,
 	)
 	return i, err
 }
@@ -40,6 +41,7 @@ const getGitSyncStatus = `-- name: GetGitSyncStatus :one
 SELECT
     gc.fingerprint,
     gc.repo_url,
+    gc.branch,
     gc.encrypted_pat,
     gc.created_at as config_created_at,
     (SELECT COUNT(*) FROM git_sync_log WHERE fingerprint = gc.fingerprint AND status = 'success') as success_count,
@@ -51,6 +53,7 @@ WHERE gc.fingerprint = ?
 type GetGitSyncStatusRow struct {
 	Fingerprint     string    `json:"fingerprint"`
 	RepoUrl         string    `json:"repo_url"`
+	Branch          string    `json:"branch"`
 	EncryptedPat    string    `json:"encrypted_pat"`
 	ConfigCreatedAt time.Time `json:"config_created_at"`
 	SuccessCount    int64     `json:"success_count"`
@@ -63,6 +66,7 @@ func (q *Queries) GetGitSyncStatus(ctx context.Context, fingerprint string) (Get
 	err := row.Scan(
 		&i.Fingerprint,
 		&i.RepoUrl,
+		&i.Branch,
 		&i.EncryptedPat,
 		&i.ConfigCreatedAt,
 		&i.SuccessCount,
@@ -150,10 +154,11 @@ func (q *Queries) UpdateGitEncryptedPat(ctx context.Context, arg UpdateGitEncryp
 }
 
 const upsertGitConfig = `-- name: UpsertGitConfig :exec
-INSERT INTO git_config (fingerprint, repo_url, encrypted_pat, updated_at)
-VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+INSERT INTO git_config (fingerprint, repo_url, branch, encrypted_pat, updated_at)
+VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
 ON CONFLICT (fingerprint) DO UPDATE
 SET repo_url = excluded.repo_url,
+    branch = excluded.branch,
     encrypted_pat = excluded.encrypted_pat,
     updated_at = CURRENT_TIMESTAMP
 `
@@ -161,10 +166,16 @@ SET repo_url = excluded.repo_url,
 type UpsertGitConfigParams struct {
 	Fingerprint  string `json:"fingerprint"`
 	RepoUrl      string `json:"repo_url"`
+	Branch       string `json:"branch"`
 	EncryptedPat string `json:"encrypted_pat"`
 }
 
 func (q *Queries) UpsertGitConfig(ctx context.Context, arg UpsertGitConfigParams) error {
-	_, err := q.db.ExecContext(ctx, upsertGitConfig, arg.Fingerprint, arg.RepoUrl, arg.EncryptedPat)
+	_, err := q.db.ExecContext(ctx, upsertGitConfig,
+		arg.Fingerprint,
+		arg.RepoUrl,
+		arg.Branch,
+		arg.EncryptedPat,
+	)
 	return err
 }

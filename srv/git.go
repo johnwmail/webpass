@@ -39,6 +39,7 @@ type SessionToken struct {
 type SyncStatus struct {
 	Configured      bool   `json:"configured"`
 	RepoURL         string `json:"repo_url,omitempty"`
+	Branch          string `json:"branch,omitempty"`
 	HasEncryptedPat bool   `json:"has_encrypted_pat"`
 	SuccessCount    int64  `json:"success_count"`
 	FailedCount     int64  `json:"failed_count"`
@@ -67,19 +68,20 @@ func NewGitService(dbPath string, q *dbgen.Queries, repoRoot string) *GitService
 // ---------------------------------------------------------------------------
 
 // Configure sets up git sync for a user with encrypted PAT
-func (g *GitService) Configure(ctx context.Context, fingerprint, repoURL, encryptedPAT string) error {
+func (g *GitService) Configure(ctx context.Context, fingerprint, repoURL, encryptedPAT, branch string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
 	if err := g.q.UpsertGitConfig(ctx, dbgen.UpsertGitConfigParams{
 		Fingerprint:  fingerprint,
 		RepoUrl:      repoURL,
+		Branch:       branch,
 		EncryptedPat: encryptedPAT,
 	}); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
 
-	slog.Info("git sync configured", "fingerprint", fingerprint, "repo", repoURL)
+	slog.Info("git sync configured", "fingerprint", fingerprint, "repo", repoURL, "branch", branch)
 	return nil
 }
 
@@ -117,6 +119,7 @@ func (g *GitService) GetStatus(ctx context.Context, fingerprint string) (*SyncSt
 	return &SyncStatus{
 		Configured:      true,
 		RepoURL:         row.RepoUrl,
+		Branch:          row.Branch,
 		HasEncryptedPat: row.EncryptedPat != "",
 		SuccessCount:    row.SuccessCount,
 		FailedCount:     row.FailedCount,
@@ -131,10 +134,19 @@ func (g *GitService) GetStatus(ctx context.Context, fingerprint string) (*SyncSt
 func (g *GitService) initRepo(fingerprint, repoURL, token string) error {
 	repoDir := g.repoDir(fingerprint)
 
-	// Check if repo exists
+	// Check if repo exists and is a valid git repository
 	if _, err := os.Stat(repoDir); err == nil {
-		// Repo exists - already initialized
-		return nil
+		// Repo directory exists - check if it's a valid git repo
+		_, err := git.PlainOpen(repoDir)
+		if err == nil {
+			// Valid git repo - already initialized
+			return nil
+		}
+		// Not a valid git repo, remove and reclone
+		slog.Info("initRepo: directory exists but not a valid git repo, removing", "repoDir", repoDir)
+		if err := os.RemoveAll(repoDir); err != nil {
+			return fmt.Errorf("remove invalid repo dir: %w", err)
+		}
 	}
 
 	// Create directory
@@ -241,12 +253,57 @@ func (g *GitService) Push(ctx context.Context, fingerprint string, token string)
 	}
 	slog.Info("PUSH: committed changes", "fingerprint", fingerprint, "hash", hash.String())
 
+	// Determine branch to push - use configured branch or auto-detect with HEAD
+	pushBranch := config.Branch
+	if pushBranch == "" || pushBranch == "HEAD" {
+		// Auto-detect default branch from remote HEAD
+		remoteHead, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", "HEAD"), true)
+		if err != nil {
+			// HEAD not found, try common branch names
+			slog.Info("remote HEAD not found for push, trying common branch names", "fingerprint", fingerprint)
+			for _, tryBranch := range []string{"main", "master"} {
+				_, err = repo.Reference(plumbing.NewRemoteReferenceName("origin", tryBranch), true)
+				if err == nil {
+					pushBranch = tryBranch
+					slog.Info("found remote branch for push", "branch", pushBranch)
+					break
+				}
+			}
+			if err != nil {
+				errMsg := fmt.Sprintf("get remote HEAD (tried main/master): %v", err)
+				_ = g.q.LogGitSync(ctx, dbgen.LogGitSyncParams{
+					Fingerprint: fingerprint,
+					Operation:   "push",
+					Status:      "failed",
+					Message:     &errMsg,
+				})
+				return nil, fmt.Errorf("get remote HEAD for push: %w", err)
+			}
+		} else {
+			// HEAD found, resolve to actual branch
+			symRefTarget := remoteHead.Target()
+			if symRefTarget == "" {
+				errMsg := "remote HEAD is not a symbolic reference"
+				_ = g.q.LogGitSync(ctx, dbgen.LogGitSyncParams{
+					Fingerprint: fingerprint,
+					Operation:   "push",
+					Status:      "failed",
+					Message:     &errMsg,
+				})
+				return nil, errors.New(errMsg)
+			}
+			pushBranch = string(symRefTarget)
+			pushBranch = strings.TrimPrefix(pushBranch, "refs/remotes/origin/")
+		}
+	}
+
 	// Push with authentication
 	auth := &http.BasicAuth{Username: "token", Password: token}
+	refSpec := fmt.Sprintf("+refs/heads/%s:refs/heads/%s", pushBranch, pushBranch)
 	err = repo.Push(&git.PushOptions{
 		RemoteName: "origin",
 		Auth:       auth,
-		RefSpecs:   []gitconfig.RefSpec{gitconfig.RefSpec("+refs/heads/main:refs/heads/main")},
+		RefSpecs:   []gitconfig.RefSpec{gitconfig.RefSpec(refSpec)},
 	})
 
 	if err != nil {
@@ -335,9 +392,42 @@ func (g *GitService) Pull(ctx context.Context, fingerprint string, token string)
 		return nil, fmt.Errorf("get HEAD: %w", err)
 	}
 
-	remoteRef, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", "main"), true)
+	// Get remote branch - use configured branch or auto-detect with HEAD
+	branchName := config.Branch
+	if branchName == "" || branchName == "HEAD" {
+		// Auto-detect default branch from remote HEAD
+		remoteHead, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", "HEAD"), true)
+		if err != nil {
+			// HEAD not found, try common branch names
+			slog.Info("remote HEAD not found, trying common branch names", "fingerprint", fingerprint)
+			for _, tryBranch := range []string{"main", "master"} {
+				_, err = repo.Reference(plumbing.NewRemoteReferenceName("origin", tryBranch), true)
+				if err == nil {
+					branchName = tryBranch
+					slog.Info("found remote branch", "branch", branchName)
+					break
+				}
+			}
+			if err != nil {
+				return nil, fmt.Errorf("get remote HEAD (tried main/master): %w", err)
+			}
+		} else {
+			// HEAD found, resolve to actual branch
+			symRefTarget := remoteHead.Target()
+			if symRefTarget == "" {
+				return nil, fmt.Errorf("remote HEAD is not a symbolic reference")
+			}
+			branchName = string(symRefTarget)
+		}
+	}
+
+	// If still using full ref path, extract branch name
+	branchName = strings.TrimPrefix(branchName, "refs/remotes/origin/")
+
+	// Get remote reference for the branch
+	remoteRef, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", branchName), true)
 	if err != nil {
-		return nil, fmt.Errorf("get remote ref: %w", err)
+		return nil, fmt.Errorf("get remote ref for branch '%s': %w", branchName, err)
 	}
 
 	// If local HEAD equals remote, already up to date
@@ -539,22 +629,28 @@ func (g *GitService) syncDatabase(ctx context.Context, fingerprint string) (int,
 	repoDir := g.repoDir(fingerprint)
 	count := 0
 
-	// Walk through all .gpg files in repo
-	passwordStoreDir := filepath.Join(repoDir, ".password-store")
-	if _, err := os.Stat(passwordStoreDir); os.IsNotExist(err) {
-		return 0, nil // No .password-store directory yet
+	// Walk through all .gpg files in repo root
+	if _, err := os.Stat(repoDir); os.IsNotExist(err) {
+		return 0, nil // No repo directory yet
 	}
 
-	err := filepath.Walk(passwordStoreDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(repoDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() || !strings.HasSuffix(path, ".gpg") {
+		// Skip .git directory and hidden files
+		if info.IsDir() {
+			if info.Name() == ".git" || strings.HasPrefix(info.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".gpg") {
 			return nil
 		}
 
-		// Get relative path from .password-store
-		relPath, err := filepath.Rel(passwordStoreDir, path)
+		// Get relative path from repo root
+		relPath, err := filepath.Rel(repoDir, path)
 		if err != nil {
 			return err
 		}
@@ -593,10 +689,9 @@ func (g *GitService) syncDatabase(ctx context.Context, fingerprint string) (int,
 // Helpers
 // ---------------------------------------------------------------------------
 
-// exportPasswordStore exports database entries to .password-store directory
+// exportPasswordStore exports database entries to git repo root
 func (g *GitService) exportPasswordStore(ctx context.Context, fingerprint string) error {
 	repoDir := g.repoDir(fingerprint)
-	passwordStoreDir := filepath.Join(repoDir, ".password-store")
 
 	// Get all entries for this user
 	entries, err := g.q.ListEntriesContent(ctx, fingerprint)
@@ -604,15 +699,10 @@ func (g *GitService) exportPasswordStore(ctx context.Context, fingerprint string
 		return fmt.Errorf("list entries: %w", err)
 	}
 
-	// Create password-store directory
-	if err := os.MkdirAll(passwordStoreDir, 0700); err != nil {
-		return fmt.Errorf("create password-store dir: %w", err)
-	}
-
-	// Write each entry to a .gpg file
+	// Write each entry to a .gpg file in repo root
 	for _, entry := range entries {
 		// Create subdirectory if needed
-		entryPath := filepath.Join(passwordStoreDir, entry.Path+".gpg")
+		entryPath := filepath.Join(repoDir, entry.Path+".gpg")
 		entryDir := filepath.Dir(entryPath)
 		if err := os.MkdirAll(entryDir, 0700); err != nil {
 			return fmt.Errorf("create entry dir: %w", err)

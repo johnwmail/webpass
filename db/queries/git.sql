@@ -1,8 +1,9 @@
 -- name: UpsertGitConfig :exec
-INSERT INTO git_config (fingerprint, repo_url, encrypted_pat, updated_at)
-VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+INSERT INTO git_config (fingerprint, repo_url, branch, encrypted_pat, updated_at)
+VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
 ON CONFLICT (fingerprint) DO UPDATE
 SET repo_url = excluded.repo_url,
+    branch = excluded.branch,
     encrypted_pat = excluded.encrypted_pat,
     updated_at = CURRENT_TIMESTAMP;
 
@@ -31,6 +32,7 @@ LIMIT 50;
 SELECT
     gc.fingerprint,
     gc.repo_url,
+    gc.branch,
     gc.encrypted_pat,
     gc.created_at as config_created_at,
     (SELECT COUNT(*) FROM git_sync_log WHERE fingerprint = gc.fingerprint AND status = 'success') as success_count,

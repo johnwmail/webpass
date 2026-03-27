@@ -43,7 +43,7 @@ func TestGitServiceConfigure(t *testing.T) {
 	}
 
 	// Configure git sync
-	err := s.GitService.Configure(ctx, fingerprint, repoURL, encryptedPAT)
+	err := s.GitService.Configure(ctx, fingerprint, repoURL, encryptedPAT, "HEAD")
 	if err != nil {
 		t.Fatalf("failed to configure git: %v", err)
 	}
@@ -80,12 +80,12 @@ func TestGitServiceConfigureUpdate(t *testing.T) {
 	}
 
 	// Initial config
-	if err := s.GitService.Configure(ctx, fingerprint, repoURL1, encryptedPAT); err != nil {
+	if err := s.GitService.Configure(ctx, fingerprint, repoURL1, encryptedPAT, "HEAD"); err != nil {
 		t.Fatalf("failed to configure git: %v", err)
 	}
 
 	// Update config
-	if err := s.GitService.Configure(ctx, fingerprint, repoURL2, encryptedPAT); err != nil {
+	if err := s.GitService.Configure(ctx, fingerprint, repoURL2, encryptedPAT, "HEAD"); err != nil {
 		t.Fatalf("failed to update git config: %v", err)
 	}
 
@@ -166,7 +166,7 @@ func TestGitServiceGetStatus(t *testing.T) {
 	}
 
 	// Configure
-	if err := s.GitService.Configure(ctx, fingerprint, repoURL, encryptedPAT); err != nil {
+	if err := s.GitService.Configure(ctx, fingerprint, repoURL, encryptedPAT, "HEAD"); err != nil {
 		t.Fatalf("failed to configure git: %v", err)
 	}
 

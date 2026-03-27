@@ -130,7 +130,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
       // Encrypt PAT with PGP public key
       const encryptedPat = await encryptPAT(pat, publicKey);
 
-      // Configure server
+      // Configure server (branch always HEAD for auto-detect)
       await session.api.configureGit(repoUrl, encryptedPat);
 
       // Directly update status to show configured state
