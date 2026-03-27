@@ -42,15 +42,30 @@ cleanup() {
 
     log_warn "Cleaning up..."
 
-    # Remove temp database file if it exists
-    if [ -n "$DB_FILE" ] && [ -f "$DB_FILE" ]; then
-        rm -f "$DB_FILE"
+    # Remove temp database file and associated SQLite files
+    if [ -n "$DB_FILE" ]; then
+        rm -f "$DB_FILE" 2>/dev/null || true
+        rm -f "${DB_FILE}-shm" 2>/dev/null || true
+        rm -f "${DB_FILE}-wal" 2>/dev/null || true
+        log_info "Removed database file: $DB_FILE"
     fi
+
+    # Remove all webpass test database files from /tmp
+    rm -f /tmp/webpass-test-*.db 2>/dev/null || true
+    rm -f /tmp/webpass-test-*.db-shm 2>/dev/null || true
+    rm -f /tmp/webpass-test-*.db-wal 2>/dev/null || true
+    rm -f /tmp/webpass-playwright-test.db 2>/dev/null || true
+    rm -f /tmp/webpass-playwright-test.db-shm 2>/dev/null || true
+    rm -f /tmp/webpass-playwright-test.db-wal 2>/dev/null || true
 
     # Remove git-repos directory if it exists
     if [ -d "$GIT_REPO_ROOT" ]; then
         rm -rf "$GIT_REPO_ROOT"
+        log_info "Removed git-repos directory: $GIT_REPO_ROOT"
     fi
+
+    # Remove any leftover git-repos in /tmp
+    rm -rf /tmp/git-repos 2>/dev/null || true
 
     # Remove any core dumps or temp files
     rm -f "$ROOT_DIR/core" 2>/dev/null || true
