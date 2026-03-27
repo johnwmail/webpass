@@ -83,20 +83,19 @@ export default defineConfig({
   ],
 
   /* Run your local dev server before starting the tests.
-   * Set TEST_SKIP_WEBSERVER=true if running server manually.
+   * Set TEST_SKIP_WEBSERVER=true if running server manually (e.g., via Docker)
    */
   webServer: process.env.TEST_SKIP_WEBSERVER === 'true' ? undefined : {
-    command: 'go run ./cmd/srv',
+    command: 'go run ../cmd/srv',
     url: 'http://localhost:8080',
     timeout: 120 * 1000,
     reuseExistingServer: !process.env.CI,
-    cwd: '/home/exedev/webpass',
     env: {
       JWT_SECRET: process.env.JWT_SECRET || 'test-secret-key-32-bytes-long!!!',
-      DB_PATH: process.env.DB_PATH || '/tmp/webpass-playwright-test.db',
+      DB_PATH: process.env.DB_PATH || ':memory:',
       DISABLE_FRONTEND: 'false',
-      STATIC_DIR: 'frontend/dist',
-      GIT_REPO_ROOT: process.env.GIT_REPO_ROOT || '/tmp/git-repos',
+      STATIC_DIR: 'dist',
+      GIT_REPO_ROOT: '/tmp/git-repos',
     },
   },
 });
