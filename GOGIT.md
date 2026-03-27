@@ -1,87 +1,104 @@
-# Pure Go Git Implementation
+# Pure Go Git Implementation (One-Way Sync)
 
-This document maps all `git` CLI operations in `srv/git.go` to their pure Go equivalents using the [`go-git`](https://github.com/go-git/go-git) library.
-
----
-
-## Zero-Knowledge Architecture
-
-**Important: Content comparison is meaningless for encrypted password entries.**
-
-### Why Content Comparison Fails
-
-WebPass uses a **zero-knowledge architecture**: all password entries are PGP-encrypted client-side before being sent to the server. The server stores encrypted blobs but cannot decrypt them.
-
-This creates a fundamental limitation:
-
-| Issue | Explanation |
-|-------|-------------|
-| **Encrypted blobs differ randomly** | Same password encrypted twice produces different ciphertexts (different timestamps, random padding in PGP) |
-| **Different PGP keys** | Remote repo may contain entries encrypted with keys the server doesn't have (imported from another account, old key before regeneration) |
-| **Server has no private key** | By design, server cannot decrypt entries to compare plaintext content |
-
-### Example Scenario
-
-```
-User A encrypts "mysecret123" → blob_A = "PGP_ENCRYPTED_A..."
-User B encrypts "mysecret123" → blob_B = "PGP_ENCRYPTED_B..."
-
-blob_A != blob_B  (even though plaintext is identical!)
-```
-
-### Simplified Sync Strategy
-
-Since content comparison is impossible and per-file conflict resolution is complex, the sync strategy is simplified:
-
-| Operation | Behavior |
-|-----------|----------|
-| **Push** | Direct push. If remote has changes → error "Please pull first" |
-| **Pull** | Direct pull (fast-forward only). If local has changes → error "Please push first" |
-| **Reset** | Discard local, re-clone from remote (nuclear option) |
-
-**No conflict detection. No per-file selection. Clear error messages guide users.**
+This document describes the simplified one-way sync implementation using the [`go-git`](https://github.com/go-git/go-git) library.
 
 ---
 
-## Strategy: Simplified Direct Operations
+## Sync Strategy: One-Way Overwrite
 
-**No temp directories. No per-file conflict resolution. Clear error messages guide users.**
+**No merge. No conflicts. Fresh operations every time.**
 
 ### Push Flow
 
 ```
-Try direct repo.Push()
-  ├─ Success → Done ✅
-  └─ ErrNonFastForwardUpdate → Error: "Remote has changes. Please pull first."
+[PUSH] Delete /data/git-repos/{fingerprint}
+[PUSH] Create fresh directory
+[PUSH] Export ALL entries from DB to .gpg files
+[PUSH] git init
+[PUSH] git add --all
+[PUSH] git commit -m "Sync: timestamp"
+[PUSH] git remote add origin <url>
+[PUSH] git push --force origin main
+[PUSH] Delete /data/git-repos/{fingerprint}
 ```
+
+**Result:** Remote = Exact copy of local DB
+
+---
 
 ### Pull Flow
 
 ```
-Try direct w.Pull(FastForwardOnly: true)
-  ├─ Success → Sync DB → Done ✅
-  ├─ NoErrAlreadyUpToDate → Done ✅
-  └─ ErrNonFastForwardUpdate → Error: "Local has unpushed changes. Please push first."
+[PULL] Delete /data/git-repos/{fingerprint}
+[PULL] git clone <url> /data/git-repos/{fingerprint}
+[PULL] Delete ALL entries from DB
+[PULL] Import all .gpg files from cloned repo
+[PULL] Delete /data/git-repos/{fingerprint}
 ```
 
-### Reset Operation (Nuclear Option)
+**Result:** Local DB = Exact copy of remote
 
-```
-User clicks "Reset Local" button:
-  1. Delete local repo directory
-  2. Re-clone from remote
-  3. Sync DB with cloned state
-```
+---
 
-### When to Use Reset
+## Key Design Decisions
 
-| Scenario | Recommended Action |
-|----------|-------------------|
-| Remote has newer commits | Pull first, then push |
-| Local has unpushed commits | Push first, then pull |
-| Sync state is confused | Reset Local (re-clone) |
-| Switching devices | Reset Local on new device |
-| Remote repo was recreated | Reset Local |
+### 1. Fresh Operations
+
+**Every push/pull starts fresh:**
+- Delete local git directory before operation
+- Create new repo or clone from scratch
+- Delete directory after operation completes
+
+**Benefits:**
+- No stale files
+- No leftover state
+- Predictable behavior
+- Easy to reason about
+
+---
+
+### 2. No Merge Logic
+
+**Traditional sync tries to merge changes:**
+- Compare local vs remote
+- Detect conflicts
+- Merge or fail
+
+**Our approach:**
+- Push = overwrite remote with local
+- Pull = overwrite local with remote
+- Last write wins
+
+**Benefits:**
+- No conflict detection needed
+- No complex merge logic
+- Simpler implementation
+- Clear error messages
+
+---
+
+### 3. Force Push
+
+**Push uses `git push --force`:**
+- Overwrites remote completely
+- No fast-forward checks
+- No "pull first" errors
+
+**Warning:** Destructive operation - coordinates required for multi-client
+
+---
+
+### 4. Database Sync
+
+**Pull deletes all DB entries before import:**
+- Ensures exact match with remote
+- No stale entries
+- Deleted files properly removed
+
+**Push exports all DB entries:**
+- Complete snapshot
+- No incremental updates
+- Consistent state
 
 ---
 
@@ -107,368 +124,128 @@ import (
 
 ---
 
-## Git CLI to go-git Mapping
+## Git Operations Mapping
 
-### 1. `git clone <url> .`
+### 1. Cleanup Directory
 
-**Current (CLI):**
+**Delete `/data/git-repos/{fingerprint}`:**
+
 ```go
-func (g *GitService) initRepo(fingerprint, repoURL, token string) error {
-    repoDir := g.repoDir(fingerprint)
-    cloneURL := g.authURL(repoURL, token)
-    if err := g.runGitCommand(repoDir, "clone", cloneURL, "."); err != nil {
-        // handle error
+func cleanupRepoDir(repoRoot, fingerprint string) error {
+    repoDir := filepath.Join(repoRoot, fingerprint)
+    if err := os.RemoveAll(repoDir); err != nil {
+        return fmt.Errorf("cleanup repo dir: %w", err)
     }
-}
-```
-
-**Replacement (go-git):**
-```go
-func (g *GitService) initRepo(fingerprint, repoURL, token string) error {
-    repoDir := g.repoDir(fingerprint)
-    
-    // Check if repo exists
-    if _, err := os.Stat(repoDir); err == nil {
-        return nil // Already initialized
-    }
-    
-    // Create directory
-    if err := os.MkdirAll(repoDir, 0700); err != nil {
-        return fmt.Errorf("create dir: %w", err)
-    }
-    
-    // Clone with authentication
-    auth := &http.BasicAuth{
-        Username: "token", // Username can be anything for PAT
-        Password: token,
-    }
-    
-    _, err := git.PlainClone(repoDir, false, &git.CloneOptions{
-        URL:      repoURL,
-        Auth:     auth,
-        Progress: nil, // Set to os.Stdout for debugging
-    })
-    if err != nil {
-        return fmt.Errorf("clone: %w", err)
-    }
-    
+    slog.Info("cleaned up repo directory", "dir", repoDir)
     return nil
 }
 ```
 
 ---
 
-### 2. `git init`
+### 2. Fresh Clone (Pull)
 
-**Current (CLI):**
+**`git clone <url> <dir>`:**
+
 ```go
-if err := g.runGitCommand(repoDir, "init"); err != nil {
-    return fmt.Errorf("init: %w", err)
-}
-```
+func cloneRepo(repoDir, repoURL, token string) error {
+    // Create parent directory
+    if err := os.MkdirAll(filepath.Dir(repoDir), 0700); err != nil {
+        return fmt.Errorf("create dir: %w", err)
+    }
 
-**Replacement (go-git):**
-```go
-_, err := git.PlainInit(repoDir, false)
-if err != nil {
-    return fmt.Errorf("init: %w", err)
-}
-```
+    // Clone with authentication
+    auth := &http.BasicAuth{
+        Username: "token",
+        Password: token,
+    }
 
----
-
-### 3. `git checkout -b main`
-
-**Current (CLI):**
-```go
-if err := g.runGitCommand(repoDir, "checkout", "-b", "main"); err != nil {
-    return fmt.Errorf("create main branch: %w", err)
-}
-```
-
-**Replacement (go-git):**
-```go
-// Create and checkout main branch
-err := repo.CreateBranch(&config.Branch{
-    Name: "main",
-})
-if err != nil {
-    return fmt.Errorf("create main branch: %w", err)
-}
-
-// Checkout the branch
-w, err := repo.Worktree()
-if err != nil {
-    return err
-}
-err = w.Checkout(&git.CheckoutOptions{
-    Branch: plumbing.NewBranchReferenceName("main"),
-    Create: true,
-})
-if err != nil {
-    return fmt.Errorf("checkout main: %w", err)
-}
-```
-
----
-
-### 4. `git remote add origin <url>`
-
-**Current (CLI):**
-```go
-if err := g.runGitCommand(repoDir, "remote", "add", "origin", repoURL); err != nil {
-    return fmt.Errorf("add remote: %w", err)
-}
-```
-
-**Replacement (go-git):**
-```go
-_, err := repo.CreateRemote(&config.RemoteConfig{
-    Name: "origin",
-    URLs: []string{repoURL},
-})
-if err != nil {
-    return fmt.Errorf("add remote: %w", err)
-}
-```
-
----
-
-### 5. `git remote set-url origin <url>`
-
-**Current (CLI):**
-```go
-// For push
-pushURL := g.authURL(config.RepoUrl, token)
-if err := g.runGitCommand(repoDir, "remote", "set-url", "origin", pushURL); err != nil {
-    return fmt.Errorf("set remote url: %w", err)
-}
-```
-
-**Replacement (go-git):**
-```go
-// Update remote URL with auth
-remote, err := repo.Remote("origin")
-if err != nil {
-    return fmt.Errorf("get remote: %w", err)
-}
-
-// Remove and re-add with new URL
-err = repo.DeleteRemote("origin")
-if err != nil {
-    return err
-}
-
-_, err = repo.CreateRemote(&config.RemoteConfig{
-    Name: "origin",
-    URLs: []string{config.RepoUrl}, // URL stored in config
-})
-if err != nil {
-    return err
-}
-
-// Auth is passed during Push/Fetch operations, not in remote URL
-```
-
-**Note:** With go-git, authentication is passed during `Push()`/`Fetch()`/`Pull()` operations, not embedded in the remote URL. This is cleaner and more secure.
-
----
-
-### 6. `git add -A .`
-
-**Current (CLI):**
-```go
-if err := g.runGitCommand(repoDir, "add", "-A", "."); err != nil {
-    return fmt.Errorf("git add: %w", err)
-}
-```
-
-**Replacement (go-git):**
-```go
-w, err := repo.Worktree()
-if err != nil {
-    return fmt.Errorf("get worktree: %w", err)
-}
-
-// Add all changes
-err = w.AddWithOptions(&git.AddOptions{All: true})
-if err != nil {
-    return fmt.Errorf("git add: %w", err)
-}
-```
-
----
-
-### 7. `git status --porcelain`
-
-**Current (CLI):**
-```go
-statusCmd := exec.Command("git", "status", "--porcelain")
-statusCmd.Dir = repoDir
-output, err := statusCmd.Output()
-if err != nil {
-    return nil, fmt.Errorf("git status: %w", err)
-}
-
-// If no changes, skip commit
-if len(output) == 0 {
-    return &PullResult{Status: "success", Operation: "push", Message: "no changes to push"}, nil
-}
-```
-
-**Replacement (go-git):**
-```go
-w, err := repo.Worktree()
-if err != nil {
-    return nil, fmt.Errorf("get worktree: %w", err)
-}
-
-status, err := w.Status()
-if err != nil {
-    return nil, fmt.Errorf("git status: %w", err)
-}
-
-// If no changes, skip commit
-if status.IsClean() {
-    return &PullResult{Status: "success", Operation: "push", Message: "no changes to push"}, nil
-}
-```
-
----
-
-### 8. `git config user.email` and `git config user.name`
-
-**Current (CLI):**
-```go
-if err := g.runGitCommand(repoDir, "config", "user.email", "webpass@local"); err != nil {
-    return nil, fmt.Errorf("git config email: %w", err)
-}
-if err := g.runGitCommand(repoDir, "config", "user.name", "WebPass"); err != nil {
-    return nil, fmt.Errorf("git config name: %w", err)
-}
-```
-
-**Replacement (go-git):**
-```go
-// Set in commit options, not globally
-commitOpts := &git.CommitOptions{
-    Author: &object.Signature{
-        Name:  "WebPass",
-        Email: "webpass@local",
-        When:  time.Now(),
-    },
-}
-```
-
----
-
-### 9. `git commit -m "<message>"`
-
-**Current (CLI):**
-```go
-commitMsg := fmt.Sprintf("Sync: %s", time.Now().Format(time.RFC3339))
-if err := g.runGitCommand(repoDir, "commit", "-m", commitMsg); err != nil {
-    return nil, fmt.Errorf("git commit: %w", err)
-}
-```
-
-**Replacement (go-git):**
-```go
-w, err := repo.Worktree()
-if err != nil {
-    return nil, fmt.Errorf("get worktree: %w", err)
-}
-
-commitMsg := fmt.Sprintf("Sync: %s", time.Now().Format(time.RFC3339))
-
-hash, err := w.Commit(commitMsg, &git.CommitOptions{
-    Author: &object.Signature{
-        Name:  "WebPass",
-        Email: "webpass@local",
-        When:  time.Now(),
-    },
-})
-if err != nil {
-    return nil, fmt.Errorf("git commit: %w", err)
-}
-
-slog.Info("committed changes", "hash", hash.String())
-```
-
----
-
-### 10. `git push origin main`
-
-**Current (CLI):**
-```go
-if err := g.runGitCommand(repoDir, "push", "origin", "main"); err != nil {
-    errMsg := err.Error()
-    _ = g.q.LogGitSync(ctx, dbgen.LogGitSyncParams{
-        Fingerprint: fingerprint,
-        Operation:   "push",
-        Status:      "failed",
-        Message:     &errMsg,
+    _, err := git.PlainClone(repoDir, false, &git.CloneOptions{
+        URL:      repoURL,
+        Auth:     auth,
+        Progress: nil,
     })
-    return nil, fmt.Errorf("git push: %w", err)
+    if err != nil {
+        return fmt.Errorf("clone: %w", err)
+    }
+
+    slog.Info("cloned remote repository", "url", repoURL, "dir", repoDir)
+    return nil
 }
 ```
 
-**Replacement (go-git) - Simplified Direct Push:**
+---
+
+### 3. Fresh Init (Push)
+
+**`git init`:**
 
 ```go
-func (g *GitService) Push(ctx context.Context, fingerprint string, token string) (*PullResult, error) {
-    g.mu.Lock()
-    defer g.mu.Unlock()
+func initRepo(repoDir string) (*git.Repository, error) {
+    // Create directory
+    if err := os.MkdirAll(repoDir, 0700); err != nil {
+        return nil, fmt.Errorf("create dir: %w", err)
+    }
 
-    config, err := g.q.GetGitConfig(ctx, fingerprint)
+    // Initialize git repo
+    repo, err := git.PlainInit(repoDir, false)
     if err != nil {
-        return nil, fmt.Errorf("get config: %w", err)
-    }
-    if token == "" {
-        return nil, errors.New("git token required")
+        return nil, fmt.Errorf("init: %w", err)
     }
 
-    repoDir := g.repoDir(fingerprint)
-    repo, err := git.PlainOpen(repoDir)
+    slog.Info("initialized git repository", "dir", repoDir)
+    return repo, nil
+}
+```
+
+---
+
+### 4. Add Remote
+
+**`git remote add origin <url>`:**
+
+```go
+func addRemote(repo *git.Repository, url string) error {
+    _, err := repo.CreateRemote(&config.RemoteConfig{
+        Name: "origin",
+        URLs: []string{url},
+    })
     if err != nil {
-        return nil, fmt.Errorf("open repo: %w", err)
+        return fmt.Errorf("add remote: %w", err)
     }
 
-    // Export database entries to .password-store directory
-    if err := g.exportPasswordStore(ctx, fingerprint); err != nil {
-        return nil, fmt.Errorf("export password store: %w", err)
-    }
+    slog.Info("added remote origin", "url", url)
+    return nil
+}
+```
 
-    // Stage all changes
-    w, err := repo.Worktree()
+---
+
+### 5. Stage All Files
+
+**`git add --all`:**
+
+```go
+func stageAll(w *git.Worktree) error {
+    err := w.AddWithOptions(&git.AddOptions{All: true})
     if err != nil {
-        return nil, fmt.Errorf("get worktree: %w", err)
+        return fmt.Errorf("git add: %w", err)
     }
 
-    err = w.AddWithOptions(&git.AddOptions{All: true})
-    if err != nil {
-        return nil, fmt.Errorf("git add: %w", err)
-    }
+    slog.Info("staged all files")
+    return nil
+}
+```
 
-    // Check if there are any changes to commit
-    status, err := w.Status()
-    if err != nil {
-        return nil, fmt.Errorf("git status: %w", err)
-    }
+---
 
-    // If no changes, skip commit
-    if status.IsClean() {
-        slog.Info("git push: no changes to push", "fingerprint", fingerprint)
-        return &PullResult{
-            Status:    "success",
-            Operation: "push",
-            Message:   "no changes to push",
-        }, nil
-    }
+### 6. Commit
 
-    // Commit changes
-    commitMsg := fmt.Sprintf("Sync: %s", time.Now().Format(time.RFC3339))
-    hash, err := w.Commit(commitMsg, &git.CommitOptions{
+**`git commit -m "message"`:**
+
+```go
+func commit(w *git.Worktree, message string) (plumbing.Hash, error) {
+    hash, err := w.Commit(message, &git.CommitOptions{
         Author: &object.Signature{
             Name:  "WebPass",
             Email: "webpass@local",
@@ -476,36 +253,234 @@ func (g *GitService) Push(ctx context.Context, fingerprint string, token string)
         },
     })
     if err != nil {
-        return nil, fmt.Errorf("git commit: %w", err)
+        return plumbing.ZeroHash, fmt.Errorf("git commit: %w", err)
     }
-    slog.Info("committed changes", "hash", hash.String())
 
-    // Push with authentication
-    auth := &http.BasicAuth{Username: "token", Password: token}
-    err = repo.Push(&git.PushOptions{
+    slog.Info("committed changes", "hash", hash.String(), "message", message)
+    return hash, nil
+}
+```
+
+---
+
+### 7. Force Push
+
+**`git push --force origin main`:**
+
+```go
+func forcePush(repo *git.Repository, token string) error {
+    auth := &http.BasicAuth{
+        Username: "token",
+        Password: token,
+    }
+
+    err := repo.Push(&git.PushOptions{
         RemoteName: "origin",
         Auth:       auth,
         RefSpecs:   []config.RefSpec{config.RefSpec("+refs/heads/main:refs/heads/main")},
+        Force:      true,
+    })
+    if err != nil {
+        return fmt.Errorf("git push --force: %w", err)
+    }
+
+    slog.Info("pushed --force to remote")
+    return nil
+}
+```
+
+---
+
+### 8. Export Entries (Push)
+
+**Export all DB entries to `.gpg` files:**
+
+```go
+func exportPasswordStore(ctx context.Context, q *dbgen.Queries, fingerprint, repoDir string) (int, error) {
+    // Get all entries
+    entries, err := q.ListEntriesContent(ctx, fingerprint)
+    if err != nil {
+        return 0, fmt.Errorf("list entries: %w", err)
+    }
+
+    // Write each entry to .gpg file
+    for _, entry := range entries {
+        entryPath := filepath.Join(repoDir, entry.Path+".gpg")
+        
+        // Create parent directory
+        entryDir := filepath.Dir(entryPath)
+        if err := os.MkdirAll(entryDir, 0700); err != nil {
+            return 0, fmt.Errorf("create dir: %w", err)
+        }
+
+        // Write encrypted content
+        if err := os.WriteFile(entryPath, entry.Content, 0600); err != nil {
+            return 0, fmt.Errorf("write entry %s: %w", entry.Path, err)
+        }
+
+        slog.Info("exported entry", "path", entry.Path)
+    }
+
+    slog.Info("exported password store", "entries", len(entries))
+    return len(entries), nil
+}
+```
+
+---
+
+### 9. Import Entries (Pull)
+
+**Delete all DB entries, then import from cloned repo:**
+
+```go
+func syncDatabase(ctx context.Context, q *dbgen.Queries, fingerprint, repoDir string) (int, error) {
+    // Delete all existing entries
+    entries, err := q.ListEntries(ctx, fingerprint)
+    if err != nil {
+        return 0, fmt.Errorf("list entries: %w", err)
+    }
+
+    for _, entry := range entries {
+        if err := q.DeleteEntry(ctx, dbgen.DeleteEntryParams{
+            Fingerprint: fingerprint,
+            Path:        entry.Path,
+        }); err != nil {
+            return 0, fmt.Errorf("delete entry %s: %w", entry.Path, err)
+        }
+        slog.Info("deleted entry", "path", entry.Path)
+    }
+
+    // Walk repo directory and import .gpg files
+    count := 0
+    err = filepath.Walk(repoDir, func(path string, info os.FileInfo, err error) error {
+        if err != nil {
+            return err
+        }
+
+        // Skip directories and non-.gpg files
+        if info.IsDir() || !strings.HasSuffix(path, ".gpg") {
+            return nil
+        }
+
+        // Skip .git directory
+        if strings.Contains(path, "/.git/") {
+            return filepath.SkipDir
+        }
+
+        // Get relative path
+        relPath, err := filepath.Rel(repoDir, path)
+        if err != nil {
+            return err
+        }
+
+        entryPath := strings.TrimSuffix(relPath, ".gpg")
+        entryPath = filepath.ToSlash(entryPath)
+
+        // Read content
+        content, err := os.ReadFile(path)
+        if err != nil {
+            return err
+        }
+
+        // Upsert to database
+        if err := q.UpsertEntry(ctx, dbgen.UpsertEntryParams{
+            Fingerprint: fingerprint,
+            Path:        entryPath,
+            Content:     content,
+        }); err != nil {
+            slog.Error("upsert entry", "path", entryPath, "error", err)
+            return err
+        }
+
+        slog.Info("imported entry", "path", entryPath)
+        count++
+        return nil
     })
 
     if err != nil {
-        if err == git.ErrNonFastForwardUpdate {
-            // Remote has newer commits - user must pull first
-            return nil, errors.New("remote has changes, please pull first")
-        }
-        // Log failure
-        errMsg := err.Error()
-        _ = g.q.LogGitSync(ctx, dbgen.LogGitSyncParams{
-            Fingerprint: fingerprint,
-            Operation:   "push",
-            Status:      "failed",
-            Message:     &errMsg,
-        })
-        return nil, fmt.Errorf("git push: %w", err)
+        return 0, err
     }
 
-    // Log success
-    var entriesChanged int64 = 1
+    slog.Info("synced database", "entries", count)
+    return count, nil
+}
+```
+
+---
+
+## Complete Push Implementation
+
+```go
+func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*PullResult, error) {
+    g.mu.Lock()
+    defer g.mu.Unlock()
+
+    // Get config
+    config, err := g.q.GetGitConfig(ctx, fingerprint)
+    if err != nil {
+        return nil, fmt.Errorf("get config: %w", err)
+    }
+
+    repoDir := filepath.Join(g.repoRoot, fingerprint)
+
+    // Step 1: Cleanup before
+    slog.Info("[PUSH] Starting git push", "fingerprint", fingerprint)
+    if err := cleanupRepoDir(g.repoRoot, fingerprint); err != nil {
+        return nil, err
+    }
+
+    // Step 2: Create fresh directory
+    if err := os.MkdirAll(repoDir, 0700); err != nil {
+        return nil, fmt.Errorf("create dir: %w", err)
+    }
+
+    // Step 3: Export entries
+    count, err := exportPasswordStore(ctx, g.q, fingerprint, repoDir)
+    if err != nil {
+        return nil, fmt.Errorf("export entries: %w", err)
+    }
+    slog.Info("[PUSH] Exported entries", "count", count)
+
+    // Step 4: Git init
+    repo, err := initRepo(repoDir)
+    if err != nil {
+        return nil, err
+    }
+
+    // Step 5: Stage all
+    w, err := repo.Worktree()
+    if err != nil {
+        return nil, fmt.Errorf("get worktree: %w", err)
+    }
+    if err := stageAll(w); err != nil {
+        return nil, err
+    }
+
+    // Step 6: Commit
+    commitMsg := fmt.Sprintf("Sync: %s", time.Now().Format(time.RFC3339))
+    _, err = commit(w, commitMsg)
+    if err != nil {
+        return nil, err
+    }
+
+    // Step 7: Add remote
+    if err := addRemote(repo, config.RepoUrl); err != nil {
+        return nil, err
+    }
+
+    // Step 8: Force push
+    if err := forcePush(repo, token); err != nil {
+        return nil, err
+    }
+
+    // Step 9: Cleanup after
+    if err := cleanupRepoDir(g.repoRoot, fingerprint); err != nil {
+        return nil, err
+    }
+
+    slog.Info("[PUSH] Finished", "fingerprint", fingerprint, "entries", count)
+
+    entriesChanged := int64(count)
     if err := g.q.LogGitSync(ctx, dbgen.LogGitSyncParams{
         Fingerprint:    fingerprint,
         Operation:      "push",
@@ -516,566 +491,118 @@ func (g *GitService) Push(ctx context.Context, fingerprint string, token string)
         slog.Warn("log git sync failed", "error", err)
     }
 
-    slog.Info("pushed to remote", "fingerprint", fingerprint)
-    return &PullResult{Status: "success", Operation: "push", Message: "pushed to remote"}, nil
-}
-```
-
-| Aspect | Behavior |
-|--------|----------|
-| **When** | No conflicts (fast-forward) |
-| **History** | Preserved |
-| **Speed** | Fast |
-| **Error** | "Remote has changes, please pull first" |
-
----
-
-### 11. `git fetch origin`
-
-**Current (CLI):**
-```go
-if err := g.runGitCommand(repoDir, "fetch", "origin"); err != nil {
-    return nil, fmt.Errorf("git fetch: %w", err)
-}
-```
-
-**Replacement (go-git):**
-```go
-err = repo.Fetch(&git.FetchOptions{
-    RemoteName: "origin",
-    Auth: &http.BasicAuth{
-        Username: "token",
-        Password: token,
-    },
-    Progress: nil,
-    RefSpecs: []config.RefSpec{
-        config.RefSpec("+refs/heads/*:refs/remotes/origin/*"),
-    },
-})
-if err != nil && err != git.NoErrAlreadyUpToDate {
-    return nil, fmt.Errorf("git fetch: %w", err)
+    return &PullResult{
+        Status:         "success",
+        Operation:      "push",
+        EntriesChanged: count,
+        Message:        fmt.Sprintf("synced %d entries", count),
+    }, nil
 }
 ```
 
 ---
 
-### 12. `git pull --ff-only origin main`
-
-**Current (CLI):**
-```go
-pullErr = g.runGitCommand(repoDir, "pull", "--ff-only", "origin", "main")
-```
-
-**Replacement (go-git) - Simplified Direct Pull:**
-
-Note: go-git's `Pull()` doesn't have a `FastForwardOnly` option and will create merge commits by default. We manually check if fast-forward is possible before pulling.
+## Complete Pull Implementation
 
 ```go
-func (g *GitService) Pull(ctx context.Context, fingerprint string, token string) (*PullResult, error) {
+func (g *GitService) Pull(ctx context.Context, fingerprint, token string) (*PullResult, error) {
     g.mu.Lock()
     defer g.mu.Unlock()
 
+    // Get config
     config, err := g.q.GetGitConfig(ctx, fingerprint)
     if err != nil {
         return nil, fmt.Errorf("get config: %w", err)
     }
-    if token == "" {
-        return nil, errors.New("git token required")
+
+    repoDir := filepath.Join(g.repoRoot, fingerprint)
+
+    // Step 1: Cleanup before
+    slog.Info("[PULL] Starting git pull", "fingerprint", fingerprint)
+    if err := cleanupRepoDir(g.repoRoot, fingerprint); err != nil {
+        return nil, err
     }
 
-    repoDir := g.repoDir(fingerprint)
-    repo, err := git.PlainOpen(repoDir)
-    if err != nil {
-        return nil, fmt.Errorf("open repo: %w", err)
+    // Step 2: Clone remote
+    if err := cloneRepo(repoDir, config.RepoUrl, token); err != nil {
+        return nil, err
     }
 
-    // Pull with authentication
-    auth := &http.BasicAuth{Username: "token", Password: token}
-
-    // First, fetch to check remote state
-    err = repo.Fetch(&git.FetchOptions{
-        RemoteName: "origin",
-        Auth:       auth,
-    })
-
-    if err != nil && err != git.NoErrAlreadyUpToDate {
-        return nil, fmt.Errorf("git fetch: %w", err)
-    }
-
-    // Check if we can fast-forward by comparing local and remote refs
-    head, err := repo.Head()
-    if err != nil {
-        return nil, fmt.Errorf("get HEAD: %w", err)
-    }
-
-    remoteRef, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", "main"), true)
-    if err != nil {
-        return nil, fmt.Errorf("get remote ref: %w", err)
-    }
-
-    // If local HEAD equals remote, already up to date
-    if head.Hash() == remoteRef.Hash() {
-        return &PullResult{
-            Status:    "success",
-            Operation: "pull",
-            Message:   "already up to date",
-        }, nil
-    }
-
-    // Check if local HEAD is an ancestor of remote (can fast-forward)
-    // Walk commit history from remote to see if we find local HEAD
-    isAncestor := false
-    commitIter, err := repo.Log(&git.LogOptions{From: remoteRef.Hash()})
-    if err == nil {
-        defer commitIter.Close()
-        _ = commitIter.ForEach(func(c *object.Commit) error {
-            if c.Hash == head.Hash() {
-                isAncestor = true
-                return errors.New("found") // Stop iteration
-            }
-            return nil
-        })
-    }
-
-    if !isAncestor {
-        // Local has commits that aren't in remote - can't fast-forward
-        return nil, errors.New("local has unpushed changes, please push first")
-    }
-
-    // Fast-forward is possible - do the pull
-    w, err := repo.Worktree()
-    if err != nil {
-        return nil, fmt.Errorf("get worktree: %w", err)
-    }
-
-    err = w.Pull(&git.PullOptions{
-        RemoteName: "origin",
-        Auth:       auth,
-    })
-
-    if err != nil {
-        if err == git.NoErrAlreadyUpToDate {
-            return &PullResult{
-                Status:    "success",
-                Operation: "pull",
-                Message:   "already up to date",
-            }, nil
-        }
-        return nil, fmt.Errorf("git pull: %w", err)
-    }
-
-    // Sync database with updated worktree
-    entriesChanged, err := g.syncDatabase(ctx, fingerprint)
+    // Step 3: Delete all DB entries and import from clone
+    count, err := syncDatabase(ctx, g.q, fingerprint, repoDir)
     if err != nil {
         return nil, fmt.Errorf("sync database: %w", err)
     }
 
-    // Log success...
+    // Step 4: Cleanup after
+    if err := cleanupRepoDir(g.repoRoot, fingerprint); err != nil {
+        return nil, err
+    }
+
+    slog.Info("[PULL] Finished", "fingerprint", fingerprint, "entries", count)
+
+    entriesChanged := int64(count)
+    msg := fmt.Sprintf("synced %d entries from remote", count)
+    if err := g.q.LogGitSync(ctx, dbgen.LogGitSyncParams{
+        Fingerprint:    fingerprint,
+        Operation:      "pull",
+        Status:         "success",
+        Message:        &msg,
+        EntriesChanged: &entriesChanged,
+    }); err != nil {
+        slog.Warn("log git sync failed", "error", err)
+    }
+
     return &PullResult{
         Status:         "success",
         Operation:      "pull",
-        EntriesChanged: entriesChanged,
-        Message:        fmt.Sprintf("pulled %d entries from remote", entriesChanged),
+        EntriesChanged: count,
+        Message:        msg,
     }, nil
 }
 ```
 
-| Aspect | Behavior |
-|--------|----------|
-| **When** | Local is behind remote (fast-forward possible) |
-| **Error** | "Local has unpushed changes, please push first" if local has commits not in remote |
-| **Already up-to-date** | Returns success with message "already up to date" |
+---
+
+## Logging
+
+All operations log to console (`docker logs webpass`):
+
+**Format:**
+```
+[PUSH] Starting git push for fingerprint=abc123
+[PUSH] Cleaning up /data/git-repos/abc123
+[PUSH] Exporting 5 entries from database to disk
+[PUSH]   - email.gpg
+[PUSH]   - work/database.gpg
+[PUSH] Initialized git repository
+[PUSH] Staged all files
+[PUSH] Committed with message: "Sync: 2026-03-27T04:30:00Z"
+[PUSH] Added remote origin: https://github.com/user/repo.git
+[PUSH] Pushed --force to origin/main
+[PUSH] Cleaning up /data/git-repos/abc123
+[PUSH] Finished - synced 5 entries
+```
+
+**Key information:**
+- Operation type: `[PUSH]` or `[PULL]`
+- Fingerprint for traceability
+- File paths for debugging
+- Entry counts
+- Error messages with context
 
 ---
 
-### 13. Reset (Re-clone from Remote)
-
-**New operation** - Not a git CLI command, but a helper function for the "nuclear option".
-
-**Use case:** When sync state is confused or user wants to discard local and re-clone from remote.
-
-**Replacement (go-git):**
-
-```go
-func (g *GitService) Reset(ctx context.Context, fingerprint string, token string) (*PullResult, error) {
-    g.mu.Lock()
-    defer g.mu.Unlock()
-
-    config, err := g.q.GetGitConfig(ctx, fingerprint)
-    if err != nil {
-        return nil, fmt.Errorf("get config: %w", err)
-    }
-    if token == "" {
-        return nil, errors.New("git token required")
-    }
-
-    repoDir := g.repoDir(fingerprint)
-
-    // Delete local repo directory
-    if err := os.RemoveAll(repoDir); err != nil {
-        return nil, fmt.Errorf("remove local repo: %w", err)
-    }
-    slog.Info("deleted local repo", "dir", repoDir)
-
-    // Re-clone from remote
-    auth := &http.BasicAuth{Username: "token", Password: token}
-    _, err = git.PlainClone(repoDir, false, &git.CloneOptions{
-        URL:  config.RepoUrl,
-        Auth: auth,
-    })
-    if err != nil {
-        return nil, fmt.Errorf("clone from remote: %w", err)
-    }
-    slog.Info("cloned from remote", "fingerprint", fingerprint)
-
-    // Sync database with cloned state
-    entriesChanged, err := g.syncDatabase(ctx, fingerprint)
-    if err != nil {
-        return nil, fmt.Errorf("sync database: %w", err)
-    }
-
-    return &PullResult{
-        Status:         "success",
-        Operation:      "reset",
-        EntriesChanged: entriesChanged,
-        Message:        fmt.Sprintf("reset and synced %d entries from remote", entriesChanged),
-    }, nil
-}
-```
-
-| Aspect | Behavior |
-|--------|----------|
-| **When** | Sync state confused, switching devices, remote recreated |
-| **Effect** | Discards all local changes |
-| **Speed** | Slow (full clone) |
-| **Warning** | All unpushed local changes will be lost |
-
----
-
-### 14. `git ls-tree -r --name-only origin/main -- .password-store`
-
-**Current (CLI):**
-```go
-cmd := exec.Command("git", "ls-tree", "-r", "--name-only", "origin/main", "--", ".password-store")
-cmd.Dir = repoDir
-remoteOutput, err := cmd.Output()
-if err != nil {
-    return conflicts, nil
-}
-
-remoteFiles := strings.Split(strings.TrimSpace(string(remoteOutput)), "\n")
-```
-
-**Replacement (go-git):**
-```go
-// Get origin/main reference
-remoteRef, err := repo.Reference(
-    plumbing.NewRemoteReferenceName("origin", "main"),
-    true,
-)
-if err != nil {
-    return nil, err // Remote might not exist yet
-}
-
-// Get commit object
-commit, err := repo.CommitObject(remoteRef.Hash())
-if err != nil {
-    return nil, fmt.Errorf("get commit: %w", err)
-}
-
-// Get tree
-tree, err := commit.Tree()
-if err != nil {
-    return nil, fmt.Errorf("get tree: %w", err)
-}
-
-// Build set of remote file PATHS
-// In zero-knowledge model, we only compare paths, not content
-remoteFileSet := make(map[string]bool)
-err = tree.Files().ForEach(func(f *object.File) error {
-    if strings.HasSuffix(f.Name, ".gpg") && strings.HasPrefix(f.Name, ".password-store/") {
-        path := strings.TrimPrefix(f.Name, ".password-store/")
-        path = strings.TrimSuffix(path, ".gpg")
-        remoteFileSet[path] = true
-    }
-    return nil
-})
-if err != nil {
-    return nil, fmt.Errorf("walk tree: %w", err)
-}
-```
-
-**Note:** Zero-knowledge architecture means the server cannot compare encrypted content. Path comparison is used only for informational purposes (e.g., showing what files exist on remote).
-
----
-
-### 15. `git show origin/main:<path>`
-
-**Use case:** Read a file from a specific commit (returns encrypted blob - server cannot decrypt).
-
-**Replacement (go-git):**
-```go
-// Get origin/main reference
-remoteRef, err := repo.Reference(
-    plumbing.NewRemoteReferenceName("origin", "main"),
-    true,
-)
-if err != nil {
-    return nil, err
-}
-
-// Get commit
-commit, err := repo.CommitObject(remoteRef.Hash())
-if err != nil {
-    return nil, err
-}
-
-// Get file from commit
-file, err := commit.File(remotePath)
-if err != nil {
-    return nil, err
-}
-
-// Read content (returns encrypted blob - server cannot decrypt)
-remoteContent, err := file.Contents()
-if err != nil {
-    return nil, err
-}
-```
-
-**Note:** Content is encrypted - can only be decrypted by client with private key.
-
----
-
-### 16. `git log -1 --format=%cI -- <file>`
-
-**Current (CLI):**
-```go
-// Get local commit time
-localTimeCmd := exec.Command("git", "log", "-1", "--format=%cI", "--", localFile)
-localTimeCmd.Dir = repoDir
-localTimeOutput, err := localTimeCmd.Output()
-if err == nil {
-    conflict.LocalTime = strings.TrimSpace(string(localTimeOutput))
-}
-
-// Get remote commit time
-remoteTimeCmd := exec.Command("git", "log", "-1", "--format=%cI", "--", remotePath)
-remoteTimeCmd.Dir = repoDir
-remoteTimeOutput, err := remoteTimeCmd.Output()
-if err == nil {
-    conflict.RemoteTime = strings.TrimSpace(string(remoteTimeOutput))
-}
-```
-
-**Replacement (go-git):**
-```go
-// Helper function to get commit time for a file
-func (g *GitService) getFileCommitTime(repo *git.Repository, filePath string, remote bool) (string, error) {
-    var fromHash plumbing.Hash
-    var err error
-
-    if remote {
-        ref, err := repo.Reference(
-            plumbing.NewRemoteReferenceName("origin", "main"),
-            true,
-        )
-        if err != nil {
-            return "", err
-        }
-        fromHash = ref.Hash()
-    } else {
-        ref, err := repo.Head()
-        if err != nil {
-            return "", err
-        }
-        fromHash = ref.Hash()
-    }
-
-    // Get commit log for specific file
-    commitIter, err := repo.Log(&git.LogOptions{
-        FileName: &filePath,
-        From:     fromHash,
-    })
-    if err != nil {
-        return "", err
-    }
-
-    // Get most recent commit
-    commit, err := commitIter.Next()
-    if err != nil {
-        return "", err
-    }
-
-    // Return RFC3339 timestamp (equivalent to %cI)
-    return commit.Committer.When.Format(time.RFC3339), nil
-}
-```
-
----
-
-## Complete Helper Function Removal
-
-### Remove `runGitCommand`
-
-**Current:**
-```go
-func (g *GitService) runGitCommand(dir string, args ...string) error {
-    cmd := exec.Command("git", args...)
-    cmd.Dir = dir
-    cmd.Stdout = nil
-    cmd.Stderr = nil
-    return cmd.Run()
-}
-```
-
-**Action:** Delete this function entirely - no longer needed.
-
----
-
-### Remove `authURL`
-
-**Current:**
-```go
-func (g *GitService) authURL(repoURL, token string) string {
-    // Convert https://github.com/user/repo.git to https://token@github.com/user/repo.git
-    if strings.HasPrefix(repoURL, "https://") {
-        return strings.Replace(repoURL, "https://", "https://"+token+"@", 1)
-    }
-    return repoURL
-}
-```
-
-**Action:** Delete this function - authentication is now passed via `http.BasicAuth` struct.
-
----
-
-## Import Changes
-
-### Before:
-```go
-import (
-    "context"
-    "database/sql"
-    "errors"
-    "fmt"
-    "log/slog"
-    "os"
-    "os/exec"  // REMOVE
-    "path/filepath"
-    "strings"
-    "sync"
-    "time"
-
-    "srv.exe.dev/db/dbgen"
-)
-```
-
-### After:
-```go
-import (
-    "context"
-    "database/sql"
-    "errors"
-    "fmt"
-    "io"
-    "log/slog"
-    "os"
-    "path/filepath"
-    "strings"
-    "sync"
-    "time"
-
-    "github.com/go-git/go-git/v5"
-    "github.com/go-git/go-git/v5/config"
-    "github.com/go-git/go-git/v5/plumbing"
-    "github.com/go-git/go-git/v5/plumbing/object"
-    "github.com/go-git/go-git/v5/plumbing/transport/http"
-    "srv.exe.dev/db/dbgen"
-)
-```
-
----
-
-## Error Handling Notes
-
-go-git returns typed errors that can be checked:
-
-```go
-import "github.com/go-git/go-git/v5"
-
-// Common errors to handle:
-- git.NoErrAlreadyUpToDate  // Fetch/pull: remote is already up to date
-- git.ErrNonFastForwardUpdate // Pull: would require non-fast-forward merge
-- git.ErrRepositoryNotExists  // Clone: repository doesn't exist
-- git.ErrAuthenticationFailed // Auth: invalid credentials
-```
-
-Example:
-```go
-err = repo.Fetch(&git.FetchOptions{...})
-if err != nil && err != git.NoErrAlreadyUpToDate {
-    return fmt.Errorf("git fetch: %w", err)
-}
-```
-
----
-
-## Summary Table
-
-| Git CLI Command | go-git Equivalent | 1:1? | Notes |
-|-----------------|-------------------|------|-------|
-| `git clone <url> .` | `git.PlainClone()` | ✅ Yes | No |
-| `git init` | `git.PlainInit()` | ✅ Yes | No |
-| `git checkout -b main` | `repo.CreateBranch()` + `w.Checkout()` | ✅ Yes | No |
-| `git remote add origin` | `repo.CreateRemote()` | ✅ Yes | No |
-| `git remote set-url` | `repo.DeleteRemote()` + `CreateRemote()` | ✅ Yes | No |
-| `git add -A` | `w.AddWithOptions(&git.AddOptions{All: true})` | ✅ Yes | No |
-| `git status --porcelain` | `w.Status().IsClean()` | ✅ Yes | No |
-| `git config user.email/name` | `git.CommitOptions{Author: ...}` | ✅ Yes | No |
-| `git commit -m` | `w.Commit()` | ✅ Yes | No |
-| `git push origin main` | `repo.Push()` | ✅ Yes | Error if non-fast-forward |
-| `git fetch origin` | `repo.Fetch()` | ✅ Yes | No |
-| `git pull --ff-only` | `w.Pull(FastForwardOnly: true)` | ✅ Yes | Error if non-fast-forward |
-| `git ls-tree -r` | `commit.Tree().Files().ForEach()` | ✅ Yes | Path-based only, not content |
-| `git show <ref>:<path>` | `commit.File(path).Contents()` | ✅ Yes | Returns encrypted blob only |
-| `git log -1 --format=%cI` | `repo.Log()` → `commit.Committer.When` | ✅ Yes | No |
-
-### Legend
-
-| Symbol | Meaning |
-|--------|---------|
-| ✅ Yes | Direct 1:1 replacement, identical behavior |
-
-### Error Handling
-
-| Operation | Error Condition | User Message |
-|-----------|-----------------|--------------|
-| **Push** | Non-fast-forward rejection | "Remote has changes, please pull first" |
-| **Pull** | Non-fast-forward rejection | "Local has unpushed changes, please push first" |
-| **Reset** | N/A | Re-clones from remote (discards local) |
-
----
-
-## Testing Checklist
-
-After implementation:
-
-- [ ] Build succeeds: `go build -o webpass-server ./cmd/srv`
-- [ ] No `os/exec` imports in `srv/git.go`
-- [ ] No `exec.Command` calls in `srv/git.go`
-- [ ] Go tests pass: `go test ./srv/...`
-- [ ] Manual test: Configure git sync
-- [ ] Manual test: Push to remote (no conflicts)
-- [ ] Manual test: Pull from remote (no conflicts)
-- [ ] Manual test: Push error when remote has changes
-- [ ] Manual test: Pull error when local has unpushed changes
-- [ ] Manual test: Reset operation (re-clone from remote)
-
----
-
-## References
-
-- [go-git Documentation](https://pkg.go.dev/github.com/go-git/go-git/v5)
-- [go-git Examples](https://github.com/go-git/go-git/tree/master/_examples)
-- [go-git Authentication](https://github.com/go-git/go-git/tree/master/_examples/authentication)
+## Summary
+
+| Aspect | Implementation |
+|--------|---------------|
+| **Push** | Fresh export + force push |
+| **Pull** | Fresh clone + import |
+| **Cleanup** | Before and after each operation |
+| **State** | No persistent local git state |
+| **Conflicts** | None (last write wins) |
+| **History** | Snapshot per push |
+| **Complexity** | Minimal |
+
+This simplified approach trades git history preservation for simplicity and reliability.
