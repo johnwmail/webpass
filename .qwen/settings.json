@@ -3,13 +3,19 @@
     "allow": [
       "Bash(./frontend/playwright-e2e-test.sh)",
       "Bash(gh *)",
+      "Bash(git push *)",
       "Bash(docker compose build *)",
       "Bash(docker compose down)",
       "Bash(docker compose up *)",
       "Bash(sqlc *)",
       "Bash(go *)",
+      "Bash(~/go/bin/sqlc *)",
       "Bash(golangci-lint *)",
-      "Bash(sleep *)"
+      "Bash(sleep *)",
+      "Bash(npx *)",
+      "Bash(rm *)",
+      "Bash(docker ps)",
+      "Bash(docker logs *)"
     ]
   },
   "$version": 3

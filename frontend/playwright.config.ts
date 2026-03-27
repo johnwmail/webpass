@@ -83,14 +83,7 @@ export default defineConfig({
   ],
 
   /* Run your local dev server before starting the tests.
-   * 
-   * IMPORTANT: For reliable test execution, use the playwright-e2e-test.sh script:
-   *   ./frontend/playwright-e2e-test.sh
-   * 
-   * This script properly manages the test database and server lifecycle.
-   * Direct `npx playwright test` may encounter SQLite issues.
-   * 
-   * Set TEST_SKIP_WEBSERVER=true if running server manually (e.g., via Docker)
+   * Set TEST_SKIP_WEBSERVER=true if running server manually.
    */
   webServer: process.env.TEST_SKIP_WEBSERVER === 'true' ? undefined : {
     command: 'go run ./cmd/srv',
