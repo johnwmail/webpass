@@ -36,6 +36,11 @@ export function Welcome({ onSetup, onLogin }: Props) {
     return upper.replace(/(.{4})/g, '$1 ').trim();
   };
 
+  const formatFpShort = (fp: string) => {
+    const upper = fp.toUpperCase();
+    return upper.slice(0, 8);
+  };
+
   const handleLogin = async (e: Event) => {
     e.preventDefault();
     if (!selectedFp || !password) return;
@@ -142,7 +147,7 @@ export function Welcome({ onSetup, onLogin }: Props) {
                   >
                     <Shield size={18} style={{ color: 'var(--accent)' }} />
                     <span class="fp">
-                      {acc.label || formatFp(acc.fingerprint)}
+                      {acc.label ? `${acc.label} (${formatFpShort(acc.fingerprint)})` : formatFp(acc.fingerprint)}
                     </span>
                     {selectedFp === acc.fingerprint && (
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--success)' }}>

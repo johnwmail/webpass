@@ -21,6 +21,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
   const [apiUrl, setApiUrl] = useState('');
   const [urlTesting, setUrlTesting] = useState(false);
 
+  const [accountName, setAccountName] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginPasswordConfirm, setLoginPasswordConfirm] = useState('');
 
@@ -159,6 +160,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
         apiUrlEncrypted: encrypted.encrypted,
         apiUrlSalt: encrypted.salt,
         apiUrlIv: encrypted.iv,
+        label: accountName.trim() || undefined,
       });
 
       api.fingerprint = fingerprint;
@@ -322,9 +324,23 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                 </span>
               </div>
               <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 20px; line-height: 1.6;">
-                This password is used for server authentication and to encrypt your API URL locally. 
+                This password is used for server authentication and to encrypt your API URL locally.
                 It is separate from your PGP passphrase.
               </p>
+              <div class="field">
+                <label class="label">Account Name (optional)</label>
+                <input
+                  class="input"
+                  type="text"
+                  value={accountName}
+                  onInput={(e) => setAccountName((e.target as HTMLInputElement).value)}
+                  placeholder="e.g., Personal, Work, etc."
+                  autocomplete="off"
+                />
+                <p class="help-text" style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">
+                  A friendly name to help you identify this account. You can leave it blank to use the fingerprint.
+                </p>
+              </div>
               <div class="field">
                 <label class="label">Login Password</label>
                 <input

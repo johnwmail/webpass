@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./frontend/playwright-e2e-test.sh)",
+      "Bash(gh *)"
+    ]
+  }
+}

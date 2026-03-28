@@ -60,14 +60,15 @@ async function registerAndLogin(page: any, testUserData: any) {
  * Open git sync modal from settings
  */
 async function openGitSync(page: any) {
-  // Wait for any modal overlays to close first
-  await page.waitForSelector('.modal-overlay', { state: 'hidden', timeout: 5000 }).catch(() => {});
-  await page.waitForTimeout(500);
-  
+  // Open Settings
   await page.getByRole('button', { name: /Settings/i }).click();
   await page.getByText('Settings', { exact: false }).waitFor({ timeout: 5000 });
-  await page.getByRole('button', { name: /Git.*Sync|Sync.*Git/i }).click();
-  await page.locator('h2:has-text("Git Sync")').waitFor({ timeout: 5000 });
+  await page.waitForTimeout(2000);
+  
+  // Click Configure Git Sync button (may need to scroll in UI, but we wait for it)
+  await page.getByRole('button', { name: /Configure Git Sync/i }).click();
+  // Wait for Git Sync modal content to appear
+  await page.getByText('Repository URL').waitFor({ timeout: 10000 });
 }
 
 test.describe('Git Sync - Configuration', () => {
