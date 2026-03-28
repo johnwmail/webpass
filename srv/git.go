@@ -167,21 +167,59 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 	}
 	slog.Info("[PUSH] Created fresh directory", "dir", repoDir)
 
-	// Step 3: Export all entries from DB
+	// Step 3: Clone remote repo first (to get history for force push)
+	auth := &http.BasicAuth{
+		Username: "token",
+		Password: token,
+	}
+	slog.Info("[PUSH] Cloning remote to get history", "url", config.RepoUrl)
+	repo, cloneErr := git.PlainClone(repoDir, false, &git.CloneOptions{
+		URL:      config.RepoUrl,
+		Auth:     auth,
+		Progress: nil,
+	})
+	if cloneErr != nil {
+		// If clone fails (empty remote), init fresh repo
+		slog.Info("[PUSH] Remote empty, initializing fresh repo", "error", cloneErr)
+		repo, err = git.PlainInit(repoDir, false)
+		if err != nil {
+			return nil, fmt.Errorf("git init: %w", err)
+		}
+		_, err = repo.CreateRemote(&gitconfig.RemoteConfig{
+			Name: "origin",
+			URLs: []string{config.RepoUrl},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("add remote: %w", err)
+		}
+	} else {
+		slog.Info("[PUSH] Cloned remote successfully")
+
+		// Step 4: Remove all files except .git (prepare for overwrite)
+		slog.Info("[PUSH] Removing all files except .git")
+		entries, err := os.ReadDir(repoDir)
+		if err != nil {
+			return nil, fmt.Errorf("read dir: %w", err)
+		}
+		for _, entry := range entries {
+			if entry.Name() == ".git" {
+				continue
+			}
+			if err := os.RemoveAll(filepath.Join(repoDir, entry.Name())); err != nil {
+				return nil, fmt.Errorf("remove file %s: %w", entry.Name(), err)
+			}
+		}
+		slog.Info("[PUSH] Cleaned working directory")
+	}
+
+	// Step 5: Export all entries from DB (overwrites remote content)
 	count, err := g.exportPasswordStore(ctx, fingerprint, repoDir)
 	if err != nil {
 		return nil, fmt.Errorf("export entries: %w", err)
 	}
 	slog.Info("[PUSH] Exported entries", "count", count)
 
-	// Step 4: Git init
-	repo, err := git.PlainInit(repoDir, false)
-	if err != nil {
-		return nil, fmt.Errorf("git init: %w", err)
-	}
-	slog.Info("[PUSH] Initialized git repository")
-
-	// Step 5: Stage all files
+	// Step 6: Stage all files
 	w, err := repo.Worktree()
 	if err != nil {
 		return nil, fmt.Errorf("get worktree: %w", err)
@@ -191,7 +229,7 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 	}
 	slog.Info("[PUSH] Staged all files")
 
-	// Step 6: Commit
+	// Step 7: Commit
 	commitMsg := fmt.Sprintf("Sync: %s", time.Now().Format(time.RFC3339))
 	_, err = w.Commit(commitMsg, &git.CommitOptions{
 		Author: &object.Signature{
@@ -205,37 +243,29 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 	}
 	slog.Info("[PUSH] Committed", "message", commitMsg)
 
-	// Step 7: Add remote
-	_, err = repo.CreateRemote(&gitconfig.RemoteConfig{
-		Name: "origin",
-		URLs: []string{config.RepoUrl},
-	})
+	// Step 8: Get remote and force push
+	remote, err := repo.Remote("origin")
 	if err != nil {
-		return nil, fmt.Errorf("add remote: %w", err)
+		return nil, fmt.Errorf("get remote: %w", err)
 	}
-	slog.Info("[PUSH] Added remote origin", "url", config.RepoUrl)
 
-	// Step 8: Force push
-	auth := &http.BasicAuth{
-		Username: "token",
-		Password: token,
-	}
-	pushErr := repo.Push(&git.PushOptions{
+	// Force push with specific branch refspec
+	refSpec := gitconfig.RefSpec("+refs/heads/main:refs/heads/main")
+	pushErr := remote.Push(&git.PushOptions{
 		RemoteName: "origin",
 		Auth:       auth,
-		RefSpecs:   []gitconfig.RefSpec{gitconfig.RefSpec("+refs/heads/main:refs/heads/main")},
+		RefSpecs:   []gitconfig.RefSpec{refSpec},
 		Force:      true,
 	})
 
-	// Check if error is "already up-to-date" which is actually success
 	if pushErr != nil {
-		if strings.Contains(pushErr.Error(), "already up-to-date") {
-			slog.Info("[PUSH] Already up-to-date (no changes to push)")
+		if pushErr == git.NoErrAlreadyUpToDate {
+			slog.Info("[PUSH] Already up-to-date")
 		} else {
 			return nil, fmt.Errorf("git push --force: %w", pushErr)
 		}
 	} else {
-		slog.Info("[PUSH] Pushed --force to origin/main")
+		slog.Info("[PUSH] Pushed --force")
 	}
 
 	// Step 9: Cleanup after
