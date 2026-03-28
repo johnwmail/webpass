@@ -357,6 +357,181 @@ test.describe('Settings', () => {
     await expect(page.getByRole('button', { name: /Git.*Sync|Sync.*Git/i })).toBeVisible();
   });
 
+  test('edit account name', async ({ page }) => {
+    testUser = generateTestUser();
+    await registerAndLogin(page, testUser);
+
+    // Open settings
+    await page.getByRole('button', { name: /Settings/i }).click();
+    await page.getByText('Settings', { exact: false }).waitFor({ timeout: 10000 });
+
+    // Account Name should show "Not set" initially
+    await expect(page.getByText('Account Name')).toBeVisible();
+    await expect(page.getByText('Not set')).toBeVisible();
+
+    // Click edit button (pencil icon)
+    await page.getByRole('button', { name: /Edit account name/i }).click();
+
+    // Input field should appear
+    const input = page.getByPlaceholder('Enter account name');
+    await expect(input).toBeVisible();
+    await expect(input).toBeFocused();
+
+    // Enter account name
+    await input.fill('test-account@example.com');
+
+    // Click save button (checkmark)
+    await page.getByRole('button', { name: '✓' }).click();
+
+    // Wait for success message
+    await page.getByText('Account name updated').waitFor({ timeout: 5000 });
+
+    // Account name should be updated
+    await expect(page.getByText('test-account@example.com')).toBeVisible();
+
+    // Close and reopen settings to verify persistence
+    await page.getByRole('button', { name: '✕' }).click();
+    await page.waitForSelector('.modal-overlay', { state: 'hidden', timeout: 5000 });
+
+    await page.getByRole('button', { name: /Settings/i }).click();
+    await page.getByText('Settings', { exact: false }).waitFor({ timeout: 10000 });
+
+    // Verify account name persists
+    await expect(page.getByText('test-account@example.com')).toBeVisible();
+  });
+
+  test('edit account name - cancel with escape key', async ({ page }) => {
+    testUser = generateTestUser();
+    await registerAndLogin(page, testUser);
+
+    // Open settings
+    await page.getByRole('button', { name: /Settings/i }).click();
+    await page.getByText('Settings', { exact: false }).waitFor({ timeout: 10000 });
+
+    // Click edit button
+    await page.getByRole('button', { name: /Edit account name/i }).click();
+
+    // Enter account name
+    const input = page.getByPlaceholder('Enter account name');
+    await expect(input).toBeVisible();
+    await input.fill('should-not-save@example.com');
+
+    // Press Escape to cancel
+    await input.press('Escape');
+
+    // Input should be hidden, original value (Not set) should show
+    await expect(input).not.toBeVisible();
+    await expect(page.getByText('Not set')).toBeVisible();
+  });
+
+  test('edit account name - cancel with X button', async ({ page }) => {
+    testUser = generateTestUser();
+    await registerAndLogin(page, testUser);
+
+    // Open settings
+    await page.getByRole('button', { name: /Settings/i }).click();
+    await page.getByText('Settings', { exact: false }).waitFor({ timeout: 10000 });
+
+    // Click edit button
+    await page.getByRole('button', { name: /Edit account name/i }).click();
+
+    // Enter account name
+    const input = page.getByPlaceholder('Enter account name');
+    await expect(input).toBeVisible();
+    await input.fill('should-not-save-2@example.com');
+
+    // Click X button to cancel
+    await page.getByRole('button', { name: '✕' }).nth(1).click();
+
+    // Input should be hidden, original value should show
+    await expect(input).not.toBeVisible();
+    await expect(page.getByText('Not set')).toBeVisible();
+  });
+
+  test('edit account name - save with enter key', async ({ page }) => {
+    testUser = generateTestUser();
+    await registerAndLogin(page, testUser);
+
+    // Open settings
+    await page.getByRole('button', { name: /Settings/i }).click();
+    await page.getByText('Settings', { exact: false }).waitFor({ timeout: 10000 });
+
+    // Click edit button
+    await page.getByRole('button', { name: /Edit account name/i }).click();
+
+    // Enter account name
+    const input = page.getByPlaceholder('Enter account name');
+    await expect(input).toBeVisible();
+    await input.fill('keyboard-user@example.com');
+
+    // Press Enter to save
+    await input.press('Enter');
+
+    // Wait for success message
+    await page.getByText('Account name updated').waitFor({ timeout: 5000 });
+
+    // Account name should be updated
+    await expect(page.getByText('keyboard-user@example.com')).toBeVisible();
+  });
+
+  test('edit existing account name', async ({ page }) => {
+    testUser = generateTestUser();
+    const pgpPassphrase = `pgp-pass-${Date.now()}`;
+
+    // Register with account name
+    await page.goto('/');
+    await page.getByRole('button', { name: /Get Started/i }).click();
+    await page.waitForSelector('input[type="url"]', { timeout: 5000 });
+    await page.getByRole('button', { name: /Next/i }).first().click();
+    await page.getByText('Choose Password', { exact: false }).waitFor({ timeout: 5000 });
+
+    // Step 2: Enter account name and password
+    await page.getByPlaceholder('e.g., Personal, Work, etc.').fill('original-name@example.com');
+    await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
+    await page.getByPlaceholder('Confirm your password').fill(testUser.password);
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
+
+    await page.getByPlaceholder('Choose a PGP passphrase').fill(pgpPassphrase);
+    await page.getByPlaceholder('Confirm your PGP passphrase').fill(pgpPassphrase);
+    await page.getByRole('button', { name: /Generate Keypair/i }).click();
+    await page.getByText('Key ready!', { exact: false }).waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: /Next/i }).last().click();
+    await page.getByText('Enable 2FA', { exact: false }).waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: /Complete Setup/i }).click();
+    await page.getByRole('heading', { name: 'WebPass' }).waitFor({ timeout: 10000 });
+
+    // Login
+    await page.locator('.account-item').first().click({ timeout: 5000 });
+    await page.getByPlaceholder('Enter your login password').fill(testUser.password);
+    await page.getByRole('button', { name: /Login/i }).click();
+    await page.getByText('Select an entry or create a new one').waitFor({ timeout: 10000 });
+
+    // Open settings
+    await page.getByRole('button', { name: /Settings/i }).click();
+    await page.getByText('Settings', { exact: false }).waitFor({ timeout: 10000 });
+
+    // Verify original account name is displayed
+    await expect(page.getByText('original-name@example.com')).toBeVisible();
+
+    // Click edit button
+    await page.getByRole('button', { name: /Edit account name/i }).click();
+
+    // Change account name
+    const input = page.getByPlaceholder('Enter account name');
+    await expect(input).toBeVisible();
+    await input.fill('updated-name@example.com');
+
+    // Click save
+    await page.getByRole('button', { name: '✓' }).click();
+
+    // Wait for success message
+    await page.getByText('Account name updated').waitFor({ timeout: 5000 });
+
+    // Account name should be updated
+    await expect(page.getByText('updated-name@example.com')).toBeVisible();
+  });
+
   test('clear local data only', async ({ page }) => {
     testUser = generateTestUser();
     const pgpPassphrase = `pgp-pass-${Date.now()}`;

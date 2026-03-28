@@ -18,6 +18,12 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
   const [success, setSuccess] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // Account name (label) state
+  const [accountLabel, setAccountLabel] = useState('');
+  const [isEditingLabel, setIsEditingLabel] = useState(false);
+  const [labelLoading, setLabelLoading] = useState(false);
+  const [labelError, setLabelError] = useState('');
+
   // Passphrase prompt for delete operations
   const [showDeletePrompt, setShowDeletePrompt] = useState<'local' | 'full' | null>(null);
   const [deletePassphrase, setDeletePassphrase] = useState('');
@@ -75,6 +81,17 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
         });
     }
   }, []);
+
+  // Fetch current account label
+  useEffect(() => {
+    const loadAccountLabel = async () => {
+      const account = await getAccount(fp);
+      if (account) {
+        setAccountLabel(account.label || '');
+      }
+    };
+    loadAccountLabel();
+  }, [fp]);
 
   // Fetch git sync status
   useEffect(() => {
@@ -381,6 +398,28 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
     URL.revokeObjectURL(url);
   };
 
+  // Save account label
+  const handleSaveLabel = async () => {
+    setLabelLoading(true);
+    setLabelError('');
+    try {
+      const account = await getAccount(fp);
+      if (!account) {
+        throw new Error('Account not found');
+      }
+      await saveAccount({
+        ...account,
+        label: accountLabel.trim() || undefined,
+      });
+      setSuccess('Account name updated');
+      setTimeout(() => setSuccess(''), 3000);
+      setIsEditingLabel(false);
+    } catch (e: any) {
+      setLabelError(e.message || 'Failed to update account name');
+    }
+    setLabelLoading(false);
+  };
+
   return (
     <div class="modal-overlay" onClick={onClose}>
       <div class="modal" style="max-width: 520px;" onClick={(e) => e.stopPropagation()}>
@@ -395,6 +434,66 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
           {/* Account info */}
           <div class="settings-section">
             <h3>Account</h3>
+            <div class="settings-row">
+              <span class="label-text">Account Name</span>
+              {isEditingLabel ? (
+                <div style="display: flex; gap: 8px; align-items: center; flex: 1;">
+                  <input
+                    class="input"
+                    type="text"
+                    value={accountLabel}
+                    onInput={(e) => setAccountLabel((e.target as HTMLInputElement).value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && accountLabel) {
+                        handleSaveLabel();
+                      } else if (e.key === 'Escape') {
+                        setIsEditingLabel(false);
+                        getAccount(fp).then(acc => setAccountLabel(acc?.label || ''));
+                        setLabelError('');
+                      }
+                    }}
+                    placeholder="Enter account name"
+                    disabled={labelLoading}
+                    autofocus
+                    style="flex: 1; min-width: 0;"
+                  />
+                  <button
+                    class="btn btn-primary btn-sm"
+                    onClick={handleSaveLabel}
+                    disabled={labelLoading || !accountLabel.trim()}
+                  >
+                    {labelLoading ? <span class="spinner" /> : '✓'}
+                  </button>
+                  <button
+                    class="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      setIsEditingLabel(false);
+                      getAccount(fp).then(acc => setAccountLabel(acc?.label || ''));
+                      setLabelError('');
+                    }}
+                    disabled={labelLoading}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <div style="display: flex; gap: 8px; align-items: center; flex: 1;">
+                  <span class="value-text" title={accountLabel || 'Not set'}>
+                    {accountLabel || 'Not set'}
+                  </span>
+                  <button
+                    class="btn btn-ghost btn-sm"
+                    onClick={() => setIsEditingLabel(true)}
+                    disabled={labelLoading}
+                    title="Edit account name"
+                    aria-label="Edit account name"
+                  >
+                    ✎
+                  </button>
+                </div>
+              )}
+            </div>
+            {labelError && <p class="error-msg" style="margin-top: 8px;">{labelError}</p>}
             <div class="settings-row">
               <span class="label-text">Fingerprint</span>
               <span class="value-text" title={fp}>{formatFp(fp)}</span>
