@@ -437,7 +437,7 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
             <div class="settings-row">
               <span class="label-text">Account Name</span>
               {isEditingLabel ? (
-                <div style="display: flex; gap: 8px; align-items: center; flex: 1;">
+                <div style="display: flex; gap: 8px; align-items: center;">
                   <input
                     class="input"
                     type="text"
@@ -455,7 +455,7 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
                     placeholder="Enter account name"
                     disabled={labelLoading}
                     autofocus
-                    style="flex: 1; min-width: 0;"
+                    style="width: 200px;"
                   />
                   <button
                     class="btn btn-primary btn-sm"
@@ -477,8 +477,8 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
                   </button>
                 </div>
               ) : (
-                <div style="display: flex; gap: 8px; align-items: center; flex: 1;">
-                  <span class="value-text" title={accountLabel || 'Not set'}>
+                <>
+                  <span class="value-text" title={accountLabel || 'Not set'} style="max-width: 200px;">
                     {accountLabel || 'Not set'}
                   </span>
                   <button
@@ -490,7 +490,7 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
                   >
                     ✎
                   </button>
-                </div>
+                </>
               )}
             </div>
             {labelError && <p class="error-msg" style="margin-top: 8px;">{labelError}</p>}
