@@ -77,13 +77,14 @@ async function getFingerprintFromSettings(page: any): Promise<string> {
   await page.getByRole('button', { name: /Settings/i }).click();
   await page.getByText('Settings', { exact: false }).waitFor({ timeout: 5000 });
   await page.waitForTimeout(1000);
-  
+
   // Get fingerprint text (formatted with spaces like "AB12 CD34 EF56...")
-  const fpText = await page.locator('.value-text').first().textContent();
-  
+  // Note: Use nth(1) because Account Name is now the first .value-text
+  const fpText = await page.locator('.value-text').nth(1).textContent();
+
   // Close modal
   await closeModal(page);
-  
+
   // Remove spaces to get raw fingerprint
   return fpText?.replace(/\s/g, '') || '';
 }
