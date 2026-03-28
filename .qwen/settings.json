@@ -1,24 +1,52 @@
 {
+  "$version": 3,
   "permissions": {
     "allow": [
-      "Bash(./frontend/playwright-e2e-test.sh)",
-      "Bash(gh *)",
-      "Bash(git push *)",
+      "Bash(./frontend/playwright-e2e-test.sh *)",
+      "Bash(./playwright-e2e-test.sh *)",
+      "Bash(docker compose *)",
       "Bash(docker compose build *)",
       "Bash(docker compose down)",
       "Bash(docker compose up *)",
-      "Bash(sqlc *)",
+      "Bash(docker logs *)",
+      "Bash(docker ps)",
+      "Bash(gh *)",
+      "Bash(git add *)",
+      "Bash(git branch *)",
+      "Bash(git commit *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git status)",
       "Bash(go *)",
-      "Bash(~/go/bin/sqlc *)",
       "Bash(golangci-lint *)",
-      "Bash(sleep *)",
+      "Bash(npm *)",
       "Bash(npx *)",
       "Bash(rm *)",
-      "Bash(docker ps)",
-      "Bash(docker logs *)",
-      "Bash(./playwright-e2e-test.sh *)",
-      "Bash(tee *)"
+      "Bash(sleep *)",
+      "Bash(sqlc *)",
+      "Bash(tee *)",
+      "Bash(~/go/bin/sqlc *)",
+      "Bash(git tag *)"
+    ],
+    "deny": [
+      "Bash(git reset --hard *)",
+      "Bash(rm -rf / *)",
+      "Bash(rm -rf ~ *)"
     ]
   },
-  "$version": 3
+  "confirm": {
+    "commands": [
+      "git push *",
+      "git merge *",
+      "git rebase *"
+    ]
+  },
+  "denyPaths": [
+    "**/.env",
+    "**/.env.*",
+    "**/secrets/**",
+    "**/*.key",
+    "**/*.pem",
+    "**/production/**"
+  ]
 }
