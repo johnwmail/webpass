@@ -33,11 +33,16 @@ export class ApiClient {
   async setup(
     password: string,
     publicKey: string,
-    fingerprint: string
+    fingerprint: string,
+    registrationCode?: string
   ): Promise<{ fingerprint: string }> {
+    const headers = this.headers();
+    if (registrationCode) {
+      headers['X-Registration-Code'] = registrationCode;
+    }
     const res = await fetch(this.url('/api'), {
       method: 'POST',
-      headers: this.headers(),
+      headers: headers,
       body: JSON.stringify({ password, public_key: publicKey, fingerprint }),
     });
     if (!res.ok) {

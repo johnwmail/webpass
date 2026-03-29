@@ -33,6 +33,7 @@ type Server struct {
 	JWTKey          []byte
 	StaticDir       string // path to frontend dist/ directory (optional)
 	GitService      *GitService
+	Registration    *RegistrationService
 	sessionDuration time.Duration
 	// Version info (set from main package)
 	Version   string
@@ -66,6 +67,9 @@ func New(dbPath string, jwtKey []byte, sessionDurationMin int) (*Server, error) 
 		return nil, fmt.Errorf("create repo root: %w", err)
 	}
 	s.GitService = NewGitService(dbPath, dbgen.New(wdb), repoRoot)
+
+	// Initialize Registration service
+	s.Registration = NewRegistrationService()
 
 	return s, nil
 }
@@ -265,6 +269,12 @@ func fingerprintFromKey(publicKey string) string {
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
+	// Check if registration is enabled
+	if s.Registration != nil && !s.Registration.IsEnabled() {
+		jsonError(w, "registration is disabled", http.StatusForbidden)
+		return
+	}
+
 	var body struct {
 		Password    string `json:"password"`
 		PublicKey   string `json:"public_key"`
@@ -277,6 +287,19 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	if body.Password == "" || body.PublicKey == "" {
 		jsonError(w, "password and public_key required", http.StatusBadRequest)
 		return
+	}
+
+	// If registration is protected (TOTP secret set), validate registration code
+	if s.Registration != nil && s.Registration.IsProtected() {
+		code := r.Header.Get("X-Registration-Code")
+		if code == "" {
+			jsonError(w, "registration code required", http.StatusUnauthorized)
+			return
+		}
+		if !s.Registration.ValidateCode(code) {
+			jsonError(w, "invalid or expired registration code", http.StatusUnauthorized)
+			return
+		}
 	}
 
 	fp := body.Fingerprint

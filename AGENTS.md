@@ -15,7 +15,8 @@ WebPass is a zero-knowledge password manager with:
 ├── cmd/srv/main.go      # Binary entrypoint
 ├── srv/
 │   ├── server.go        # HTTP handlers + auth middleware
-│   └── git.go           # Git sync service (push, pull, reset)
+│   ├── git.go           # Git sync service (push, pull, reset)
+│   └── registration.go  # TOTP-based registration code validation
 ├── db/
 │   ├── db.go           # SQLite connection + migrations
 │   ├── migrations/     # SQL migration files
@@ -39,6 +40,15 @@ go build -o webpass-server ./cmd/srv
 
 # Run (with env vars)
 JWT_SECRET=$(openssl rand -hex 32) go run ./cmd/srv
+
+# Format code (required before commit)
+go fmt ./...
+
+# Vet code (required before commit)
+go vet ./...
+
+# Lint (recommended, requires golangci-lint)
+golangci-lint run
 
 # Test
 go test ./...
@@ -93,6 +103,34 @@ cd db && sqlc generate
 2. **Login**: Password verified → JWT returned (5-min expiry)
 3. **2FA** (optional): TOTP code required after password verification
 
+## Registration
+
+Secure user registration with TOTP-based verification. See [REGISTRATION.md](REGISTRATION.md) for full documentation.
+
+**Environment Variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REGISTRATION_ENABLED` | `false` | Enable registration |
+| `REGISTRATION_TOTP_SECRET` | *(empty)* | Base32 TOTP secret (required for protected mode) |
+| `REGISTRATION_TOTP_PERIOD` | `30` | Code validity period (15-120s) |
+| `REGISTRATION_TOTP_ALGO` | `SHA1` | Hash algorithm (SHA1/SHA256/SHA512) |
+| `REGISTRATION_CODE_FILE` | `/data/registration_code.txt` | Path to write current code |
+
+**Registration Modes:**
+
+| `REGISTRATION_TOTP_SECRET` | `REGISTRATION_ENABLED` | Behavior |
+|---------------------------|------------------------|----------|
+| Not set | `false` | **Disabled** - No registration allowed |
+| Not set | `true` | **Open** - No code required |
+| Set | `false` | **Disabled** - No registration allowed |
+| Set | `true` | **Protected** - 6-digit TOTP code required |
+
+**Code Rotation:**
+- Registration code is logged once when it rotates (every 30 seconds)
+- Code is written to `/data/registration_code.txt`
+- Log format: `[INFO] REGISTRATION CODE: 123456 (expires in 30s)`
+
 ## Auto-Hide Feature
 
 Password and notes fields auto-hide after **15 seconds** of being visible:
@@ -130,10 +168,22 @@ See [DEPLOY.md](DEPLOY.md) for:
 
 ## Testing Checklist
 
+Before committing Go code changes:
+
+- [ ] Format: `go fmt ./...`
+- [ ] Vet: `go vet ./...`
+- [ ] Lint: `golangci-lint run` (if available)
+- [ ] Tests pass: `go test ./...`
 - [ ] Build succeeds: `go build -o webpass-server ./cmd/srv`
+
+Before committing frontend changes:
+
 - [ ] Frontend builds: `cd frontend && npm run build`
-- [ ] Go tests pass: `go test ./...`
+- [ ] Type check passes: `cd frontend && npm run typecheck`
 - [ ] Playwright E2E tests pass: `cd frontend && npx playwright test`
+
+General:
+
 - [ ] No hardcoded secrets in code
 - [ ] `.env` files are gitignored
 
