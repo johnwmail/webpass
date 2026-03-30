@@ -332,7 +332,7 @@ test.describe('Authentication', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(accountA.password);
     await page.getByPlaceholder('Confirm your password').fill(accountA.password);
-    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin').fill((await accountA.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -393,7 +393,7 @@ test.describe('Authentication', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(accountBPassword);
     await page.getByPlaceholder('Confirm your password').fill(accountBPassword);
-    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin').fill((await accountB.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
