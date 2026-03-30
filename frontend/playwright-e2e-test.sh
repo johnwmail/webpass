@@ -1,21 +1,33 @@
 #!/bin/bash
 #
 # Run Playwright E2E tests locally
-# Playwright starts the server automatically via webServer config for each mode
+# Playwright starts the server automatically via webServer config
+#
+# By default: Runs comprehensive test suite:
+#   - ALL tests in Protected mode (matches production)
+#   - Registration tests in Open mode
+#   - Registration tests in Disabled mode
 #
 # Usage: ./playwright-e2e-test.sh [OPTIONS] [playwright args...]
 #
 # Options:
-#   --mode MODE    Registration mode: open, protected, disabled (default: all)
+#   --mode MODE    Test mode: all, protected, open, disabled, registration
+#                  Default: all (comprehensive suite)
+#                  - all: All tests + registration in all 3 modes
+#                  - protected: All tests in Protected mode only
+#                  - open: All tests in Open mode only
+#                  - disabled: All tests except registration
+#                  - registration: Registration tests only (all 3 modes)
 #
 # Examples:
-#   ./playwright-e2e-test.sh                              # Run all modes
-#   ./playwright-e2e-test.sh --mode open                  # Open mode only
-#   ./playwright-e2e-test.sh --mode protected             # Protected mode only
-#   ./playwright-e2e-test.sh --mode disabled              # Disabled mode only
-#   ./playwright-e2e-test.sh --mode open --grep "login"   # Open mode + filter
-#   ./playwright-e2e-test.sh --headed                     # Run with browser UI visible
-#   ./playwright-e2e-test.sh --workers=1                  # Run with single worker
+#   ./playwright-e2e-test.sh                    # Comprehensive suite (default)
+#   ./playwright-e2e-test.sh --mode protected   # All tests, Protected mode only
+#   ./playwright-e2e-test.sh --mode open        # All tests, Open mode only
+#   ./playwright-e2e-test.sh --mode disabled    # All tests except registration
+#   ./playwright-e2e-test.sh --mode registration # Registration tests only (3 modes)
+#   ./playwright-e2e-test.sh --headed           # Run with browser UI visible
+#   ./playwright-e2e-test.sh --workers=1        # Run with single worker
+#   ./playwright-e2e-test.sh --grep "login"     # Filter tests by name
 #
 
 set -e
@@ -197,8 +209,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate mode
-if [[ ! "$MODE" =~ ^(all|open|protected|disabled)$ ]]; then
-    log_error "Invalid mode: $MODE (valid: all, open, protected, disabled)"
+if [[ ! "$MODE" =~ ^(all|protected|open|disabled|registration)$ ]]; then
+    log_error "Invalid mode: $MODE (valid: all, protected, open, disabled, registration)"
     exit 1
 fi
 
@@ -222,35 +234,10 @@ log_info "  Mode: $MODE"
 # server with the correct environment variables via webServer config.
 # =============================================================================
 
-run_open_mode() {
-    log_info ""
-    log_info "========================================="
-    log_info "Open Mode (no TOTP required)"
-    log_info "========================================="
-    log_info ""
-
-    # Set Open Mode environment variables
-    export REGISTRATION_ENABLED=true
-    export REGISTRATION_TOTP_SECRET=""
-    export REGISTRATION_TOTP_PERIOD=""
-    export REGISTRATION_TOTP_ALGO=""
-    export REGISTRATION_CODE_FILE=""
-
-    log_info "  REGISTRATION_ENABLED: true"
-    log_info "  REGISTRATION_TOTP_SECRET: (not set - open mode)"
-
-    # Run Open mode tests - Playwright starts server automatically
-    cd "$FRONTEND_DIR"
-    npx playwright test tests/e2e/registration-open.spec.ts "${PLAYWRIGHT_ARGS[@]}"
-    local exit_code=$?
-    cd "$ROOT_DIR"
-    return $exit_code
-}
-
 run_protected_mode() {
     log_info ""
     log_info "========================================="
-    log_info "Protected Mode (TOTP code required)"
+    log_info "Protected Mode (TOTP code required) - ALL TESTS"
     log_info "========================================="
     log_info ""
 
@@ -265,10 +252,37 @@ run_protected_mode() {
     log_info "  REGISTRATION_TOTP_SECRET: ***CONFIGURED***"
     log_info "  REGISTRATION_TOTP_PERIOD: 3600 seconds (1 hour)"
     log_info "  REGISTRATION_CODE_FILE: $REGISTRATION_CODE_FILE"
+    log_info "  Running: ALL E2E tests"
 
-    # Run Protected mode tests - Playwright starts server automatically
+    # Run ALL tests - Playwright starts server automatically
     cd "$FRONTEND_DIR"
-    npx playwright test tests/e2e/registration-protected.spec.ts "${PLAYWRIGHT_ARGS[@]}"
+    npx playwright test "${PLAYWRIGHT_ARGS[@]}"
+    local exit_code=$?
+    cd "$ROOT_DIR"
+    return $exit_code
+}
+
+run_open_mode() {
+    log_info ""
+    log_info "========================================="
+    log_info "Open Mode (no TOTP required) - ALL TESTS"
+    log_info "========================================="
+    log_info ""
+
+    # Set Open Mode environment variables
+    export REGISTRATION_ENABLED=true
+    export REGISTRATION_TOTP_SECRET=""
+    export REGISTRATION_TOTP_PERIOD=""
+    export REGISTRATION_TOTP_ALGO=""
+    export REGISTRATION_CODE_FILE=""
+
+    log_info "  REGISTRATION_ENABLED: true"
+    log_info "  REGISTRATION_TOTP_SECRET: (not set - open mode)"
+    log_info "  Running: ALL E2E tests"
+
+    # Run ALL tests - Playwright starts server automatically
+    cd "$FRONTEND_DIR"
+    npx playwright test "${PLAYWRIGHT_ARGS[@]}"
     local exit_code=$?
     cd "$ROOT_DIR"
     return $exit_code
@@ -277,7 +291,7 @@ run_protected_mode() {
 run_disabled_mode() {
     log_info ""
     log_info "========================================="
-    log_info "Disabled Mode (registration not allowed)"
+    log_info "Disabled Mode (registration not allowed) - ALL TESTS"
     log_info "========================================="
     log_info ""
 
@@ -289,13 +303,107 @@ run_disabled_mode() {
     export REGISTRATION_CODE_FILE=""
 
     log_info "  REGISTRATION_ENABLED: false"
+    log_info "  Running: ALL E2E tests (registration tests excluded)"
 
-    # Run Disabled mode tests - Playwright starts server automatically
+    # Run ALL tests except registration - Playwright starts server automatically
     cd "$FRONTEND_DIR"
-    npx playwright test tests/e2e/registration-disabled.spec.ts "${PLAYWRIGHT_ARGS[@]}"
+    npx playwright test --grep-invert "Registration" "${PLAYWRIGHT_ARGS[@]}"
     local exit_code=$?
     cd "$ROOT_DIR"
     return $exit_code
+}
+
+run_registration_mode() {
+    log_info ""
+    log_info "========================================="
+    log_info "Registration Tests - All 3 Modes"
+    log_info "========================================="
+    log_info ""
+
+    local total_exit=0
+
+    # Open mode
+    export REGISTRATION_ENABLED=true
+    export REGISTRATION_TOTP_SECRET=""
+    export REGISTRATION_TOTP_PERIOD=""
+    export REGISTRATION_TOTP_ALGO=""
+    export REGISTRATION_CODE_FILE=""
+    log_info "Running Open mode registration tests..."
+    cd "$FRONTEND_DIR"
+    npx playwright test tests/e2e/registration-open.spec.ts "${PLAYWRIGHT_ARGS[@]}" || total_exit=$?
+    cd "$ROOT_DIR"
+
+    # Protected mode
+    export REGISTRATION_ENABLED=true
+    export REGISTRATION_TOTP_SECRET="JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+    export REGISTRATION_TOTP_PERIOD=3600
+    export REGISTRATION_TOTP_ALGO=SHA1
+    export REGISTRATION_CODE_FILE="$REGISTRATION_CODE_FILE"
+    log_info "Running Protected mode registration tests..."
+    cd "$FRONTEND_DIR"
+    npx playwright test tests/e2e/registration-protected.spec.ts "${PLAYWRIGHT_ARGS[@]}" || total_exit=$?
+    cd "$ROOT_DIR"
+
+    # Disabled mode
+    export REGISTRATION_ENABLED=false
+    export REGISTRATION_TOTP_SECRET=""
+    export REGISTRATION_TOTP_PERIOD=""
+    export REGISTRATION_TOTP_ALGO=""
+    export REGISTRATION_CODE_FILE=""
+    log_info "Running Disabled mode registration tests..."
+    cd "$FRONTEND_DIR"
+    npx playwright test tests/e2e/registration-disabled.spec.ts "${PLAYWRIGHT_ARGS[@]}" || total_exit=$?
+    cd "$ROOT_DIR"
+
+    return $total_exit
+}
+
+# Run ALL tests + registration in all 3 modes (comprehensive test suite)
+run_all_tests() {
+    log_info ""
+    log_info "========================================="
+    log_info "Comprehensive Test Suite"
+    log_info "========================================="
+    log_info ""
+    log_info "Phase 1: ALL tests in Protected mode"
+    log_info "Phase 2: Registration tests in Open mode"
+    log_info "Phase 3: Registration tests in Disabled mode"
+    log_info ""
+
+    local total_exit=0
+
+    # Phase 1: All tests in Protected mode
+    run_protected_mode || total_exit=$?
+
+    # Phase 2: Registration tests in Open mode
+    if [ $total_exit -eq 0 ]; then
+        export REGISTRATION_ENABLED=true
+        export REGISTRATION_TOTP_SECRET=""
+        export REGISTRATION_TOTP_PERIOD=""
+        export REGISTRATION_TOTP_ALGO=""
+        export REGISTRATION_CODE_FILE=""
+        log_info ""
+        log_info "Running Open mode registration tests..."
+        cd "$FRONTEND_DIR"
+        npx playwright test tests/e2e/registration-open.spec.ts "${PLAYWRIGHT_ARGS[@]}" || total_exit=$?
+        cd "$ROOT_DIR"
+    fi
+
+    # Phase 3: Registration tests in Disabled mode
+    if [ $total_exit -eq 0 ]; then
+        export REGISTRATION_ENABLED=false
+        export REGISTRATION_TOTP_SECRET=""
+        export REGISTRATION_TOTP_PERIOD=""
+        export REGISTRATION_TOTP_ALGO=""
+        export REGISTRATION_CODE_FILE=""
+        log_info ""
+        log_info "Running Disabled mode registration tests..."
+        cd "$FRONTEND_DIR"
+        npx playwright test tests/e2e/registration-disabled.spec.ts "${PLAYWRIGHT_ARGS[@]}" || total_exit=$?
+        cd "$ROOT_DIR"
+    fi
+
+    return $total_exit
 }
 
 # Run tests based on mode selection
@@ -303,19 +411,20 @@ TOTAL_EXIT_CODE=0
 
 case $MODE in
     all)
-        # Run all modes sequentially - each starts a fresh server
-        run_open_mode || TOTAL_EXIT_CODE=$?
-        run_protected_mode || TOTAL_EXIT_CODE=$?
-        run_disabled_mode || TOTAL_EXIT_CODE=$?
-        ;;
-    open)
-        run_open_mode || TOTAL_EXIT_CODE=$?
+        # Comprehensive suite: All tests + registration in all 3 modes
+        run_all_tests || TOTAL_EXIT_CODE=$?
         ;;
     protected)
         run_protected_mode || TOTAL_EXIT_CODE=$?
         ;;
+    open)
+        run_open_mode || TOTAL_EXIT_CODE=$?
+        ;;
     disabled)
         run_disabled_mode || TOTAL_EXIT_CODE=$?
+        ;;
+    registration)
+        run_registration_mode || TOTAL_EXIT_CODE=$?
         ;;
 esac
 
