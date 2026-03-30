@@ -365,18 +365,32 @@ run_all_tests() {
     log_info "Comprehensive Test Suite"
     log_info "========================================="
     log_info ""
-    log_info "Phase 1: ALL tests in Protected mode"
+    log_info "Phase 1: ALL tests in Protected mode (excluding registration)"
     log_info "Phase 2: Registration tests in Open mode"
-    log_info "Phase 3: Registration tests in Disabled mode"
+    log_info "Phase 3: Registration tests in Protected mode"
+    log_info "Phase 4: Registration tests in Disabled mode"
     log_info ""
 
     local total_exit=0
 
-    # Phase 1: All tests in Protected mode
-    run_protected_mode || total_exit=$?
+    # Phase 1: All tests EXCEPT registration in Protected mode
+    export REGISTRATION_ENABLED=true
+    export REGISTRATION_TOTP_SECRET="JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+    export REGISTRATION_TOTP_PERIOD=3600
+    export REGISTRATION_TOTP_ALGO=SHA1
+    export REGISTRATION_CODE_FILE="$REGISTRATION_CODE_FILE"
+    log_info "Running all tests in Protected mode (registration tests excluded)..."
+    cd "$FRONTEND_DIR"
+    npx playwright test --grep-invert "Registration" "${PLAYWRIGHT_ARGS[@]}" || total_exit=$?
+    cd "$ROOT_DIR"
 
     # Phase 2: Registration tests in Open mode
     if [ $total_exit -eq 0 ]; then
+        # Kill server to force restart with new env vars
+        pkill -f "webpass-server" 2>/dev/null || true
+        pkill -f "go run.*cmd/srv" 2>/dev/null || true
+        sleep 2
+        
         export REGISTRATION_ENABLED=true
         export REGISTRATION_TOTP_SECRET=""
         export REGISTRATION_TOTP_PERIOD=""
@@ -389,8 +403,32 @@ run_all_tests() {
         cd "$ROOT_DIR"
     fi
 
-    # Phase 3: Registration tests in Disabled mode
+    # Phase 3: Registration tests in Protected mode
     if [ $total_exit -eq 0 ]; then
+        # Kill server to force restart with new env vars
+        pkill -f "webpass-server" 2>/dev/null || true
+        pkill -f "go run.*cmd/srv" 2>/dev/null || true
+        sleep 2
+        
+        export REGISTRATION_ENABLED=true
+        export REGISTRATION_TOTP_SECRET="JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+        export REGISTRATION_TOTP_PERIOD=3600
+        export REGISTRATION_TOTP_ALGO=SHA1
+        export REGISTRATION_CODE_FILE="$REGISTRATION_CODE_FILE"
+        log_info ""
+        log_info "Running Protected mode registration tests..."
+        cd "$FRONTEND_DIR"
+        npx playwright test tests/e2e/registration-protected.spec.ts "${PLAYWRIGHT_ARGS[@]}" || total_exit=$?
+        cd "$ROOT_DIR"
+    fi
+
+    # Phase 4: Registration tests in Disabled mode
+    if [ $total_exit -eq 0 ]; then
+        # Kill server to force restart with new env vars
+        pkill -f "webpass-server" 2>/dev/null || true
+        pkill -f "go run.*cmd/srv" 2>/dev/null || true
+        sleep 2
+        
         export REGISTRATION_ENABLED=false
         export REGISTRATION_TOTP_SECRET=""
         export REGISTRATION_TOTP_PERIOD=""
