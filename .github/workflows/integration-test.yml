@@ -9,108 +9,20 @@ on:
 
 jobs:
   # =============================================================================
-  # Comprehensive Test Suite - Runs all tests across all registration modes
-  # This is the main CI check that matches local ./playwright-e2e-test.sh
+  # Comprehensive Test Suite - Runs on every PR/push
+  # Matches local ./playwright-e2e-test.sh behavior
   # =============================================================================
   integration-test:
-    name: Playwright E2E (Comprehensive)
+    name: Playwright E2E
     runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.26'
-          cache: true
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-
-      - name: Cache node modules
-        uses: actions/cache@v5
-        with:
-          path: frontend/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('frontend/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-
-      - name: Install Go dependencies
-        run: go mod download
-
-      - name: Install frontend dependencies
-        run: cd frontend && npm ci
-
-      - name: Build frontend
-        run: cd frontend && npm run build
-
-      - name: Install Playwright browsers
-        run: cd frontend && npx playwright install --with-deps chromium
-
-      # =============================================================================
-      # Comprehensive Test Suite (matches local ./playwright-e2e-test.sh)
-      # Phase 1: All tests (except registration) in Protected mode
-      # Phase 2: Registration tests in Open mode
-      # Phase 3: Registration tests in Protected mode
-      # Phase 4: Registration tests in Disabled mode
-      # =============================================================================
-      - name: Run Comprehensive Test Suite
-        run: cd frontend && npx playwright test
-        env:
-          TEST_BASE_URL: http://localhost:8080
-          JWT_SECRET: "test-secret-key-32-bytes-long!!!"
-          DB_PATH: /tmp/webpass-test-comprehensive.db
-          STATIC_DIR: frontend/dist
-          DISABLE_FRONTEND: false
-          GIT_REPO_ROOT: /tmp/git-repos
-          # Protected mode for main tests
-          REGISTRATION_ENABLED: true
-          REGISTRATION_TOTP_SECRET: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
-          REGISTRATION_TOTP_PERIOD: 3600
-          REGISTRATION_TOTP_ALGO: SHA1
-          WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
-          WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
-
-      - name: Upload test results (HTML report)
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: playwright-html-report-comprehensive
-          path: frontend/playwright-report/
-          retention-days: 7
-
-      - name: Upload test results (screenshots/videos)
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: playwright-test-results-comprehensive
-          path: frontend/test-results/
-          retention-days: 7
-
-      - name: Upload test results (JSON)
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: playwright-json-results-comprehensive
-          path: frontend/test-results/results.json
-          retention-days: 7
-
-  # =============================================================================
-  # Individual Mode Tests - Run in parallel for faster feedback on specific modes
-  # These are optional and can be used for detailed mode-specific testing
-  # =============================================================================
-  mode-tests:
-    name: Playwright E2E (${{ matrix.mode }} mode)
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'  # Only run on manual trigger
 
     strategy:
       fail-fast: false
       matrix:
+        # Each mode runs appropriate tests with different server config
+        # - open: All tests (registration works without TOTP)
+        # - protected: All tests (registration works with TOTP)  
+        # - disabled: Registration-disabled tests only (registration blocked)
         mode: [open, protected, disabled]
 
     steps:
@@ -149,8 +61,8 @@ jobs:
         run: cd frontend && npx playwright install --with-deps chromium
 
       # =============================================================================
-      # Open Mode: Run ALL tests (registration + all other E2E tests)
-      # All tests use apiRegister() which works in Open mode (no TOTP required)
+      # Open Mode: Run ALL tests
+      # Registration works without TOTP code
       # =============================================================================
       - name: Run Playwright E2E tests - Open Mode
         if: matrix.mode == 'open'
@@ -168,8 +80,8 @@ jobs:
           WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
 
       # =============================================================================
-      # Protected Mode: Run ALL tests (registration + all other E2E tests)
-      # All tests use apiRegister() with TOTP code generated from same secret
+      # Protected Mode: Run ALL tests
+      # Registration works with TOTP code (auto-generated in tests)
       # =============================================================================
       - name: Run Playwright E2E tests - Protected Mode
         if: matrix.mode == 'protected'
@@ -189,8 +101,8 @@ jobs:
           WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
 
       # =============================================================================
-      # Disabled Mode: ONLY registration-disabled tests
-      # Other tests require user registration which is blocked in this mode
+      # Disabled Mode: Run ONLY registration-disabled tests
+      # Registration is blocked, so only tests that verify this work
       # =============================================================================
       - name: Run Playwright E2E tests - Disabled Mode
         if: matrix.mode == 'disabled'
