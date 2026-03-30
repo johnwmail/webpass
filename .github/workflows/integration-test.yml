@@ -9,21 +9,14 @@ on:
 
 jobs:
   # =============================================================================
-  # Comprehensive Test Suite - Runs on every PR/push
-  # Matches local ./playwright-e2e-test.sh behavior
+  # Comprehensive Test Suite - Matches local ./playwright-e2e-test.sh
+  # Protected mode: All tests
+  # Open mode: Registration tests only
+  # Disabled mode: Registration tests only
   # =============================================================================
   integration-test:
     name: Playwright E2E
     runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        # Each mode runs appropriate tests with different server config
-        # - open: All tests (registration works without TOTP)
-        # - protected: All tests (registration works with TOTP)  
-        # - disabled: Registration-disabled tests only (registration blocked)
-        mode: [open, protected, disabled]
 
     steps:
       - name: Checkout code
@@ -61,35 +54,14 @@ jobs:
         run: cd frontend && npx playwright install --with-deps chromium
 
       # =============================================================================
-      # Open Mode: Run ONLY registration-open tests
-      # Verify registration works without TOTP code
+      # Phase 1: ALL tests in Protected mode (matches production)
       # =============================================================================
-      - name: Run Playwright E2E tests - Open Mode
-        if: matrix.mode == 'open'
-        run: cd frontend && npx playwright test tests/e2e/registration-open.spec.ts
-        env:
-          TEST_BASE_URL: http://localhost:8080
-          JWT_SECRET: "test-secret-key-32-bytes-long!!!"
-          DB_PATH: /tmp/webpass-test-${{ matrix.mode }}.db
-          STATIC_DIR: frontend/dist
-          DISABLE_FRONTEND: false
-          GIT_REPO_ROOT: /tmp/git-repos
-          REGISTRATION_ENABLED: true
-          REGISTRATION_TOTP_SECRET: ""
-          WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
-          WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
-
-      # =============================================================================
-      # Protected Mode: Run ALL tests (registration + auth + entries + git-sync + ...)
-      # This is the production-like test suite
-      # =============================================================================
-      - name: Run Playwright E2E tests - Protected Mode
-        if: matrix.mode == 'protected'
+      - name: Run All Tests - Protected Mode
         run: cd frontend && npx playwright test
         env:
           TEST_BASE_URL: http://localhost:8080
           JWT_SECRET: "test-secret-key-32-bytes-long!!!"
-          DB_PATH: /tmp/webpass-test-${{ matrix.mode }}.db
+          DB_PATH: /tmp/webpass-test-protected.db
           STATIC_DIR: frontend/dist
           DISABLE_FRONTEND: false
           GIT_REPO_ROOT: /tmp/git-repos
@@ -101,16 +73,41 @@ jobs:
           WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
 
       # =============================================================================
-      # Disabled Mode: Run ONLY registration-disabled tests
-      # Registration is blocked, so only tests that verify this work
+      # Phase 2: Registration tests in Open mode (no TOTP)
+      # Kill server first to force restart with new env vars
       # =============================================================================
-      - name: Run Playwright E2E tests - Disabled Mode
-        if: matrix.mode == 'disabled'
-        run: cd frontend && npx playwright test tests/e2e/registration-disabled.spec.ts
+      - name: Run Registration Tests - Open Mode
+        run: |
+          pkill -f "webpass-server" 2>/dev/null || true
+          pkill -f "go run.*cmd/srv" 2>/dev/null || true
+          sleep 2
+          cd frontend && npx playwright test tests/e2e/registration-open.spec.ts
         env:
           TEST_BASE_URL: http://localhost:8080
           JWT_SECRET: "test-secret-key-32-bytes-long!!!"
-          DB_PATH: /tmp/webpass-test-${{ matrix.mode }}.db
+          DB_PATH: /tmp/webpass-test-open.db
+          STATIC_DIR: frontend/dist
+          DISABLE_FRONTEND: false
+          GIT_REPO_ROOT: /tmp/git-repos
+          REGISTRATION_ENABLED: true
+          REGISTRATION_TOTP_SECRET: ""
+          WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
+          WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
+
+      # =============================================================================
+      # Phase 3: Registration tests in Disabled mode (registration blocked)
+      # Kill server first to force restart with new env vars
+      # =============================================================================
+      - name: Run Registration Tests - Disabled Mode
+        run: |
+          pkill -f "webpass-server" 2>/dev/null || true
+          pkill -f "go run.*cmd/srv" 2>/dev/null || true
+          sleep 2
+          cd frontend && npx playwright test tests/e2e/registration-disabled.spec.ts
+        env:
+          TEST_BASE_URL: http://localhost:8080
+          JWT_SECRET: "test-secret-key-32-bytes-long!!!"
+          DB_PATH: /tmp/webpass-test-disabled.db
           STATIC_DIR: frontend/dist
           DISABLE_FRONTEND: false
           GIT_REPO_ROOT: /tmp/git-repos
@@ -123,7 +120,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-html-report-${{ matrix.mode }}
+          name: playwright-html-report
           path: frontend/playwright-report/
           retention-days: 7
 
@@ -131,7 +128,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-test-results-${{ matrix.mode }}
+          name: playwright-test-results
           path: frontend/test-results/
           retention-days: 7
 
@@ -139,6 +136,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-json-results-${{ matrix.mode }}
+          name: playwright-json-results
           path: frontend/test-results/results.json
           retention-days: 7
