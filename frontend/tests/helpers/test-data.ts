@@ -10,6 +10,7 @@ export interface TestUser {
   publicKey: string;
   privateKey?: string;
   email?: string;
+  registrationCode?: string;
 }
 
 export interface TestEntry {
@@ -20,15 +21,27 @@ export interface TestEntry {
 }
 
 /**
- * Generate a random test user.
+ * Generate a random test user with TOTP code for Protected Mode.
  */
-export function generateTestUser(overrides?: Partial<TestUser>): TestUser {
+export async function generateTestUser(overrides?: Partial<TestUser>): Promise<TestUser> {
   const suffix = crypto.randomBytes(8).toString('hex');
+  
+  // Generate valid TOTP code for Protected Mode
+  const otpauth = await import('otpauth');
+  const totp = new otpauth.TOTP({
+    algorithm: 'SHA1',
+    digits: 6,
+    period: 3600, // 1 hour - same as server config
+    secret: otpauth.Secret.fromBase32('JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP'),
+  });
+  const registrationCode = totp.generate();
+  
   return {
     fingerprint: `test-fp-${suffix}`,
     password: `test-password-${suffix}`,
     publicKey: `test-public-key-${suffix}`,
     email: `test-${suffix}@example.com`,
+    registrationCode,
     ...overrides,
   };
 }
@@ -68,7 +81,6 @@ export function generateTestEntry(overrides?: Partial<TestEntry>): TestEntry {
 
 /**
  * Generate a mock TOTP code (6 digits).
- * Note: For real TOTP validation, use the otpauth library with a secret.
  */
 export function generateMockTOTPCode(): string {
   return crypto.randomInt(100000, 999999).toString();
@@ -97,7 +109,6 @@ export async function createTarGz(
 
   pack.finalize();
 
-  // Wait for packing to complete
   await new Promise<void>((resolve) => {
     pack.on('end', () => resolve());
   });
@@ -144,12 +155,11 @@ export const sampleEntries: TestEntry[] = [
 
 /**
  * Generate PGP-like key placeholder.
- * Note: For real PGP operations, use the openpgp library.
  */
 export function generateMockPGPKey(): { publicKey: string; privateKey: string; fingerprint: string } {
   const keyId = crypto.randomBytes(16).toString('hex').toUpperCase();
   const fingerprint = crypto.randomBytes(10).toString('hex').toUpperCase().match(/.{1,4}/g)?.join(' ') || '';
-  
+
   const publicKey = `-----BEGIN PGP PUBLIC KEY BLOCK-----
 Version: OpenPGP.js v4.10.10
 Comment: https://openpgpjs.org

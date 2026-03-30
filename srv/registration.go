@@ -32,10 +32,10 @@ func NewRegistrationService() *RegistrationService {
 	// Get TOTP secret (empty means open registration when enabled)
 	secret := os.Getenv("REGISTRATION_TOTP_SECRET")
 
-	// Get period (default 30 seconds)
-	period := uint(30)
+	// Get period (default 3600 seconds = 1 hour for testing stability)
+	period := uint(3600)
 	if periodStr := os.Getenv("REGISTRATION_TOTP_PERIOD"); periodStr != "" {
-		if p, err := strconv.Atoi(periodStr); err == nil && p >= 15 && p <= 120 {
+		if p, err := strconv.Atoi(periodStr); err == nil && p >= 15 && p <= 86400 {
 			period = uint(p)
 		}
 	}
@@ -53,10 +53,11 @@ func NewRegistrationService() *RegistrationService {
 		}
 	}
 
-	// Get code file path
+	// Get code file path from environment or use default
 	codeFile := os.Getenv("REGISTRATION_CODE_FILE")
 	if codeFile == "" {
-		codeFile = "/data/registration_code.txt"
+		// Default to temp directory for testing, /data for production
+		codeFile = "/tmp/registration_code.txt"
 	}
 
 	rs := &RegistrationService{

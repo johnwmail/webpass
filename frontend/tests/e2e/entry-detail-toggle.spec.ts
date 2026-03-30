@@ -17,7 +17,7 @@ import {
  * Helper function to register and login via UI
  * @returns The generated PGP passphrase for later use in decryption
  */
-async function registerAndLogin(page: any, testUserData: any): Promise<string> {
+async function registerAndLogin(page: any, testUser: any): Promise<string> {
   const pgpPassphrase = `pgp-pass-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   await page.goto('/');
@@ -26,8 +26,9 @@ async function registerAndLogin(page: any, testUserData: any): Promise<string> {
   await page.getByRole('button', { name: /Next/i }).first().click();
   await page.getByText('Choose Password', { exact: false }).waitFor({ timeout: 5000 });
 
-  await page.getByPlaceholder('Choose a strong password').fill(testUserData.password);
-  await page.getByPlaceholder('Confirm your password').fill(testUserData.password);
+  await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
+  await page.getByPlaceholder('Confirm your password').fill(testUser.password);
+    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
   await page.getByRole('button', { name: 'Next' }).click();
   await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -42,7 +43,7 @@ async function registerAndLogin(page: any, testUserData: any): Promise<string> {
 
   // Login
   await page.locator('.account-item').first().click({ timeout: 5000 });
-  await page.getByPlaceholder('Enter your login password').fill(testUserData.password);
+  await page.getByPlaceholder('Enter your login password').fill(testUser.password);
   await page.getByRole('button', { name: /Login/i }).click();
   await page.getByText('Select an entry or create a new one').waitFor({ timeout: 10000 });
   
@@ -128,7 +129,7 @@ test.describe('Entry Detail Toggle Visibility', () => {
   });
 
   test('password show/hide toggle works', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     const pgpPassphrase = await registerAndLogin(page, testUser);
 
     // Create an entry
@@ -171,7 +172,7 @@ test.describe('Entry Detail Toggle Visibility', () => {
   });
 
   test('notes show/hide toggle works', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     const pgpPassphrase = await registerAndLogin(page, testUser);
 
     // Create an entry with notes
@@ -211,7 +212,7 @@ test.describe('Entry Detail Toggle Visibility', () => {
   });
 
   test('password copy button is clickable', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     const pgpPassphrase = await registerAndLogin(page, testUser);
 
     // Create an entry
@@ -239,7 +240,7 @@ test.describe('Entry Detail Toggle Visibility', () => {
   });
 
   test('entry detail container has correct structure', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     const pgpPassphrase = await registerAndLogin(page, testUser);
 
     // Create an entry
@@ -268,7 +269,7 @@ test.describe('Entry Detail Toggle Visibility', () => {
   });
 
   test('auto-hide after 15 seconds', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     const pgpPassphrase = await registerAndLogin(page, testUser);
 
     // Create an entry
@@ -304,7 +305,7 @@ test.describe('Entry Detail Toggle Visibility', () => {
   });
 
   test('notes hidden by default after decrypt', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     const pgpPassphrase = await registerAndLogin(page, testUser);
 
     // Create an entry with notes
@@ -330,7 +331,7 @@ test.describe('Entry Detail Toggle Visibility', () => {
   });
 
   test('OTP always visible with manual toggle', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     const pgpPassphrase = await registerAndLogin(page, testUser);
 
     // Create an entry with TOTP URI in notes

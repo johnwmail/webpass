@@ -29,7 +29,7 @@ test.describe('Authentication', () => {
   });
 
   test('register new user', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     const pgpPassphrase = `pgp-pass-${Date.now()}`;
 
     // Go to the app
@@ -46,6 +46,7 @@ test.describe('Authentication', () => {
     // Step 2: Set login password
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
+    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -84,7 +85,7 @@ test.describe('Authentication', () => {
   });
 
   test('login with correct password', async ({ page }) => {
-    const testUserData = generateTestUser();
+    const testUser = await generateTestUser();
     const pgpPassphrase = `pgp-pass-${Date.now()}`;
 
     // First, register via UI
@@ -97,8 +98,9 @@ test.describe('Authentication', () => {
     await page.getByText('Choose Password', { exact: false }).waitFor({ timeout: 5000 });
 
     // Step 2: Password
-    await page.getByPlaceholder('Choose a strong password').fill(testUserData.password);
-    await page.getByPlaceholder('Confirm your password').fill(testUserData.password);
+    await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
+    await page.getByPlaceholder('Confirm your password').fill(testUser.password);
+    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -121,7 +123,7 @@ test.describe('Authentication', () => {
     
     // Wait for password field to be enabled
     await page.getByPlaceholder('Enter your login password').waitFor({ state: 'visible', timeout: 5000 });
-    await page.getByPlaceholder('Enter your login password').fill(testUserData.password);
+    await page.getByPlaceholder('Enter your login password').fill(testUser.password);
     await page.getByRole('button', { name: /Login/i }).click();
 
     // Wait for successful login - should show MainApp with "Select an entry" message
@@ -130,7 +132,7 @@ test.describe('Authentication', () => {
   });
 
   test('login with wrong password', async ({ page }) => {
-    const testUserData = generateTestUser();
+    const testUser = await generateTestUser();
     const pgpPassphrase = `pgp-pass-${Date.now()}`;
 
     // First, register via UI
@@ -141,8 +143,9 @@ test.describe('Authentication', () => {
     await page.getByText('Choose Password', { exact: false }).waitFor({ timeout: 5000 });
 
     // Step 2: Password
-    await page.getByPlaceholder('Choose a strong password').fill(testUserData.password);
-    await page.getByPlaceholder('Confirm your password').fill(testUserData.password);
+    await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
+    await page.getByPlaceholder('Confirm your password').fill(testUser.password);
+    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -169,7 +172,7 @@ test.describe('Authentication', () => {
   });
 
   test('setup 2FA during registration', async ({ page }) => {
-    const testUserData = generateTestUser();
+    const testUser = await generateTestUser();
     const pgpPassphrase = `pgp-pass-${Date.now()}`;
 
     // Go to the app
@@ -182,8 +185,9 @@ test.describe('Authentication', () => {
     await page.getByText('Choose Password', { exact: false }).waitFor({ timeout: 5000 });
 
     // Step 2: Set login password
-    await page.getByPlaceholder('Choose a strong password').fill(testUserData.password);
-    await page.getByPlaceholder('Confirm your password').fill(testUserData.password);
+    await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
+    await page.getByPlaceholder('Confirm your password').fill(testUser.password);
+    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -244,7 +248,7 @@ test.describe('Authentication', () => {
     await page.locator('.account-item').first().click({ timeout: 5000 });
 
     // Enter password
-    await page.getByPlaceholder('Enter your login password').fill(testUserData.password);
+    await page.getByPlaceholder('Enter your login password').fill(testUser.password);
     await page.getByRole('button', { name: /Login/i }).click();
 
     // 2FA code input should appear
@@ -264,7 +268,7 @@ test.describe('Authentication', () => {
   });
 
   test('logout and session cleanup', async ({ page }) => {
-    const testUserData = generateTestUser();
+    const testUser = await generateTestUser();
     const pgpPassphrase = `pgp-pass-${Date.now()}`;
 
     // Register and login
@@ -273,8 +277,9 @@ test.describe('Authentication', () => {
     await page.waitForSelector('input[type="url"]', { timeout: 5000 });
     await page.getByRole('button', { name: /Next/i }).first().click();
     await page.getByText('Choose Password', { exact: false }).waitFor({ timeout: 5000 });
-    await page.getByPlaceholder('Choose a strong password').fill(testUserData.password);
-    await page.getByPlaceholder('Confirm your password').fill(testUserData.password);
+    await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
+    await page.getByPlaceholder('Confirm your password').fill(testUser.password);
+    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
     await page.getByPlaceholder('Choose a PGP passphrase').fill(pgpPassphrase);
@@ -288,7 +293,7 @@ test.describe('Authentication', () => {
     
     // Login
     await page.locator('.account-item').first().click({ timeout: 5000 });
-    await page.getByPlaceholder('Enter your login password').fill(testUserData.password);
+    await page.getByPlaceholder('Enter your login password').fill(testUser.password);
     await page.getByRole('button', { name: /Login/i }).click();
     await page.getByText('Select an entry or create a new one').waitFor({ timeout: 10000 });
 
@@ -315,7 +320,7 @@ test.describe('Authentication', () => {
   // Test importing an existing private key during account setup
   // This simulates the scenario where a user wants to restore from backup
   test('import private key during setup', async ({ page }) => {
-    const accountA = generateTestUser();
+    const accountA = await generateTestUser();
     const accountAPassphrase = `pgp-pass-A-${Date.now()}`;
 
     // Step 1: Create Account A and export its private key
@@ -327,6 +332,7 @@ test.describe('Authentication', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(accountA.password);
     await page.getByPlaceholder('Confirm your password').fill(accountA.password);
+    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -377,7 +383,7 @@ test.describe('Authentication', () => {
     await page.getByRole('heading', { name: 'WebPass' }).waitFor({ timeout: 10000 });
 
     // Step 2: Create Account B using Account A's exported private key
-    const accountB = generateTestUser();
+    const accountB = await generateTestUser();
     const accountBPassword = `password-B-${Date.now()}`;
 
     await page.getByRole('button', { name: /Get Started/i }).click();
@@ -387,6 +393,7 @@ test.describe('Authentication', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(accountBPassword);
     await page.getByPlaceholder('Confirm your password').fill(accountBPassword);
+    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 

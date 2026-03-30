@@ -1,7 +1,5 @@
 /**
  * API helpers for E2E test setup and teardown.
- * These functions use the HTTP API directly to set up test data,
- * while the actual user flows are tested via browser automation.
  */
 
 const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:8080';
@@ -12,6 +10,7 @@ export interface TestUser {
   publicKey: string;
   privateKey?: string;
   totpSecret?: string;
+  registrationCode?: string;
 }
 
 export interface ApiError {
@@ -19,8 +18,7 @@ export interface ApiError {
 }
 
 /**
- * Register a new user via API.
- * Returns the user credentials for use in browser tests.
+ * Register a new user via API with TOTP code for Protected Mode.
  */
 export async function apiRegister(overrides?: Partial<TestUser>): Promise<TestUser> {
   const user = {
@@ -30,9 +28,22 @@ export async function apiRegister(overrides?: Partial<TestUser>): Promise<TestUs
     ...overrides,
   };
 
+  // Generate valid TOTP code for Protected Mode
+  const otpauth = await import('otpauth');
+  const totp = new otpauth.TOTP({
+    algorithm: 'SHA1',
+    digits: 6,
+    period: 3600,
+    secret: otpauth.Secret.fromBase32('JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP'),
+  });
+  const registrationCode = totp.generate();
+
   const response = await fetch(`${BASE_URL}/api`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Registration-Code': registrationCode,
+    },
     body: JSON.stringify({
       fingerprint: user.fingerprint,
       password: user.password,
@@ -45,7 +56,7 @@ export async function apiRegister(overrides?: Partial<TestUser>): Promise<TestUs
     throw new Error(`Failed to register: ${response.status} ${JSON.stringify(error)}`);
   }
 
-  return user;
+  return { ...user, registrationCode };
 }
 
 /**
@@ -74,10 +85,7 @@ export async function apiLoginWith2FA(user: TestUser, totpCode: string): Promise
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/login/2fa`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      password: user.password,
-      totp_code: totpCode,
-    }),
+    body: JSON.stringify({ password: user.password, totp_code: totpCode }),
   });
 
   if (!response.ok) {
@@ -117,17 +125,12 @@ export async function apiCreateEntry(
 /**
  * Get an entry via API.
  */
-export async function apiGetEntry(
-  user: TestUser,
-  path: string
-): Promise<string> {
+export async function apiGetEntry(user: TestUser, path: string): Promise<string> {
   const token = await apiLogin(user);
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/entries/${encodeURIComponent(path)}`, {
     method: 'GET',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-    },
+    headers: { 'Authorization': `Bearer ${token}` },
   });
 
   if (!response.ok) {
@@ -148,9 +151,7 @@ export async function apiListEntries(
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/entries`, {
     method: 'GET',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-    },
+    headers: { 'Authorization': `Bearer ${token}` },
   });
 
   if (!response.ok) {
@@ -165,17 +166,12 @@ export async function apiListEntries(
 /**
  * Delete an entry via API.
  */
-export async function apiDeleteEntry(
-  user: TestUser,
-  path: string
-): Promise<void> {
+export async function apiDeleteEntry(user: TestUser, path: string): Promise<void> {
   const token = await apiLogin(user);
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/entries/${encodeURIComponent(path)}`, {
     method: 'DELETE',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-    },
+    headers: { 'Authorization': `Bearer ${token}` },
   });
 
   if (!response.ok) {
@@ -188,18 +184,20 @@ export async function apiDeleteEntry(
  * Delete user account via API.
  */
 export async function apiDeleteAccount(user: TestUser): Promise<void> {
-  const token = await apiLogin(user);
+  try {
+    const token = await apiLogin(user);
 
-  const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/account`, {
-    method: 'DELETE',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-    },
-  });
+    const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/account`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(`Failed to delete account: ${response.status} ${JSON.stringify(error)}`);
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      throw new Error(`Failed to delete account: ${response.status} ${JSON.stringify(error)}`);
+    }
+  } catch (e) {
+    // Ignore errors - account might not exist
   }
 }
 
@@ -211,9 +209,7 @@ export async function apiSetupTOTP(user: TestUser): Promise<{ secret: string; ur
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/totp/setup`, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-    },
+    headers: { 'Authorization': `Bearer ${token}` },
   });
 
   if (!response.ok) {
@@ -259,9 +255,7 @@ export async function apiExport(user: TestUser): Promise<Uint8Array> {
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/export`, {
     method: 'GET',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-    },
+    headers: { 'Authorization': `Bearer ${token}` },
   });
 
   if (!response.ok) {
@@ -301,8 +295,6 @@ export async function apiImport(
 
 /**
  * Configure git remote via API.
- * Note: This expects encrypted_pat (PGP encrypted). For testing, we send plaintext
- * and let the server handle it as if it was encrypted.
  */
 export async function apiConfigureGit(
   user: TestUser,
@@ -312,7 +304,6 @@ export async function apiConfigureGit(
 ): Promise<void> {
   const token = await apiLogin(user);
 
-  // For testing, we send the PAT as-is (in real usage it would be PGP encrypted)
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/git/config`, {
     method: 'POST',
     headers: {
@@ -360,9 +351,7 @@ export async function apiGitPush(user: TestUser): Promise<{ message?: string }> 
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/git/push`, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-    },
+    headers: { 'Authorization': `Bearer ${token}` },
   });
 
   if (!response.ok) {
@@ -381,9 +370,7 @@ export async function apiGitPull(user: TestUser): Promise<{ message?: string }> 
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/git/pull`, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-    },
+    headers: { 'Authorization': `Bearer ${token}` },
   });
 
   if (!response.ok) {

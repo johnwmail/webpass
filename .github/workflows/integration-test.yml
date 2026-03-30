@@ -9,8 +9,13 @@ on:
 
 jobs:
   integration-test:
-    name: Playwright E2E
+    name: Playwright E2E (${{ matrix.mode }} mode)
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [open, protected, disabled]
 
     steps:
       - name: Checkout code
@@ -47,23 +52,52 @@ jobs:
       - name: Install Playwright browsers
         run: cd frontend && npx playwright install --with-deps chromium
 
-      - name: Run Playwright E2E tests (core + git-sync)
-        run: cd frontend && npx playwright test
+      - name: Run Playwright E2E tests - Open Mode
+        if: matrix.mode == 'open'
+        run: cd frontend && npx playwright test tests/e2e/registration-open.spec.ts
         env:
           TEST_BASE_URL: http://localhost:8080
           JWT_SECRET: "test-secret-key-32-bytes-long!!!"
-          DB_PATH: /tmp/webpass-test.db
+          DB_PATH: /tmp/webpass-test-${{ matrix.mode }}.db
           STATIC_DIR: frontend/dist
           DISABLE_FRONTEND: false
           GIT_REPO_ROOT: /tmp/git-repos
-          WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
-          WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
+          REGISTRATION_ENABLED: true
+          REGISTRATION_TOTP_SECRET: ""
+
+      - name: Run Playwright E2E tests - Protected Mode
+        if: matrix.mode == 'protected'
+        run: cd frontend && npx playwright test tests/e2e/registration-protected.spec.ts
+        env:
+          TEST_BASE_URL: http://localhost:8080
+          JWT_SECRET: "test-secret-key-32-bytes-long!!!"
+          DB_PATH: /tmp/webpass-test-${{ matrix.mode }}.db
+          STATIC_DIR: frontend/dist
+          DISABLE_FRONTEND: false
+          GIT_REPO_ROOT: /tmp/git-repos
+          REGISTRATION_ENABLED: true
+          REGISTRATION_TOTP_SECRET: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+          REGISTRATION_TOTP_PERIOD: 3600
+          REGISTRATION_TOTP_ALGO: SHA1
+
+      - name: Run Playwright E2E tests - Disabled Mode
+        if: matrix.mode == 'disabled'
+        run: cd frontend && npx playwright test tests/e2e/registration-disabled.spec.ts
+        env:
+          TEST_BASE_URL: http://localhost:8080
+          JWT_SECRET: "test-secret-key-32-bytes-long!!!"
+          DB_PATH: /tmp/webpass-test-${{ matrix.mode }}.db
+          STATIC_DIR: frontend/dist
+          DISABLE_FRONTEND: false
+          GIT_REPO_ROOT: /tmp/git-repos
+          REGISTRATION_ENABLED: false
+          REGISTRATION_TOTP_SECRET: ""
 
       - name: Upload test results (HTML report)
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-html-report
+          name: playwright-html-report-${{ matrix.mode }}
           path: frontend/playwright-report/
           retention-days: 7
 
@@ -71,7 +105,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-test-results
+          name: playwright-test-results-${{ matrix.mode }}
           path: frontend/test-results/
           retention-days: 7
 
@@ -79,6 +113,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-json-results
+          name: playwright-json-results-${{ matrix.mode }}
           path: frontend/test-results/results.json
           retention-days: 7

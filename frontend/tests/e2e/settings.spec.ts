@@ -19,7 +19,7 @@ import {
 /**
  * Helper function to register and login via UI
  */
-async function registerAndLogin(page: any, testUserData: any) {
+async function registerAndLogin(page: any, testUser: any) {
   const pgpPassphrase = `pgp-pass-${Date.now()}`;
 
   await page.goto('/');
@@ -28,8 +28,9 @@ async function registerAndLogin(page: any, testUserData: any) {
   await page.getByRole('button', { name: /Next/i }).first().click();
   await page.getByText('Choose Password', { exact: false }).waitFor({ timeout: 5000 });
 
-  await page.getByPlaceholder('Choose a strong password').fill(testUserData.password);
-  await page.getByPlaceholder('Confirm your password').fill(testUserData.password);
+  await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
+  await page.getByPlaceholder('Confirm your password').fill(testUser.password);
+    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
   await page.getByRole('button', { name: 'Next' }).click();
   await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -44,7 +45,7 @@ async function registerAndLogin(page: any, testUserData: any) {
 
   // Login
   await page.locator('.account-item').first().click({ timeout: 5000 });
-  await page.getByPlaceholder('Enter your login password').fill(testUserData.password);
+  await page.getByPlaceholder('Enter your login password').fill(testUser.password);
   await page.getByRole('button', { name: /Login/i }).click();
   await page.getByText('Select an entry or create a new one').waitFor({ timeout: 10000 });
 }
@@ -60,7 +61,7 @@ test.describe('Settings', () => {
   });
 
   test('open settings modal', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Click settings button
@@ -72,7 +73,7 @@ test.describe('Settings', () => {
   });
 
   test('export entries', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Create some entries via UI
@@ -103,7 +104,7 @@ test.describe('Settings', () => {
   });
 
   test('export private key', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Open settings
@@ -121,7 +122,7 @@ test.describe('Settings', () => {
   });
 
   test('export public key', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Open settings
@@ -139,7 +140,7 @@ test.describe('Settings', () => {
   });
 
   test('import entries', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     const pgpPassphrase = `pgp-pass-${Date.now()}`;
 
     // Register and login
@@ -151,6 +152,7 @@ test.describe('Settings', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
+    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -191,7 +193,7 @@ test.describe('Settings', () => {
   });
 
   test('setup 2FA from settings', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Open settings
@@ -264,7 +266,7 @@ test.describe('Settings', () => {
   });
 
   test('clear local data - cancel', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Open settings
@@ -288,7 +290,7 @@ test.describe('Settings', () => {
   });
 
   test('delete account - cancel', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Open settings
@@ -312,7 +314,7 @@ test.describe('Settings', () => {
   });
 
   test('version information displayed', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Open settings
@@ -324,7 +326,7 @@ test.describe('Settings', () => {
   });
 
   test('logout from settings', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Open settings
@@ -346,7 +348,7 @@ test.describe('Settings', () => {
   });
 
   test('git sync button visible', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Open settings
@@ -358,7 +360,7 @@ test.describe('Settings', () => {
   });
 
   test('edit account name', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Open settings
@@ -401,7 +403,7 @@ test.describe('Settings', () => {
   });
 
   test('edit account name - cancel with escape key', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Open settings
@@ -425,7 +427,7 @@ test.describe('Settings', () => {
   });
 
   test('edit account name - cancel with X button', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Open settings
@@ -449,7 +451,7 @@ test.describe('Settings', () => {
   });
 
   test('edit account name - save with enter key', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Open settings
@@ -475,7 +477,7 @@ test.describe('Settings', () => {
   });
 
   test('edit existing account name', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     const pgpPassphrase = `pgp-pass-${Date.now()}`;
 
     // Register with account name
@@ -489,6 +491,7 @@ test.describe('Settings', () => {
     await page.getByPlaceholder('e.g., Personal, Work, etc.').fill('original-name@example.com');
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
+    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -533,7 +536,7 @@ test.describe('Settings', () => {
   });
 
   test('clear local data only', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     const pgpPassphrase = `pgp-pass-${Date.now()}`;
 
     // Register and login
@@ -545,6 +548,7 @@ test.describe('Settings', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
+    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -594,7 +598,7 @@ test.describe('Settings', () => {
   });
 
   test('full account deletion', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     const pgpPassphrase = `pgp-pass-${Date.now()}`;
 
     // Register and login
@@ -606,6 +610,7 @@ test.describe('Settings', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
+    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 

@@ -24,7 +24,7 @@ const WEBPASS_REPO_PAT = process.env.WEBPASS_REPO_PAT || '';
 /**
  * Helper function to register and login via UI
  */
-async function registerAndLogin(page: any, testUserData: any) {
+async function registerAndLogin(page: any, testUser: any) {
   const pgpPassphrase = `pgp-pass-${Date.now()}`;
 
   await page.goto('/');
@@ -33,8 +33,9 @@ async function registerAndLogin(page: any, testUserData: any) {
   await page.getByRole('button', { name: /Next/i }).first().click();
   await page.getByText('Choose Password', { exact: false }).waitFor({ timeout: 5000 });
 
-  await page.getByPlaceholder('Choose a strong password').fill(testUserData.password);
-  await page.getByPlaceholder('Confirm your password').fill(testUserData.password);
+  await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
+  await page.getByPlaceholder('Confirm your password').fill(testUser.password);
+    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
   await page.getByRole('button', { name: 'Next' }).click();
   await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -49,7 +50,7 @@ async function registerAndLogin(page: any, testUserData: any) {
 
   // Login
   await page.locator('.account-item').first().click({ timeout: 5000 });
-  await page.getByPlaceholder('Enter your login password').fill(testUserData.password);
+  await page.getByPlaceholder('Enter your login password').fill(testUser.password);
   await page.getByRole('button', { name: /Login/i }).click();
   await page.getByText('Select an entry or create a new one').waitFor({ timeout: 10000 });
 
@@ -76,7 +77,7 @@ test.describe('Git Sync - Configuration', () => {
   let pgpPassphrase: string;
 
   test.beforeEach(async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await apiRegister(testUser);
     pgpPassphrase = await registerAndLogin(page, testUser);
   });
@@ -137,7 +138,7 @@ test.describe('Git Sync - Pull Error Handling', () => {
   let pgpPassphrase: string;
 
   test.beforeEach(async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await apiRegister(testUser);
     pgpPassphrase = await registerAndLogin(page, testUser);
   });
@@ -247,7 +248,7 @@ test.describe('Git Sync - Basic UI', () => {
   let pgpPassphrase: string;
 
   test.beforeEach(async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await apiRegister(testUser);
     pgpPassphrase = await registerAndLogin(page, testUser);
   });
@@ -274,7 +275,7 @@ test.describe('Git Sync - Push/Pull Workflow', () => {
   let pgpPassphrase: string;
 
   test.beforeEach(async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await apiRegister(testUser);
     pgpPassphrase = await registerAndLogin(page, testUser);
   });

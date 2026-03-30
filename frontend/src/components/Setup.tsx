@@ -25,7 +25,6 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
   const [loginPassword, setLoginPassword] = useState('');
   const [loginPasswordConfirm, setLoginPasswordConfirm] = useState('');
   const [registrationCode, setRegistrationCode] = useState('');
-  const [registrationRequired, setRegistrationRequired] = useState(false);
 
   const [keyMode, setKeyMode] = useState<'generate' | 'import'>('generate');
   const [pgpPassphrase, setPgpPassphrase] = useState('');
@@ -176,7 +175,6 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
         const msg = e?.message || '';
         // Check if error is about registration code
         if (/registration code required/i.test(msg) || /invalid or expired registration code/i.test(msg)) {
-          setRegistrationRequired(true);
           setError('Invalid or expired registration code. Please check with your administrator.');
           setLoading(false);
           return;
@@ -250,7 +248,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
   }, [step, setupApi]);
 
   const canProceedStep1 = apiUrl.trim().length > 0;
-  const canProceedStep2 = loginPassword.length >= 1 && loginPassword === loginPasswordConfirm && (!registrationRequired || registrationCode.length === 6);
+  const canProceedStep2 = loginPassword.length >= 1 && loginPassword === loginPasswordConfirm;
   const canProceedStep3 = keyReady;
 
   const handleStep1Next = async () => {
@@ -308,7 +306,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                     setApiUrl((e.target as HTMLInputElement).value);
                     setError('');
                   }}
-                  placeholder="https://webpass.example.com:8000"
+                  placeholder="https://webpass.example.com:8080"
                 />
               </div>
               {error && <p class="error-msg">{error}</p>}
@@ -375,35 +373,33 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                   <p class="error-msg">Passwords do not match</p>
                 )}
               </div>
-              {registrationRequired && (
-                <div class="field">
-                  <label class="label">Registration Code</label>
-                  <input
-                    class="input input-mono"
-                    type="text"
-                    value={registrationCode}
-                    onInput={(e) => {
-                      setRegistrationCode((e.target as HTMLInputElement).value);
-                      setError('');
-                    }}
-                    placeholder="6-digit code from admin"
-                    maxLength={6}
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    autocomplete="one-time-code"
-                  />
-                  <p class="help-text" style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">
-                    Enter the 6-digit registration code provided by your administrator
-                  </p>
-                </div>
-              )}
+              <div class="field">
+                <label class="label">Registration Code (if required)</label>
+                <input
+                  class="input input-mono"
+                  type="text"
+                  value={registrationCode}
+                  onInput={(e) => {
+                    setRegistrationCode((e.target as HTMLInputElement).value);
+                    setError('');
+                  }}
+                  placeholder="6-digit code from admin"
+                  maxLength={6}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autocomplete="one-time-code"
+                />
+                <p class="help-text" style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">
+                  Enter the 6-digit registration code if your administrator requires one
+                </p>
+              </div>
               <div class="setup-actions">
                 <button class="btn" onClick={() => setStep(1)}>
                   <ArrowLeft size={16} style={{ marginRight: '6px' }} /> Back
                 </button>
                 <button
                   class="btn btn-primary"
-                  onClick={() => { setStep(3); setError(''); setRegistrationRequired(false); setRegistrationCode(''); }}
+                  onClick={() => { setStep(3); setError(''); }}
                   disabled={!canProceedStep2}
                 >
                   Next <ArrowRight size={16} style={{ marginLeft: '6px' }} />
@@ -579,7 +575,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
               {error && <p class="error-msg">{error}</p>}
 
               <div class="setup-actions">
-                <button class="btn" onClick={() => { setStep(2); setKeyReady(false); setRegistrationRequired(false); setRegistrationCode(''); setError(''); }}>
+                <button class="btn" onClick={() => { setStep(2); setKeyReady(false); setRegistrationCode(''); setError(''); }}>
                   <ArrowLeft size={16} style={{ marginRight: '6px' }} /> Back
                 </button>
                 <button

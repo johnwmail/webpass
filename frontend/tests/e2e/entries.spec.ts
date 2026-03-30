@@ -19,7 +19,7 @@ import {
 /**
  * Helper function to register and login via UI
  */
-async function registerAndLogin(page: any, testUserData: any) {
+async function registerAndLogin(page: any, testUser: any) {
   const pgpPassphrase = `pgp-pass-${Date.now()}`;
 
   await page.goto('/');
@@ -28,8 +28,9 @@ async function registerAndLogin(page: any, testUserData: any) {
   await page.getByRole('button', { name: /Next/i }).first().click();
   await page.getByText('Choose Password', { exact: false }).waitFor({ timeout: 5000 });
 
-  await page.getByPlaceholder('Choose a strong password').fill(testUserData.password);
-  await page.getByPlaceholder('Confirm your password').fill(testUserData.password);
+  await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
+  await page.getByPlaceholder('Confirm your password').fill(testUser.password);
+    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
   await page.getByRole('button', { name: 'Next' }).click();
   await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -44,7 +45,7 @@ async function registerAndLogin(page: any, testUserData: any) {
 
   // Login
   await page.locator('.account-item').first().click({ timeout: 5000 });
-  await page.getByPlaceholder('Enter your login password').fill(testUserData.password);
+  await page.getByPlaceholder('Enter your login password').fill(testUser.password);
   await page.getByRole('button', { name: /Login/i }).click();
   await page.getByText('Select an entry or create a new one').waitFor({ timeout: 10000 });
 }
@@ -60,7 +61,7 @@ test.describe('Entry Management', () => {
   });
 
   test('create new entry', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Click "New Entry" button
@@ -84,7 +85,7 @@ test.describe('Entry Management', () => {
   });
 
   test('create entry with generated password', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Click "New Entry" button
@@ -120,7 +121,7 @@ test.describe('Entry Management', () => {
   });
 
   test('view entry details', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Create an entry via UI first
@@ -143,7 +144,7 @@ test.describe('Entry Management', () => {
   });
 
   test('create entry in nested folder', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Click "New Entry" button
@@ -164,7 +165,7 @@ test.describe('Entry Management', () => {
   });
 
   test('search entries', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Create an entry
@@ -185,7 +186,7 @@ test.describe('Entry Management', () => {
   });
 
   test('multiple entries - list view', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     await registerAndLogin(page, testUser);
 
     // Create multiple entries in different folders

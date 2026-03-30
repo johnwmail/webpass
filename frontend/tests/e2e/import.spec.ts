@@ -23,7 +23,7 @@ test.describe('Import Entries', () => {
     // Set longer timeout for this test as it does full account lifecycle
     test.setTimeout(120000);
 
-    const accountA = generateTestUser();
+    const accountA = await generateTestUser();
     const accountAPassphrase = `pgp-pass-A-${Date.now()}`;
 
     // ========== ACCOUNT A: Create and Export ==========
@@ -36,6 +36,7 @@ test.describe('Import Entries', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(accountA.password);
     await page.getByPlaceholder('Confirm your password').fill(accountA.password);
+    await page.getByPlaceholder('6-digit code from admin').fill((await accountA.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -111,7 +112,7 @@ test.describe('Import Entries', () => {
     await page.getByRole('heading', { name: 'WebPass' }).waitFor({ timeout: 10000 });
 
     // ========== ACCOUNT B: Create and Import ==========
-    const accountB = generateTestUser();
+    const accountB = await generateTestUser();
     const accountBPassphrase = `pgp-pass-B-${Date.now()}`;
 
     // Register Account B (new account with different keys)
@@ -122,6 +123,7 @@ test.describe('Import Entries', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(accountB.password);
     await page.getByPlaceholder('Confirm your password').fill(accountB.password);
+    await page.getByPlaceholder('6-digit code from admin').fill((await accountA.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 

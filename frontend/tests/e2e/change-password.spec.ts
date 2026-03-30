@@ -12,7 +12,7 @@ import { apiDeleteAccount, apiLogin } from '../helpers/api';
  * Helper function to register and login via UI
  * Returns the actual fingerprint (derived from PGP key)
  */
-async function registerAndLogin(page: any, testUserData: any): Promise<string> {
+async function registerAndLogin(page: any, testUser: any): Promise<string> {
   const pgpPassphrase = `pgp-pass-${Date.now()}`;
 
   await page.goto('/');
@@ -21,8 +21,9 @@ async function registerAndLogin(page: any, testUserData: any): Promise<string> {
   await page.getByRole('button', { name: /Next/i }).first().click();
   await page.getByText('Choose Password', { exact: false }).waitFor({ timeout: 5000 });
 
-  await page.getByPlaceholder('Choose a strong password').fill(testUserData.password);
-  await page.getByPlaceholder('Confirm your password').fill(testUserData.password);
+  await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
+  await page.getByPlaceholder('Confirm your password').fill(testUser.password);
+    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
   await page.getByRole('button', { name: 'Next' }).click();
   await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -42,7 +43,7 @@ async function registerAndLogin(page: any, testUserData: any): Promise<string> {
 
   // Login
   await page.locator('.account-item').first().click({ timeout: 5000 });
-  await page.getByPlaceholder('Enter your login password').fill(testUserData.password);
+  await page.getByPlaceholder('Enter your login password').fill(testUser.password);
   await page.getByRole('button', { name: /Login/i }).click();
   await page.getByText('Select an entry or create a new one').waitFor({ timeout: 10000 });
 
@@ -75,7 +76,7 @@ test.describe('Change Password', () => {
   });
 
   test('change password - success and login with new password', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     const newPassword = `newpass-${Date.now()}`;
     
     // Register and login, get the actual fingerprint
@@ -122,7 +123,7 @@ test.describe('Change Password', () => {
   });
 
   test('change password - wrong current password', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     
     await registerAndLogin(page, testUser);
 
@@ -146,7 +147,7 @@ test.describe('Change Password', () => {
   });
 
   test('change password - mismatched confirmation', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     
     await registerAndLogin(page, testUser);
 
@@ -170,7 +171,7 @@ test.describe('Change Password', () => {
   });
 
   test('change password - with 2FA enabled', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     const newPassword = `newpass-2fa-${Date.now()}`;
 
     // Register and login, get the actual fingerprint
@@ -274,7 +275,7 @@ test.describe('Change Password', () => {
   });
 
   test('change password - can decrypt entries after password change', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     const newPassword = `newpass-${Date.now()}`;
     const categoryName = `TestCategory-${Date.now()}`;
     const entryName = `test-entry-${Date.now()}`;
@@ -351,7 +352,7 @@ test.describe('Change Password', () => {
   });
 
   test('change password - session invalidated after change', async ({ page }) => {
-    testUser = generateTestUser();
+    testUser = await generateTestUser();
     const newPassword = `newpass-session-${Date.now()}`;
     
     await registerAndLogin(page, testUser);

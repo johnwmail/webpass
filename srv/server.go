@@ -269,6 +269,16 @@ func fingerprintFromKey(publicKey string) string {
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
+	// Determine registration mode for logging
+	mode := "open"
+	if s.Registration != nil {
+		if !s.Registration.IsEnabled() {
+			mode = "disabled"
+		} else if s.Registration.IsProtected() {
+			mode = "protected"
+		}
+	}
+
 	// Check if registration is enabled
 	if s.Registration != nil && !s.Registration.IsEnabled() {
 		jsonError(w, "registration is disabled", http.StatusForbidden)
@@ -327,6 +337,9 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+
+	// Log successful registration with mode
+	slog.Info("registration: new account created", "mode", mode, "fingerprint", fp)
 
 	w.WriteHeader(http.StatusCreated)
 	jsonOK(w, map[string]string{"fingerprint": fp})
