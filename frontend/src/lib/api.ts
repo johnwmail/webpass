@@ -33,16 +33,35 @@ export class ApiClient {
   async setup(
     password: string,
     publicKey: string,
-    fingerprint: string
+    fingerprint: string,
+    registrationCode?: string
   ): Promise<{ fingerprint: string }> {
+    const headers = this.headers();
+    if (registrationCode) {
+      headers['X-Registration-Code'] = registrationCode;
+    }
     const res = await fetch(this.url('/api'), {
       method: 'POST',
-      headers: this.headers(),
+      headers: headers,
       body: JSON.stringify({ password, public_key: publicKey, fingerprint }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Request failed' }));
       throw new Error(err.error || `Setup failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  /** POST /api/registration/validate — validate registration code */
+  async validateRegistrationCode(code: string): Promise<{ valid: boolean }> {
+    const res = await fetch(this.url('/api/registration/validate'), {
+      method: 'POST',
+      headers: this.headers(),
+      body: JSON.stringify({ code }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Validation failed' }));
+      throw new Error(err.error || `Validation failed (${res.status})`);
     }
     return res.json();
   }

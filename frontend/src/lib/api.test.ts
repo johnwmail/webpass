@@ -5,7 +5,7 @@
 import { ApiClient } from './api';
 
 describe('ApiClient', () => {
-  const baseURL = 'http://localhost:8000/api';
+  const baseURL = 'http://localhost:8080/api';
   let client: ApiClient;
 
   beforeEach(() => {
@@ -14,13 +14,13 @@ describe('ApiClient', () => {
 
   describe('constructor', () => {
     it('should create client with base URL and strip trailing slashes', () => {
-      expect(client.baseUrl).toBe('http://localhost:8000/api');
-      
-      const clientWithSlash = new ApiClient('http://localhost:8000/api/');
-      expect(clientWithSlash.baseUrl).toBe('http://localhost:8000/api');
-      
-      const clientWithMultipleSlashes = new ApiClient('http://localhost:8000/api///');
-      expect(clientWithMultipleSlashes.baseUrl).toBe('http://localhost:8000/api');
+      expect(client.baseUrl).toBe('http://localhost:8080/api');
+
+      const clientWithSlash = new ApiClient('http://localhost:8080/api/');
+      expect(clientWithSlash.baseUrl).toBe('http://localhost:8080/api');
+
+      const clientWithMultipleSlashes = new ApiClient('http://localhost:8080/api///');
+      expect(clientWithMultipleSlashes.baseUrl).toBe('http://localhost:8080/api');
     });
   });
 
@@ -65,18 +65,18 @@ describe('ApiClient', () => {
   describe('url method', () => {
     it('should strip /api prefix from path when baseUrl already has /api', () => {
       const url = (client as any).url('/api');
-      expect(url).toBe('http://localhost:8000/api');
+      expect(url).toBe('http://localhost:8080/api');
     });
 
     it('should strip /api prefix from longer paths', () => {
       const url = (client as any).url('/api/test-fp/login');
-      expect(url).toBe('http://localhost:8000/api/test-fp/login');
+      expect(url).toBe('http://localhost:8080/api/test-fp/login');
     });
 
     it('should not strip if baseUrl does not end with /api', () => {
-      const clientNoApi = new ApiClient('http://localhost:8000');
+      const clientNoApi = new ApiClient('http://localhost:8080');
       const url = (clientNoApi as any).url('/api');
-      expect(url).toBe('http://localhost:8000/api');
+      expect(url).toBe('http://localhost:8080/api');
     });
   });
 

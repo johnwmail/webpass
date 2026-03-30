@@ -33,6 +33,7 @@ type Server struct {
 	JWTKey          []byte
 	StaticDir       string // path to frontend dist/ directory (optional)
 	GitService      *GitService
+	Registration    *RegistrationService
 	sessionDuration time.Duration
 	// Version info (set from main package)
 	Version   string
@@ -67,6 +68,9 @@ func New(dbPath string, jwtKey []byte, sessionDurationMin int) (*Server, error) 
 	}
 	s.GitService = NewGitService(dbPath, dbgen.New(wdb), repoRoot)
 
+	// Initialize Registration service
+	s.Registration = NewRegistrationService()
+
 	return s, nil
 }
 
@@ -84,6 +88,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api", s.handleCreateUser)
 	mux.HandleFunc("POST /api/{fingerprint}/login", s.handleLogin)
 	mux.HandleFunc("POST /api/{fingerprint}/login/2fa", s.handleLogin2FA)
+	mux.HandleFunc("POST /api/registration/validate", s.handleValidateRegistrationCode)
 
 	// Authenticated routes
 	mux.HandleFunc("POST /api/{fingerprint}/totp/setup", s.requireAuth(s.handleTOTPSetup))
@@ -265,6 +270,22 @@ func fingerprintFromKey(publicKey string) string {
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
+	// Determine registration mode for logging
+	mode := "open"
+	if s.Registration != nil {
+		if !s.Registration.IsEnabled() {
+			mode = "disabled"
+		} else if s.Registration.IsProtected() {
+			mode = "protected"
+		}
+	}
+
+	// Check if registration is enabled
+	if s.Registration != nil && !s.Registration.IsEnabled() {
+		jsonError(w, "registration is disabled", http.StatusForbidden)
+		return
+	}
+
 	var body struct {
 		Password    string `json:"password"`
 		PublicKey   string `json:"public_key"`
@@ -277,6 +298,21 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	if body.Password == "" || body.PublicKey == "" {
 		jsonError(w, "password and public_key required", http.StatusBadRequest)
 		return
+	}
+
+	// If registration is protected (TOTP secret set), validate registration code
+	if s.Registration != nil && s.Registration.IsProtected() {
+		code := r.Header.Get("X-Registration-Code")
+		if code == "" {
+			slog.Warn("registration rejected: code missing", "fingerprint", body.Fingerprint)
+			jsonError(w, "registration code required", http.StatusUnauthorized)
+			return
+		}
+		if !s.Registration.ValidateCode(code) {
+			slog.Warn("registration rejected: invalid code", "fingerprint", body.Fingerprint)
+			jsonError(w, "invalid or expired registration code", http.StatusUnauthorized)
+			return
+		}
 	}
 
 	fp := body.Fingerprint
@@ -305,8 +341,48 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Log successful registration with mode
+	slog.Info("registration: new account created", "mode", mode, "fingerprint", fp)
+
 	w.WriteHeader(http.StatusCreated)
 	jsonOK(w, map[string]string{"fingerprint": fp})
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/registration/validate — validate registration code
+// ---------------------------------------------------------------------------
+
+func (s *Server) handleValidateRegistrationCode(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	// If registration is not protected, code validation is not needed
+	if s.Registration == nil || !s.Registration.IsProtected() {
+		jsonOK(w, map[string]bool{"valid": true})
+		return
+	}
+
+	// Validate the code
+	if body.Code == "" {
+		slog.Warn("registration validation rejected: code missing")
+		jsonError(w, "registration code required", http.StatusUnauthorized)
+		return
+	}
+
+	if !s.Registration.ValidateCode(body.Code) {
+		slog.Warn("registration validation rejected: invalid code")
+		jsonError(w, "invalid or expired registration code", http.StatusUnauthorized)
+		return
+	}
+
+	// Code is valid
+	slog.Debug("registration code validated successfully")
+	jsonOK(w, map[string]bool{"valid": true})
 }
 
 // ---------------------------------------------------------------------------

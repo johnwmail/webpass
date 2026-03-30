@@ -27,6 +27,9 @@ func newTestServer(t *testing.T) *Server {
 	gitRepoRoot := filepath.Join(t.TempDir(), "git-repos")
 	t.Setenv("GIT_REPO_ROOT", gitRepoRoot)
 
+	// Enable registration for tests (open mode, no TOTP secret required)
+	t.Setenv("REGISTRATION_ENABLED", "true")
+
 	key := []byte("test-secret-key-32-bytes-long!!!") // exactly 32 bytes
 	srv, err := New(dbPath, key, 5)                   // 5 minutes for tests
 	if err != nil {

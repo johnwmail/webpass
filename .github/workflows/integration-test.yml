@@ -8,6 +8,13 @@ on:
   workflow_dispatch:
 
 jobs:
+  # =============================================================================
+  # Comprehensive Test Suite - Matches local ./playwright-e2e-test.sh
+  # Phase 1: All tests (except registration) in Protected mode
+  # Phase 2: Registration tests in Open mode
+  # Phase 3: Registration tests in Protected mode
+  # Phase 4: Registration tests in Disabled mode
+  # =============================================================================
   integration-test:
     name: Playwright E2E
     runs-on: ubuntu-latest
@@ -47,15 +54,90 @@ jobs:
       - name: Install Playwright browsers
         run: cd frontend && npx playwright install --with-deps chromium
 
-      - name: Run Playwright E2E tests (core + git-sync)
-        run: cd frontend && npx playwright test
+      # =============================================================================
+      # Phase 1: All tests EXCEPT registration in Protected mode
+      # =============================================================================
+      - name: Phase 1 - All Tests (Protected Mode, No Registration)
+        run: cd frontend && npx playwright test --grep-invert "Registration"
         env:
           TEST_BASE_URL: http://localhost:8080
           JWT_SECRET: "test-secret-key-32-bytes-long!!!"
-          DB_PATH: /tmp/webpass-test.db
+          DB_PATH: /tmp/webpass-test-protected.db
           STATIC_DIR: frontend/dist
           DISABLE_FRONTEND: false
           GIT_REPO_ROOT: /tmp/git-repos
+          REGISTRATION_ENABLED: true
+          REGISTRATION_TOTP_SECRET: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+          REGISTRATION_TOTP_PERIOD: 3600
+          REGISTRATION_TOTP_ALGO: SHA1
+          WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
+          WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
+
+      # =============================================================================
+      # Phase 2: Registration tests in Open mode (server restarts with new config)
+      # =============================================================================
+      - name: Phase 2 - Registration Tests (Open Mode)
+        run: |
+          # Kill server to force restart with new env vars
+          pkill -9 -f "webpass-server" 2>/dev/null || true
+          pkill -9 -f "srv/main.go" 2>/dev/null || true
+          sleep 3
+          cd frontend && npx playwright test tests/e2e/registration-open.spec.ts
+        env:
+          TEST_BASE_URL: http://localhost:8080
+          JWT_SECRET: "test-secret-key-32-bytes-long!!!"
+          DB_PATH: /tmp/webpass-test-open.db
+          STATIC_DIR: frontend/dist
+          DISABLE_FRONTEND: false
+          GIT_REPO_ROOT: /tmp/git-repos
+          REGISTRATION_ENABLED: true
+          REGISTRATION_TOTP_SECRET: ""
+          WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
+          WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
+
+      # =============================================================================
+      # Phase 3: Registration tests in Protected mode (server restarts)
+      # =============================================================================
+      - name: Phase 3 - Registration Tests (Protected Mode)
+        run: |
+          # Kill server to force restart with new env vars
+          pkill -9 -f "webpass-server" 2>/dev/null || true
+          pkill -9 -f "srv/main.go" 2>/dev/null || true
+          sleep 3
+          cd frontend && npx playwright test tests/e2e/registration-protected.spec.ts
+        env:
+          TEST_BASE_URL: http://localhost:8080
+          JWT_SECRET: "test-secret-key-32-bytes-long!!!"
+          DB_PATH: /tmp/webpass-test-protected2.db
+          STATIC_DIR: frontend/dist
+          DISABLE_FRONTEND: false
+          GIT_REPO_ROOT: /tmp/git-repos
+          REGISTRATION_ENABLED: true
+          REGISTRATION_TOTP_SECRET: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+          REGISTRATION_TOTP_PERIOD: 3600
+          REGISTRATION_TOTP_ALGO: SHA1
+          WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
+          WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
+
+      # =============================================================================
+      # Phase 4: Registration tests in Disabled mode (server restarts)
+      # =============================================================================
+      - name: Phase 4 - Registration Tests (Disabled Mode)
+        run: |
+          # Kill server to force restart with new env vars
+          pkill -9 -f "webpass-server" 2>/dev/null || true
+          pkill -9 -f "srv/main.go" 2>/dev/null || true
+          sleep 3
+          cd frontend && npx playwright test tests/e2e/registration-disabled.spec.ts
+        env:
+          TEST_BASE_URL: http://localhost:8080
+          JWT_SECRET: "test-secret-key-32-bytes-long!!!"
+          DB_PATH: /tmp/webpass-test-disabled.db
+          STATIC_DIR: frontend/dist
+          DISABLE_FRONTEND: false
+          GIT_REPO_ROOT: /tmp/git-repos
+          REGISTRATION_ENABLED: false
+          REGISTRATION_TOTP_SECRET: ""
           WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
           WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
 

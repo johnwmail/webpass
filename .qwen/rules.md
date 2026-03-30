@@ -66,9 +66,22 @@ No password-based AES-GCM layer. This is consistent with how password entries ar
 - Update them to match the new implementation
 - Verify build and tests still pass
 
-**Go Code Verification:** After any Go code changes, run:
+**Go Code Verification:** After any Go code changes, always run before committing:
 ```bash
+# Format all Go files
 go fmt ./...
+
+# Vet for suspicious constructs
+go vet ./...
+
+# Run linter (if golangci-lint is installed)
 golangci-lint run
+
+# Run tests
 go test ./...
+
+# Verify build
+go build -o webpass-server ./cmd/srv
 ```
+
+**Rule:** Do not commit Go code without running `go fmt`, `go vet`, and `go test` at minimum.

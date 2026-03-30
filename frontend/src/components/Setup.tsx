@@ -24,6 +24,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
   const [accountName, setAccountName] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginPasswordConfirm, setLoginPasswordConfirm] = useState('');
+  const [registrationCode, setRegistrationCode] = useState('');
 
   const [keyMode, setKeyMode] = useState<'generate' | 'import'>('generate');
   const [pgpPassphrase, setPgpPassphrase] = useState('');
@@ -168,10 +169,16 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
       let loginResult: { token?: string; requires_2fa?: boolean } | null = null;
       let existingUser = false;
       try {
-        await api.setup(loginPassword, publicKey, fingerprint);
+        await api.setup(loginPassword, publicKey, fingerprint, registrationCode || undefined);
         loginResult = await api.login(loginPassword);
       } catch (e: any) {
         const msg = e?.message || '';
+        // Check if error is about registration code
+        if (/registration code required/i.test(msg) || /invalid or expired registration code/i.test(msg)) {
+          setError('Invalid or expired registration code. Please check with your administrator.');
+          setLoading(false);
+          return;
+        }
         if (!/user already exists/i.test(msg)) {
           throw e;
         }
@@ -299,7 +306,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                     setApiUrl((e.target as HTMLInputElement).value);
                     setError('');
                   }}
-                  placeholder="https://webpass.example.com:8000"
+                  placeholder="https://webpass.example.com:8080"
                 />
               </div>
               {error && <p class="error-msg">{error}</p>}
@@ -366,16 +373,60 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                   <p class="error-msg">Passwords do not match</p>
                 )}
               </div>
+              <div class="field">
+                <label class="label">Registration Code (if required)</label>
+                <input
+                  class="input input-mono"
+                  type="text"
+                  value={registrationCode}
+                  onInput={(e) => {
+                    setRegistrationCode((e.target as HTMLInputElement).value);
+                    setError('');
+                  }}
+                  placeholder="6-digit code from admin"
+                  maxLength={6}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autocomplete="one-time-code"
+                />
+                <p class="help-text" style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">
+                  Enter the 6-digit registration code if your administrator requires one
+                </p>
+              </div>
+              {error && <p class="error-msg">{error}</p>}
               <div class="setup-actions">
                 <button class="btn" onClick={() => setStep(1)}>
                   <ArrowLeft size={16} style={{ marginRight: '6px' }} /> Back
                 </button>
                 <button
                   class="btn btn-primary"
-                  onClick={() => { setStep(3); setError(''); }}
-                  disabled={!canProceedStep2}
+                  onClick={async () => {
+                    setError('');
+                    setLoading(true);
+                    try {
+                      // Validate registration code before proceeding to step 3
+                      const url = apiUrl.replace(/\/+$/, '');
+                      const api = new ApiClient(url);
+                      // Only validate if registration code is provided
+                      if (registrationCode.trim()) {
+                        await api.validateRegistrationCode(registrationCode.trim());
+                      }
+                      // Code is valid (or not required), proceed to step 3
+                      setStep(3);
+                    } catch (e: any) {
+                      const msg = e?.message || '';
+                      if (/registration code required/i.test(msg) || /invalid or expired registration code/i.test(msg)) {
+                        setError('Invalid or expired registration code. Please check with your administrator.');
+                      } else {
+                        setError(e.message || 'Registration validation failed');
+                      }
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  disabled={!canProceedStep2 || loading}
                 >
-                  Next <ArrowRight size={16} style={{ marginLeft: '6px' }} />
+                  {loading ? <><span class="spinner" /> Validating...</> : <>Next <ArrowRight size={16} style={{ marginLeft: '6px' }} /></>}
                 </button>
               </div>
             </>
@@ -548,7 +599,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
               {error && <p class="error-msg">{error}</p>}
 
               <div class="setup-actions">
-                <button class="btn" onClick={() => { setStep(2); setKeyReady(false); setError(''); }}>
+                <button class="btn" onClick={() => { setStep(2); setKeyReady(false); setRegistrationCode(''); setError(''); }}>
                   <ArrowLeft size={16} style={{ marginRight: '6px' }} /> Back
                 </button>
                 <button

@@ -28,7 +28,7 @@ const WEBPASS_REPO_PAT = process.env.WEBPASS_REPO_PAT || '';
  */
 async function registerAndLogin(page: any) {
   const pgpPassphrase = `pgp-pass-${Date.now()}`;
-  const testUser = generateTestUser();
+  const testUser = await generateTestUser();
 
   await page.goto('/');
   await page.getByRole('button', { name: /Get Started/i }).click();
@@ -38,6 +38,7 @@ async function registerAndLogin(page: any) {
 
   await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
   await page.getByPlaceholder('Confirm your password').fill(testUser.password);
+    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
   await page.getByRole('button', { name: 'Next' }).click();
   await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 

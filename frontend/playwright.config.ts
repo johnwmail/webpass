@@ -83,19 +83,28 @@ export default defineConfig({
   ],
 
   /* Run your local dev server before starting the tests.
-   * Set TEST_SKIP_WEBSERVER=true if running server manually (e.g., via Docker)
+   * The test script (playwright-e2e-test.sh) manages the server for multi-mode testing.
+   * Set TEST_SKIP_WEBSERVER=true to skip starting the server (use existing server).
+   * 
+   * Registration modes (set via environment variables):
+   * - Open: REGISTRATION_ENABLED=true, REGISTRATION_TOTP_SECRET=""
+   * - Protected: REGISTRATION_ENABLED=true, REGISTRATION_TOTP_SECRET="<secret>"
+   * - Disabled: REGISTRATION_ENABLED=false
    */
   webServer: process.env.TEST_SKIP_WEBSERVER === 'true' ? undefined : {
     command: 'go run ../cmd/srv',
     url: 'http://localhost:8080',
     timeout: 120 * 1000,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: true, // Allow script to manage server restarts
     env: {
       JWT_SECRET: process.env.JWT_SECRET || 'test-secret-key-32-bytes-long!!!',
       DB_PATH: process.env.DB_PATH || ':memory:',
       DISABLE_FRONTEND: 'false',
       STATIC_DIR: 'dist',
       GIT_REPO_ROOT: '/tmp/git-repos',
+      // Registration mode is set by the test script for each pass
+      REGISTRATION_ENABLED: process.env.REGISTRATION_ENABLED || 'true',
+      REGISTRATION_TOTP_SECRET: process.env.REGISTRATION_TOTP_SECRET || '',
     },
   },
 });
