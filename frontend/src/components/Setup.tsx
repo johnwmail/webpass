@@ -393,16 +393,40 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                   Enter the 6-digit registration code if your administrator requires one
                 </p>
               </div>
+              {error && <p class="error-msg">{error}</p>}
               <div class="setup-actions">
                 <button class="btn" onClick={() => setStep(1)}>
                   <ArrowLeft size={16} style={{ marginRight: '6px' }} /> Back
                 </button>
                 <button
                   class="btn btn-primary"
-                  onClick={() => { setStep(3); setError(''); }}
-                  disabled={!canProceedStep2}
+                  onClick={async () => {
+                    setError('');
+                    setLoading(true);
+                    try {
+                      // Validate registration code before proceeding to step 3
+                      const url = apiUrl.replace(/\/+$/, '');
+                      const api = new ApiClient(url);
+                      // Only validate if registration code is provided
+                      if (registrationCode.trim()) {
+                        await api.validateRegistrationCode(registrationCode.trim());
+                      }
+                      // Code is valid (or not required), proceed to step 3
+                      setStep(3);
+                    } catch (e: any) {
+                      const msg = e?.message || '';
+                      if (/registration code required/i.test(msg) || /invalid or expired registration code/i.test(msg)) {
+                        setError('Invalid or expired registration code. Please check with your administrator.');
+                      } else {
+                        setError(e.message || 'Registration validation failed');
+                      }
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  disabled={!canProceedStep2 || loading}
                 >
-                  Next <ArrowRight size={16} style={{ marginLeft: '6px' }} />
+                  {loading ? <><span class="spinner" /> Validating...</> : <>Next <ArrowRight size={16} style={{ marginLeft: '6px' }} /></>}
                 </button>
               </div>
             </>

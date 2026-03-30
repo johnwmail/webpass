@@ -21,6 +21,12 @@ services:
       - DB_PATH=/data/db/db.sqlite3
       - STATIC_DIR=/app/frontend/dist
       - GIT_REPO_ROOT=/data/git-repos
+      # Registration protection mode (TOTP-based)
+      - REGISTRATION_ENABLED=${REGISTRATION_ENABLED:-false}
+      - REGISTRATION_TOTP_SECRET=${REGISTRATION_TOTP_SECRET:-}
+      - REGISTRATION_TOTP_PERIOD=${REGISTRATION_TOTP_PERIOD:-3600}
+      - REGISTRATION_TOTP_ALGO=${REGISTRATION_TOTP_ALGO:-SHA1}
+      - REGISTRATION_CODE_FILE=/data/registration_code.txt
     container_name: webpass
     restart: unless-stopped
     ports:

@@ -52,6 +52,20 @@ export class ApiClient {
     return res.json();
   }
 
+  /** POST /api/registration/validate — validate registration code */
+  async validateRegistrationCode(code: string): Promise<{ valid: boolean }> {
+    const res = await fetch(this.url('/api/registration/validate'), {
+      method: 'POST',
+      headers: this.headers(),
+      body: JSON.stringify({ code }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Validation failed' }));
+      throw new Error(err.error || `Validation failed (${res.status})`);
+    }
+    return res.json();
+  }
+
   /** POST /api/:fp/login */
   async login(
     password: string

@@ -88,6 +88,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api", s.handleCreateUser)
 	mux.HandleFunc("POST /api/{fingerprint}/login", s.handleLogin)
 	mux.HandleFunc("POST /api/{fingerprint}/login/2fa", s.handleLogin2FA)
+	mux.HandleFunc("POST /api/registration/validate", s.handleValidateRegistrationCode)
 
 	// Authenticated routes
 	mux.HandleFunc("POST /api/{fingerprint}/totp/setup", s.requireAuth(s.handleTOTPSetup))
@@ -303,10 +304,12 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	if s.Registration != nil && s.Registration.IsProtected() {
 		code := r.Header.Get("X-Registration-Code")
 		if code == "" {
+			slog.Warn("registration rejected: code missing", "fingerprint", body.Fingerprint)
 			jsonError(w, "registration code required", http.StatusUnauthorized)
 			return
 		}
 		if !s.Registration.ValidateCode(code) {
+			slog.Warn("registration rejected: invalid code", "fingerprint", body.Fingerprint)
 			jsonError(w, "invalid or expired registration code", http.StatusUnauthorized)
 			return
 		}
@@ -343,6 +346,43 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusCreated)
 	jsonOK(w, map[string]string{"fingerprint": fp})
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/registration/validate — validate registration code
+// ---------------------------------------------------------------------------
+
+func (s *Server) handleValidateRegistrationCode(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	// If registration is not protected, code validation is not needed
+	if s.Registration == nil || !s.Registration.IsProtected() {
+		jsonOK(w, map[string]bool{"valid": true})
+		return
+	}
+
+	// Validate the code
+	if body.Code == "" {
+		slog.Warn("registration validation rejected: code missing")
+		jsonError(w, "registration code required", http.StatusUnauthorized)
+		return
+	}
+
+	if !s.Registration.ValidateCode(body.Code) {
+		slog.Warn("registration validation rejected: invalid code")
+		jsonError(w, "invalid or expired registration code", http.StatusUnauthorized)
+		return
+	}
+
+	// Code is valid
+	slog.Debug("registration code validated successfully")
+	jsonOK(w, map[string]bool{"valid": true})
 }
 
 // ---------------------------------------------------------------------------
