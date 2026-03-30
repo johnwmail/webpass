@@ -149,7 +149,8 @@ jobs:
         run: cd frontend && npx playwright install --with-deps chromium
 
       # =============================================================================
-      # Open Mode: Run all tests (registration tests + all other E2E tests)
+      # Open Mode: Run ALL tests (registration + all other E2E tests)
+      # All tests use apiRegister() which works in Open mode (no TOTP required)
       # =============================================================================
       - name: Run Playwright E2E tests - Open Mode
         if: matrix.mode == 'open'
@@ -167,7 +168,8 @@ jobs:
           WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
 
       # =============================================================================
-      # Protected Mode: Run all tests (registration tests + all other E2E tests)
+      # Protected Mode: Run ALL tests (registration + all other E2E tests)
+      # All tests use apiRegister() with TOTP code generated from same secret
       # =============================================================================
       - name: Run Playwright E2E tests - Protected Mode
         if: matrix.mode == 'protected'
@@ -187,12 +189,12 @@ jobs:
           WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
 
       # =============================================================================
-      # Disabled Mode: Run all tests EXCEPT registration tests
-      # Other tests (auth, entries, settings, git-sync) still work with existing accounts
+      # Disabled Mode: ONLY registration-disabled tests
+      # Other tests require user registration which is blocked in this mode
       # =============================================================================
       - name: Run Playwright E2E tests - Disabled Mode
         if: matrix.mode == 'disabled'
-        run: cd frontend && npx playwright test --grep-invert "Registration"
+        run: cd frontend && npx playwright test tests/e2e/registration-disabled.spec.ts
         env:
           TEST_BASE_URL: http://localhost:8080
           JWT_SECRET: "test-secret-key-32-bytes-long!!!"
