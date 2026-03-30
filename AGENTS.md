@@ -113,7 +113,7 @@ Secure user registration with TOTP-based verification. See [REGISTRATION.md](REG
 |----------|---------|-------------|
 | `REGISTRATION_ENABLED` | `false` | Enable registration |
 | `REGISTRATION_TOTP_SECRET` | *(empty)* | Base32 TOTP secret (required for protected mode) |
-| `REGISTRATION_TOTP_PERIOD` | `30` | Code validity period (15-120s) |
+| `REGISTRATION_TOTP_PERIOD` | `3600` | Code validity period (15-86400s, default: 1 hour) |
 | `REGISTRATION_TOTP_ALGO` | `SHA1` | Hash algorithm (SHA1/SHA256/SHA512) |
 | `REGISTRATION_CODE_FILE` | `/data/registration_code.txt` | Path to write current code |
 

@@ -9,7 +9,7 @@ Secure user registration with TOTP-based verification.
 WebPass uses **TOTP-based registration tokens** to prevent unauthorized account creation. This ensures that only users with access to the server's registration code can create new accounts.
 
 **Key Features:**
-- **Time-limited codes** — Registration code expires every 30 seconds (configurable)
+- **Time-limited codes** — Registration code expires based on configured period (default: 3600 seconds / 1 hour)
 - **Fixed secret** — Admin-configured TOTP secret (survives restarts)
 - **Logged once per rotation** — Code printed to logs only when it changes
 - **Always persisted** — Code written to `/data/registration_code.txt`
@@ -74,7 +74,7 @@ WebPass uses **TOTP-based registration tokens** to prevent unauthorized account 
 |----------|---------|-------------|
 | `REGISTRATION_ENABLED` | `false` | Set to `1` or `true` to enable user registration |
 | `REGISTRATION_TOTP_SECRET` | *(empty)* | Base32-encoded secret for TOTP code generation. If empty and `REGISTRATION_ENABLED=true`, registration is open (no code required). |
-| `REGISTRATION_TOTP_PERIOD` | `30` | TOTP code validity period in seconds (15-120) |
+| `REGISTRATION_TOTP_PERIOD` | `3600` | TOTP code validity period in seconds (15-86400). Default: 3600 (1 hour) for stability. |
 | `REGISTRATION_TOTP_ALGO` | `SHA1` | Hash algorithm: `SHA1` (Google Authenticator), `SHA256`, `SHA512` |
 | `REGISTRATION_CODE_FILE` | `/data/registration_code.txt` | File path for current code |
 
@@ -97,7 +97,7 @@ WebPass uses **TOTP-based registration tokens** to prevent unauthorized account 
 # Example output: JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP
 REGISTRATION_ENABLED=true
 REGISTRATION_TOTP_SECRET=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP
-REGISTRATION_TOTP_PERIOD=30
+REGISTRATION_TOTP_PERIOD=3600  # 1 hour (default) - code stays valid longer for stability
 REGISTRATION_TOTP_ALGO=SHA1
 REGISTRATION_CODE_FILE=/data/registration_code.txt
 
@@ -140,7 +140,7 @@ cat /data/registration_code.txt
 **Remote (Signal/WhatsApp):**
 > WebPass registration code: `482156` (valid for ~25s)
 
-**Important:** The code changes every 30 seconds. If it expires, check logs again for the new code.
+**Important:** The code changes based on the configured period (default: 1 hour). If it expires, check logs again for the new code.
 
 ### 3. User Enters Code
 
@@ -172,13 +172,13 @@ Example server startup logs (with `REGISTRATION_ENABLED=true` and secret set):
 [INFO] starting server addr=:8080
 [INFO] database opened at /data/db/db.sqlite3
 [INFO] migrations completed
-[INFO] REGISTRATION CODE: 482156 (expires in 30s)
+[INFO] REGISTRATION CODE: 482156 (expires in 3599s)
 [INFO] Registration code file: /data/registration_code.txt
 ```
 
-**Code rotation (every 30 seconds):**
+**Code rotation (every 3600 seconds / 1 hour):**
 ```
-[INFO] REGISTRATION CODE: 739281 (expires in 30s)
+[INFO] REGISTRATION CODE: 739281 (expires in 3599s)
 ```
 
 **Successful registration:**
@@ -203,7 +203,7 @@ Example server startup logs (with `REGISTRATION_ENABLED=true` and secret set):
 | Threat | Mitigation |
 |--------|------------|
 | **Unauthorized registration** | Code required for all new accounts |
-| **Code interception** | Code expires in 30 seconds |
+| **Code interception** | Code expires in 1 hour (configurable) |
 | **Replay attacks** | Code changes every time window |
 | **Remote attacks** | Admin must share code via secure channel |
 
@@ -212,7 +212,7 @@ Example server startup logs (with `REGISTRATION_ENABLED=true` and secret set):
 | Property | Value |
 |----------|-------|
 | **Length** | 6 digits (000000-999999) |
-| **Validity** | 30 seconds (configurable: 15-120s) |
+| **Validity** | 3600 seconds (1 hour, configurable: 15-86400s) |
 | **Algorithm** | SHA256 (configurable: SHA1/SHA256/SHA512) |
 | **Reuse** | Allowed within same time window |
 
@@ -287,7 +287,7 @@ const response = await fetch(`${apiUrl}/api`, {
 
 ### "Invalid or expired registration code"
 
-**Cause:** Code has expired (older than 30 seconds) or is incorrect.
+**Cause:** Code has expired (older than configured period) or is incorrect.
 
 **Solution:**
 1. Ask admin to check logs for current code
@@ -339,13 +339,13 @@ docker exec webpass env | grep REGISTRATION
 
 ### Multiple users registering simultaneously
 
-**Issue:** Only one code is valid at a time (changes every 30 seconds).
+**Issue:** Only one code is valid at a time (changes every 3600 seconds / 1 hour).
 
 **Solution:**
 - **Option A:** Users register sequentially (wait for current code window)
-- **Option B:** Reduce TOTP period to 15 seconds for faster rotation
+- **Option B:** Reduce TOTP period for faster rotation
   ```bash
-  REGISTRATION_TOTP_PERIOD=15
+  REGISTRATION_TOTP_PERIOD=60  # 1 minute
   ```
 
 ---
@@ -392,7 +392,7 @@ docker-compose down
 # 3. Add registration config to .env
 REGISTRATION_ENABLED=true
 REGISTRATION_TOTP_SECRET=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP
-REGISTRATION_TOTP_PERIOD=30
+REGISTRATION_TOTP_PERIOD=3600
 REGISTRATION_TOTP_ALGO=SHA1
 
 # 4. Restart
@@ -474,8 +474,8 @@ openssl rand -base32 32
 
 ### Code Logging
 
-- Code logged to console only when it changes (every 30 seconds)
-- Log format: `[INFO] REGISTRATION CODE: 123456 (expires in 30s)`
+- Code logged to console only when it changes (every 3600 seconds / 1 hour)
+- Log format: `[INFO] REGISTRATION CODE: 123456 (expires in 3599s)`
 - No periodic "file updated" messages
 
 ### Code File
@@ -483,14 +483,14 @@ openssl rand -base32 32
 - Always written to `/data/registration_code.txt` (aligns with `/data/db/`)
 - Contains only the 6-digit code (no timestamp or metadata)
 - File permissions: `0600` (owner read/write only)
-- Updated every 30 seconds (or configured period)
+- Updated every 3600 seconds (or configured period)
 - Only written when TOTP secret is configured
 
 ### Grace Period
 
 - Server accepts codes from current AND previous time window
 - This accounts for clock skew between admin and server
-- Grace period: 1 time window (e.g., 30 seconds)
+- Grace period: 1 time window (e.g., 3600 seconds with default config)
 
 ---
 
