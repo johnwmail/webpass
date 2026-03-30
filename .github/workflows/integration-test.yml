@@ -52,9 +52,12 @@ jobs:
       - name: Install Playwright browsers
         run: cd frontend && npx playwright install --with-deps chromium
 
+      # =============================================================================
+      # Open Mode: Run all tests (registration tests + all other E2E tests)
+      # =============================================================================
       - name: Run Playwright E2E tests - Open Mode
         if: matrix.mode == 'open'
-        run: cd frontend && npx playwright test tests/e2e/registration-open.spec.ts
+        run: cd frontend && npx playwright test
         env:
           TEST_BASE_URL: http://localhost:8080
           JWT_SECRET: "test-secret-key-32-bytes-long!!!"
@@ -64,10 +67,15 @@ jobs:
           GIT_REPO_ROOT: /tmp/git-repos
           REGISTRATION_ENABLED: true
           REGISTRATION_TOTP_SECRET: ""
+          WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
+          WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
 
+      # =============================================================================
+      # Protected Mode: Run all tests (registration tests + all other E2E tests)
+      # =============================================================================
       - name: Run Playwright E2E tests - Protected Mode
         if: matrix.mode == 'protected'
-        run: cd frontend && npx playwright test tests/e2e/registration-protected.spec.ts
+        run: cd frontend && npx playwright test
         env:
           TEST_BASE_URL: http://localhost:8080
           JWT_SECRET: "test-secret-key-32-bytes-long!!!"
@@ -79,10 +87,16 @@ jobs:
           REGISTRATION_TOTP_SECRET: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
           REGISTRATION_TOTP_PERIOD: 3600
           REGISTRATION_TOTP_ALGO: SHA1
+          WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
+          WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
 
+      # =============================================================================
+      # Disabled Mode: Run all tests EXCEPT registration tests (registration is disabled)
+      # Other tests (auth, entries, settings, git-sync) still work with existing accounts
+      # =============================================================================
       - name: Run Playwright E2E tests - Disabled Mode
         if: matrix.mode == 'disabled'
-        run: cd frontend && npx playwright test tests/e2e/registration-disabled.spec.ts
+        run: cd frontend && npx playwright test --grep-invert "Registration"
         env:
           TEST_BASE_URL: http://localhost:8080
           JWT_SECRET: "test-secret-key-32-bytes-long!!!"
@@ -92,6 +106,8 @@ jobs:
           GIT_REPO_ROOT: /tmp/git-repos
           REGISTRATION_ENABLED: false
           REGISTRATION_TOTP_SECRET: ""
+          WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
+          WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
 
       - name: Upload test results (HTML report)
         if: always()
