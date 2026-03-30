@@ -61,12 +61,12 @@ jobs:
         run: cd frontend && npx playwright install --with-deps chromium
 
       # =============================================================================
-      # Open Mode: Run ALL tests
-      # Registration works without TOTP code
+      # Open Mode: Run ONLY registration-open tests
+      # Verify registration works without TOTP code
       # =============================================================================
       - name: Run Playwright E2E tests - Open Mode
         if: matrix.mode == 'open'
-        run: cd frontend && npx playwright test
+        run: cd frontend && npx playwright test tests/e2e/registration-open.spec.ts
         env:
           TEST_BASE_URL: http://localhost:8080
           JWT_SECRET: "test-secret-key-32-bytes-long!!!"
@@ -80,8 +80,8 @@ jobs:
           WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
 
       # =============================================================================
-      # Protected Mode: Run ALL tests
-      # Registration works with TOTP code (auto-generated in tests)
+      # Protected Mode: Run ALL tests (registration + auth + entries + git-sync + ...)
+      # This is the production-like test suite
       # =============================================================================
       - name: Run Playwright E2E tests - Protected Mode
         if: matrix.mode == 'protected'
