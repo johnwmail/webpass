@@ -268,7 +268,8 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
   }, [step, setupApi]);
 
   const canProceedStep1 = apiUrl.trim().length > 0;
-  const canProceedStep2 = loginPassword.length >= 1 && loginPassword === loginPasswordConfirm;
+  const canProceedStep2 = loginPassword.length >= 1 && loginPassword === loginPasswordConfirm && 
+    (registrationMode !== 'disabled' || (importKeyData && importPassphrase));
   const canProceedStep3 = keyReady;
 
   const handleStep1Next = async () => {
@@ -436,45 +437,63 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
 
               {/* Disabled mode - import existing account */}
               {registrationMode === 'disabled' && (
-                <div class="field">
-                  <label class="label">Import Existing Account</label>
-                  <p class="help-text" style="margin-bottom: 12px; font-size: 12px; color: var(--text-muted);">
-                    Registration is disabled. Import your existing PGP private key to add this account.
-                  </p>
-                  <input
-                    type="file"
-                    accept=".asc,.pgp,.key,.gpg"
-                    onChange={(e) => {
-                      const input = e.target as HTMLInputElement;
-                      const file = input.files?.[0];
-                      if (file) {
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                          const data = reader.result as ArrayBuffer;
-                          const bytes = new Uint8Array(data);
-                          const decoder = new TextDecoder('utf-8', { fatal: false });
-                          const textPreview = decoder.decode(bytes.slice(0, 50));
-                          if (textPreview.includes('-----BEGIN PGP PRIVATE KEY BLOCK-----')) {
-                            setImportKeyData(decoder.decode(bytes));
-                            setImportKeyFormat('armored');
-                          } else {
-                            setImportKeyData(bytes);
-                            setImportKeyFormat('binary');
-                          }
-                          setError('');
-                        };
-                        reader.readAsArrayBuffer(file);
-                      }
-                    }}
-                    disabled={loading}
-                    style="width: 100%;"
-                  />
-                  {importKeyData && (
-                    <p style={`font-size: 12px; margin-top: 8px; ${importKeyFormat === 'binary' ? 'color: var(--success);' : 'color: var(--text-muted);'}`}>
-                      {importKeyFormat === 'binary' ? '✓ Binary key file detected' : '✓ Armored key file detected'}
+                <>
+                  <div class="field">
+                    <label class="label">Import Existing Account</label>
+                    <p class="help-text" style="margin-bottom: 12px; font-size: 12px; color: var(--text-muted);">
+                      Registration is disabled. Import your existing PGP private key to add this account.
                     </p>
-                  )}
-                </div>
+                    <input
+                      type="file"
+                      accept=".asc,.pgp,.key,.gpg"
+                      onChange={(e) => {
+                        const input = e.target as HTMLInputElement;
+                        const file = input.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            const data = reader.result as ArrayBuffer;
+                            const bytes = new Uint8Array(data);
+                            const decoder = new TextDecoder('utf-8', { fatal: false });
+                            const textPreview = decoder.decode(bytes.slice(0, 50));
+                            if (textPreview.includes('-----BEGIN PGP PRIVATE KEY BLOCK-----')) {
+                              setImportKeyData(decoder.decode(bytes));
+                              setImportKeyFormat('armored');
+                            } else {
+                              setImportKeyData(bytes);
+                              setImportKeyFormat('binary');
+                            }
+                            setError('');
+                          };
+                          reader.readAsArrayBuffer(file);
+                        }
+                      }}
+                      disabled={loading}
+                      style="width: 100%;"
+                    />
+                    {importKeyData && (
+                      <p style={`font-size: 12px; margin-top: 8px; ${importKeyFormat === 'binary' ? 'color: var(--success);' : 'color: var(--text-muted);'}`}>
+                        {importKeyFormat === 'binary' ? '✓ Binary key file detected' : '✓ Armored key file detected'}
+                      </p>
+                    )}
+                  </div>
+                  <div class="field">
+                    <label class="label">Key Passphrase</label>
+                    <input
+                      class="input"
+                      type="password"
+                      value={importPassphrase}
+                      onInput={(e) => setImportPassphrase((e.target as HTMLInputElement).value)}
+                      placeholder="Passphrase for this key"
+                      autocomplete="one-time-code"
+                      name="pgp-import-passphrase"
+                      data-lpignore="true"
+                      data-bwignore="true"
+                      data-1p-ignore="true"
+                      disabled={loading || !importKeyData}
+                    />
+                  </div>
+                </>
               )}
 
               {error && <p class="error-msg">{error}</p>}
@@ -492,10 +511,10 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                       const url = apiUrl.replace(/\/+$/, '');
                       const api = new ApiClient(url);
 
-                      // In Disabled mode, require PGP key import
+                      // In Disabled mode, import existing account
                       if (registrationMode === 'disabled') {
-                        if (!importKeyData) {
-                          setError('Please import your existing PGP private key');
+                        if (!importKeyData || !importPassphrase) {
+                          setError('Please import your PGP private key and enter its passphrase');
                           setLoading(false);
                           return;
                         }
@@ -509,22 +528,49 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                         } else {
                           throw new Error('Invalid key format');
                         }
+                        // Decrypt the key to verify passphrase
+                        try {
+                          await openpgp.decryptKey({
+                            privateKey: privKeyObj,
+                            passphrase: importPassphrase,
+                          });
+                        } catch (decryptErr: any) {
+                          setError('Wrong passphrase for this key');
+                          setLoading(false);
+                          return;
+                        }
                         const pubKey = privKeyObj.toPublic().armor();
+                        const privKeyArmored = privKeyObj.armor();
                         const fp = await getFingerprint(pubKey);
                         
                         // Check if user exists on backend
                         try {
                           await api.checkUserExists(fp);
-                          // User exists, proceed to step 3
-                          setStep(3);
                         } catch (checkErr: any) {
                           if (checkErr.message.includes('404')) {
                             setError('Account not found on server. Please contact your administrator.');
                           } else {
                             throw checkErr;
                           }
+                          setLoading(false);
+                          return;
                         }
+                        
+                        // Save account to IndexedDB
+                        const encrypted = await aesEncrypt(url, loginPassword);
+                        await saveAccount({
+                          fingerprint: fp,
+                          privateKey: privKeyArmored,
+                          publicKey: pubKey,
+                          apiUrlEncrypted: encrypted.encrypted,
+                          apiUrlSalt: encrypted.salt,
+                          apiUrlIv: encrypted.iv,
+                          label: accountName.trim() || undefined,
+                        });
+                        
+                        // Proceed to login
                         setLoading(false);
+                        onComplete();
                         return;
                       }
 
@@ -553,7 +599,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                       setLoading(false);
                     }
                   }}
-                  disabled={!canProceedStep2 || loading}
+                  disabled={!canProceedStep2 || loading || (registrationMode === 'disabled' && (!importKeyData || !importPassphrase))}
                 >
                   {loading ? <><span class="spinner" /> Validating...</> : <>Next <ArrowRight size={16} style={{ marginLeft: '6px' }} /></>}
                 </button>
