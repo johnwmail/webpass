@@ -27,7 +27,8 @@
       "Bash(tee *)",
       "Bash(~/go/bin/sqlc *)",
       "Bash(git tag *)",
-      "Bash(/home/exedev/webpass/frontend/playwright-e2e-test.sh)"
+      "Bash(cat *)",
+      "Bash(git push *)"
     ],
     "deny": [
       "Bash(git reset --hard *)",

@@ -66,6 +66,41 @@ export class ApiClient {
     return res.json();
   }
 
+  /** GET /api/registration/mode — get registration mode */
+  async getRegistrationMode(): Promise<{ mode: 'disabled' | 'open' | 'protected' }> {
+    const res = await fetch(this.url('/api/registration/mode'));
+    if (!res.ok) {
+      throw new Error(`Failed to fetch registration mode (${res.status})`);
+    }
+    return res.json();
+  }
+
+  /** GET /api/:fingerprint — check if user exists */
+  async checkUserExists(fingerprint: string): Promise<{ exists: boolean; public_key?: string }> {
+    const res = await fetch(this.url(`/api/${fingerprint}`));
+    if (res.status === 404) {
+      throw new Error(`User not found (${res.status})`);
+    }
+    if (!res.ok) {
+      // Try to parse JSON error, fallback to text for HTML responses
+      const text = await res.text().catch(() => '');
+      let errMsg = `Request failed (${res.status})`;
+      try {
+        const err = JSON.parse(text);
+        errMsg = err.error || errMsg;
+      } catch {
+        // Response was not JSON (e.g., HTML error page)
+        if (res.status === 404) {
+          errMsg = 'User not found';
+        } else if (res.status === 401) {
+          errMsg = 'Unauthorized';
+        }
+      }
+      throw new Error(errMsg);
+    }
+    return res.json();
+  }
+
   /** POST /api/:fp/login */
   async login(
     password: string
@@ -76,8 +111,21 @@ export class ApiClient {
       body: JSON.stringify({ password }),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Request failed' }));
-      throw new Error(err.error || `Login failed (${res.status})`);
+      // Try to parse JSON error, fallback to text for HTML responses
+      const text = await res.text().catch(() => '');
+      let errMsg = `Login failed (${res.status})`;
+      try {
+        const err = JSON.parse(text);
+        errMsg = err.error || errMsg;
+      } catch {
+        // Response was not JSON (e.g., HTML error page)
+        if (res.status === 404) {
+          errMsg = 'User not found';
+        } else if (res.status === 401) {
+          errMsg = 'invalid credentials';
+        }
+      }
+      throw new Error(errMsg);
     }
     return res.json();
   }

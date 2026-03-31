@@ -85,3 +85,25 @@ go build -o webpass-server ./cmd/srv
 ```
 
 **Rule:** Do not commit Go code without running `go fmt`, `go vet`, and `go test` at minimum.
+
+## Playwright E2E Tests
+
+**Always use the wrapper script** to run Playwright E2E tests:
+
+```bash
+# Preferred: Use the wrapper script (handles server setup, env vars, cleanup)
+./frontend/playwright-e2e-test.sh
+
+# With options
+./frontend/playwright-e2e-test.sh --mode protected
+./frontend/playwright-e2e-test.sh --mode open
+./frontend/playwright-e2e-test.sh --mode all
+```
+
+**Do NOT run `npx playwright test` directly** unless explicitly instructed, because:
+- The wrapper script sets up required environment variables (JWT_SECRET, DB_PATH, REGISTRATION_*, etc.)
+- The wrapper script manages server lifecycle (start/stop/cleanup)
+- The wrapper script handles multiple test modes (protected, open, disabled)
+- Direct `npx playwright test` will fail without proper server setup
+
+**Rule:** When asked to run E2E tests, always use `./frontend/playwright-e2e-test.sh` without parameters unless a specific mode is requested.

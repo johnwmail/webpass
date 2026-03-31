@@ -158,24 +158,69 @@ kubectl apply -f k8s/deployment.yaml
 
 ## 📡 API Endpoints
 
-All endpoints require JWT authentication.
+All endpoints require JWT authentication except where noted.
 
-| Method | Path                      | Auth  | Description                           |
-| ------ | ------------------------- | ----- | ------------------------------------- |
-| POST   | `/api`                    | No    | Create user (first-time setup)        |
-| POST   | `/api/{fingerprint}/login`    | No    | Login → returns JWT or 2FA challenge  |
-| POST   | `/api/{fingerprint}/login/2fa`| No    | Complete 2FA login                    |
-| GET    | `/api/{fingerprint}/entries`  | JWT   | List all entry paths                  |
-| GET    | `/api/{fingerprint}/entries/*`| JWT   | Download encrypted blob               |
-| PUT    | `/api/{fingerprint}/entries/*`| JWT   | Upload encrypted blob                 |
-| DELETE | `/api/{fingerprint}/entries/*`| JWT   | Delete entry                          |
-| POST   | `/api/{fingerprint}/entries/move` | JWT | Rename/move entry                   |
-| GET    | `/api/{fingerprint}/export`   | JWT   | Export all entries as `.tar.gz`       |
-| POST   | `/api/{fingerprint}/import`   | JWT   | Import `.tar.gz` password store       |
-| GET    | `/api/{fingerprint}/git/status` | JWT | Get git sync status                 |
-| POST   | `/api/{fingerprint}/git/config` | JWT | Configure git sync                  |
-| POST   | `/api/{fingerprint}/git/push`   | JWT | Manual push to remote               |
-| POST   | `/api/{fingerprint}/git/pull`   | JWT | Manual pull from remote             |
+### Authentication & User Management
+
+| Method | Path                              | Auth  | Description                                      |
+| ------ | --------------------------------- | ----- | ------------------------------------------------ |
+| POST   | `/api`                            | No    | Create user (first-time setup)                   |
+| GET    | `/api/{fingerprint}`              | JWT   | Get user info                                    |
+| POST   | `/api/{fingerprint}/login`        | No    | Login → returns JWT or 2FA challenge             |
+| POST   | `/api/{fingerprint}/login/2fa`    | No    | Complete 2FA login                               |
+| DELETE | `/api/{fingerprint}/account`      | JWT   | Delete account permanently                       |
+| POST   | `/api/{fingerprint}/password`     | JWT   | Change password                                  |
+
+### Registration (TOTP-based)
+
+| Method | Path                              | Auth  | Description                                      |
+| ------ | --------------------------------- | ----- | ------------------------------------------------ |
+| GET    | `/api/registration/mode`          | No    | Get registration mode (open/protected/disabled)  |
+| POST   | `/api/registration/validate`      | No    | Validate registration TOTP code                  |
+
+### TOTP Setup
+
+| Method | Path                              | Auth  | Description                                      |
+| ------ | --------------------------------- | ----- | ------------------------------------------------ |
+| POST   | `/api/{fingerprint}/totp/setup`   | JWT   | Begin TOTP 2FA setup                             |
+| POST   | `/api/{fingerprint}/totp/confirm` | JWT   | Confirm TOTP 2FA setup                           |
+
+### Entries (Password Store)
+
+| Method | Path                              | Auth  | Description                                      |
+| ------ | --------------------------------- | ----- | ------------------------------------------------ |
+| GET    | `/api/{fingerprint}/entries`      | JWT   | List all entry paths                             |
+| GET    | `/api/{fingerprint}/entries/*`    | JWT   | Download encrypted blob                          |
+| PUT    | `/api/{fingerprint}/entries/*`    | JWT   | Upload encrypted blob                            |
+| DELETE | `/api/{fingerprint}/entries/*`    | JWT   | Delete entry                                     |
+| POST   | `/api/{fingerprint}/entries/move` | JWT   | Rename/move entry                                |
+
+### Import/Export
+
+| Method | Path                              | Auth  | Description                                      |
+| ------ | --------------------------------- | ----- | ------------------------------------------------ |
+| GET    | `/api/{fingerprint}/export`       | JWT   | Export all entries as `.tar.gz`                  |
+| POST   | `/api/{fingerprint}/import`       | JWT   | Import password store (JSON or `.tar.gz`)        |
+
+### Git Sync
+
+| Method | Path                              | Auth  | Description                                      |
+| ------ | --------------------------------- | ----- | ------------------------------------------------ |
+| GET    | `/api/{fingerprint}/git/status`   | JWT   | Get git sync status                              |
+| GET    | `/api/{fingerprint}/git/config`   | JWT   | Get git configuration                            |
+| POST   | `/api/{fingerprint}/git/config`   | JWT   | Configure git sync                               |
+| POST   | `/api/{fingerprint}/git/session`  | JWT   | Set git token for current session                |
+| POST   | `/api/{fingerprint}/git/push`     | JWT   | Manual push to remote                            |
+| POST   | `/api/{fingerprint}/git/pull`     | JWT   | Manual pull from remote                          |
+| POST   | `/api/{fingerprint}/git/toggle-sync` | JWT | Enable/disable git sync                          |
+| GET    | `/api/{fingerprint}/git/log`      | JWT   | Get sync operation history (last 50)             |
+
+### System
+
+| Method | Path                              | Auth  | Description                                      |
+| ------ | --------------------------------- | ----- | ------------------------------------------------ |
+| GET    | `/api/health`                     | No    | Health check                                     |
+| GET    | `/api/version`                    | No    | Get server version                               |
 
 📖 See [GITSYNC.md](GITSYNC.md) for detailed git sync documentation.
 

@@ -133,35 +133,69 @@ CREATE TABLE git_sync_log (
 
 ## API Endpoints
 
-All endpoints under `/api/`. JWT required for all except setup and login.
+All endpoints under `/api/`. JWT required for all except where noted.
 
 ### Authentication & Users
 
-| Method | Path                | Auth | Description                          |
-| ------ | ------------------- | ---- | ------------------------------------ |
-| POST   | `/api`              | No   | First-time: set password + public key |
-| POST   | `/api/{fingerprint}/login`        | No   | Verify password → return JWT         |
+| Method | Path                              | Auth | Description                                      |
+| ------ | --------------------------------- | ---- | ------------------------------------------------ |
+| POST   | `/api`                            | No   | First-time: set password + public key            |
+| GET    | `/api/{fingerprint}`              | JWT  | Get user info                                    |
+| POST   | `/api/{fingerprint}/login`        | No   | Verify password → return JWT or 2FA challenge    |
+| POST   | `/api/{fingerprint}/login/2fa`    | No   | Complete 2FA login                               |
+| DELETE | `/api/{fingerprint}/account`      | JWT  | Delete account permanently                       |
+| POST   | `/api/{fingerprint}/password`     | JWT  | Change password                                  |
+
+### Registration (TOTP-based)
+
+| Method | Path                              | Auth | Description                                      |
+| ------ | --------------------------------- | ---- | ------------------------------------------------ |
+| GET    | `/api/registration/mode`          | No   | Get registration mode (open/protected/disabled)  |
+| POST   | `/api/registration/validate`      | No   | Validate registration TOTP code                  |
+
+### TOTP Setup
+
+| Method | Path                              | Auth | Description                                      |
+| ------ | --------------------------------- | ---- | ------------------------------------------------ |
+| POST   | `/api/{fingerprint}/totp/setup`   | JWT  | Begin TOTP 2FA setup                             |
+| POST   | `/api/{fingerprint}/totp/confirm` | JWT  | Confirm TOTP 2FA setup                           |
 
 ### Entries (Password Store)
 
-| Method | Path                    | Auth | Description                          |
-| ------ | ----------------------- | ---- | ------------------------------------ |
-| GET    | `/api/{fingerprint}/entries`          | JWT  | List all entry paths (tree)          |
-| GET    | `/api/{fingerprint}/entries/*path`    | JWT  | Download encrypted .gpg blob         |
-| PUT    | `/api/{fingerprint}/entries/*path`    | JWT  | Upload encrypted .gpg blob           |
-| DELETE | `/api/{fingerprint}/entries/*path`    | JWT  | Delete entry                         |
-| POST   | `/api/{fingerprint}/entries/move`     | JWT  | Rename/move entry `{ from, to }`     |
+| Method | Path                              | Auth | Description                                      |
+| ------ | --------------------------------- | ---- | ------------------------------------------------ |
+| GET    | `/api/{fingerprint}/entries`      | JWT  | List all entry paths (tree)                      |
+| GET    | `/api/{fingerprint}/entries/*path`| JWT  | Download encrypted .gpg blob                     |
+| PUT    | `/api/{fingerprint}/entries/*path`| JWT  | Upload encrypted .gpg blob                       |
+| DELETE | `/api/{fingerprint}/entries/*path`| JWT  | Delete entry                                     |
+| POST   | `/api/{fingerprint}/entries/move` | JWT  | Rename/move entry `{ from, to }`                 |
+
+### Import/Export
+
+| Method | Path                              | Auth | Description                                      |
+| ------ | --------------------------------- | ---- | ------------------------------------------------ |
+| GET    | `/api/{fingerprint}/export`       | JWT  | Export all entries as `.tar.gz`                  |
+| POST   | `/api/{fingerprint}/import`       | JWT  | Import password store (JSON or `.tar.gz`)        |
 
 ### Git Sync
 
-| Method | Path                          | Auth | Description                              |
-| ------ | ----------------------------- | ---- | ---------------------------------------- |
-| GET    | `/api/{fingerprint}/git/status`        | JWT  | Get sync status (repo URL, last sync)    |
-| POST   | `/api/{fingerprint}/git/config`        | JWT  | Configure git sync `{ repo_url, encrypted_pat }` |
-| POST   | `/api/{fingerprint}/git/session`       | JWT  | Set plaintext git token for current session |
-| POST   | `/api/{fingerprint}/git/push`          | JWT  | Manual push to remote (optional `{ token }`) |
-| POST   | `/api/{fingerprint}/git/pull`          | JWT  | Manual pull from remote (optional `{ token }`) |
-| GET    | `/api/{fingerprint}/git/log`           | JWT  | Get sync operation history (last 50)     |
+| Method | Path                              | Auth | Description                                      |
+| ------ | --------------------------------- | ---- | ------------------------------------------------ |
+| GET    | `/api/{fingerprint}/git/status`   | JWT  | Get sync status (repo URL, last sync)            |
+| GET    | `/api/{fingerprint}/git/config`   | JWT  | Get git configuration                            |
+| POST   | `/api/{fingerprint}/git/config`   | JWT  | Configure git sync `{ repo_url, encrypted_pat }` |
+| POST   | `/api/{fingerprint}/git/session`  | JWT  | Set plaintext git token for current session      |
+| POST   | `/api/{fingerprint}/git/push`     | JWT  | Manual push to remote (force overwrite)          |
+| POST   | `/api/{fingerprint}/git/pull`     | JWT  | Manual pull from remote (fresh clone)            |
+| POST   | `/api/{fingerprint}/git/toggle-sync` | JWT | Enable/disable git sync                          |
+| GET    | `/api/{fingerprint}/git/log`      | JWT  | Get sync operation history (last 50)             |
+
+### System
+
+| Method | Path                              | Auth | Description                                      |
+| ------ | --------------------------------- | ---- | ------------------------------------------------ |
+| GET    | `/api/health`                     | No   | Health check                                     |
+| GET    | `/api/version`                    | No   | Get server version                               |
 
 ### CORS
 

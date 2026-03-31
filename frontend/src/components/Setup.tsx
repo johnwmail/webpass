@@ -47,6 +47,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
   const qrRef = useRef<HTMLCanvasElement>(null);
 
   const [setupApi, setSetupApi] = useState<ApiClient | null>(null);
+  const [registrationMode, setRegistrationMode] = useState<'disabled' | 'open' | 'protected' | 'unknown'>('unknown');
 
   useEffect(() => {
     const defaultUrl = window.location.origin;
@@ -64,12 +65,9 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
         throw new Error('URL must start with http:// or https://');
       }
       new URL(url);
-      const res = await fetch(`${url}/api`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      if (res.status === 400 || res.status === 200 || res.status === 201 || res.status === 409) {
+      // Use health check endpoint instead of POST /api to avoid 403 in disabled mode
+      const res = await fetch(`${url}/api/health`);
+      if (res.ok) {
         return true;
       } else {
         throw new Error(`Unexpected status: ${res.status}`);
@@ -152,25 +150,17 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
     try {
       const url = apiUrl.replace(/\/+$/, '');
       const api = new ApiClient(url);
-
-      const encrypted = await aesEncrypt(url, loginPassword);
-      await saveAccount({
-        fingerprint,
-        privateKey,
-        publicKey,
-        apiUrlEncrypted: encrypted.encrypted,
-        apiUrlSalt: encrypted.salt,
-        apiUrlIv: encrypted.iv,
-        label: accountName.trim() || undefined,
-      });
-
       api.fingerprint = fingerprint;
 
       let loginResult: { token?: string; requires_2fa?: boolean } | null = null;
       let existingUser = false;
+      let isNewUser = false;
+
+      // Step 1: Try to create user on backend FIRST (before saving to IndexedDB)
       try {
         await api.setup(loginPassword, publicKey, fingerprint, registrationCode || undefined);
         loginResult = await api.login(loginPassword);
+        isNewUser = true;
       } catch (e: any) {
         const msg = e?.message || '';
         // Check if error is about registration code
@@ -182,11 +172,33 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
         if (!/user already exists/i.test(msg)) {
           throw e;
         }
+        // User already exists - try to login with provided password
         existingUser = true;
-        loginResult = await api.login(loginPassword);
+        try {
+          loginResult = await api.login(loginPassword);
+        } catch (loginErr: any) {
+          // Login failed - password doesn't match existing account
+          setError('This account already exists with a different password. Please use the original password to access your existing data.');
+          setLoading(false);
+          return;
+        }
       }
 
       if (loginResult?.requires_2fa) {
+        // 2FA required - save account to IndexedDB first (backend user already exists)
+        // User will complete login on the login page with 2FA code
+        if (isNewUser) {
+          const encrypted = await aesEncrypt(url, loginPassword);
+          await saveAccount({
+            fingerprint,
+            privateKey,
+            publicKey,
+            apiUrlEncrypted: encrypted.encrypted,
+            apiUrlSalt: encrypted.salt,
+            apiUrlIv: encrypted.iv,
+            label: accountName.trim() || undefined,
+          });
+        }
         session.clear();
         onComplete();
         return;
@@ -194,6 +206,21 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
 
       if (loginResult?.token) {
         api.token = loginResult.token;
+
+        // Step 2: ONLY save to IndexedDB AFTER backend confirms user exists
+        if (isNewUser) {
+          const encrypted = await aesEncrypt(url, loginPassword);
+          await saveAccount({
+            fingerprint,
+            privateKey,
+            publicKey,
+            apiUrlEncrypted: encrypted.encrypted,
+            apiUrlSalt: encrypted.salt,
+            apiUrlIv: encrypted.iv,
+            label: accountName.trim() || undefined,
+          });
+        }
+
         if (existingUser) {
           session.activate({
             fingerprint,
@@ -204,6 +231,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
           onAuthenticated();
           return;
         }
+
         setSetupApi(api);
       }
 
@@ -254,6 +282,16 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
   const handleStep1Next = async () => {
     const success = await testConnection();
     if (success) {
+      // Fetch registration mode when entering step 2
+      try {
+        const url = apiUrl.replace(/\/+$/, '');
+        const api = new ApiClient(url);
+        const modeResult = await api.getRegistrationMode();
+        setRegistrationMode(modeResult.mode);
+      } catch (e: any) {
+        // If we can't fetch mode, assume unknown and let backend enforce
+        setRegistrationMode('unknown');
+      }
       setStep(2);
       setError('');
     }
@@ -330,104 +368,141 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                   <Lock size={18} /> Step 2 of 4: Choose Password
                 </span>
               </div>
-              <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 20px; line-height: 1.6;">
-                This password is used for server authentication and to encrypt your API URL locally.
-                It is separate from your PGP passphrase.
-              </p>
-              <div class="field">
-                <label class="label">Account Name (optional)</label>
-                <input
-                  class="input"
-                  type="text"
-                  value={accountName}
-                  onInput={(e) => setAccountName((e.target as HTMLInputElement).value)}
-                  placeholder="e.g., Personal, Work, etc."
-                  autocomplete="off"
-                />
-                <p class="help-text" style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">
-                  A friendly name to help you identify this account. You can leave it blank to use the fingerprint.
-                </p>
-              </div>
-              <div class="field">
-                <label class="label">Login Password</label>
-                <input
-                  class="input"
-                  type="password"
-                  value={loginPassword}
-                  onInput={(e) => setLoginPassword((e.target as HTMLInputElement).value)}
-                  placeholder="Choose a strong password"
-                  autocomplete="new-password"
-                />
-              </div>
-              <div class="field">
-                <label class="label">Confirm Password</label>
-                <input
-                  class="input"
-                  type="password"
-                  value={loginPasswordConfirm}
-                  onInput={(e) => setLoginPasswordConfirm((e.target as HTMLInputElement).value)}
-                  placeholder="Confirm your password"
-                  autocomplete="new-password"
-                />
-                {loginPasswordConfirm && loginPassword !== loginPasswordConfirm && (
-                  <p class="error-msg">Passwords do not match</p>
-                )}
-              </div>
-              <div class="field">
-                <label class="label">Registration Code (if required)</label>
-                <input
-                  class="input input-mono"
-                  type="text"
-                  value={registrationCode}
-                  onInput={(e) => {
-                    setRegistrationCode((e.target as HTMLInputElement).value);
-                    setError('');
-                  }}
-                  placeholder="6-digit code from admin"
-                  maxLength={6}
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  autocomplete="one-time-code"
-                />
-                <p class="help-text" style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">
-                  Enter the 6-digit registration code if your administrator requires one
-                </p>
-              </div>
+
+              {/* Disabled mode - block registration with minimal UI */}
+              {registrationMode === 'disabled' && (
+                <div class="notice notice-error">
+                  <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+                  <div>
+                    <strong>Registration is disabled</strong><br />
+                    <span style="font-size: 12px;">
+                      Contact your administrator to enable registration or use a browser where you've already set up your account.
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Protected/Open mode - show password fields */}
+              {registrationMode !== 'disabled' && (
+                <>
+                  <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 20px; line-height: 1.6;">
+                    This password is used for server authentication and to encrypt your API URL locally.
+                    It is separate from your PGP passphrase.
+                  </p>
+                  <div class="field">
+                    <label class="label">Account Name (optional)</label>
+                    <input
+                      class="input"
+                      type="text"
+                      value={accountName}
+                      onInput={(e) => setAccountName((e.target as HTMLInputElement).value)}
+                      placeholder="e.g., Personal, Work, etc."
+                      autocomplete="off"
+                    />
+                    <p class="help-text" style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">
+                      A friendly name to help you identify this account. You can leave it blank to use the fingerprint.
+                    </p>
+                  </div>
+                  <div class="field">
+                    <label class="label">Login Password</label>
+                    <input
+                      class="input"
+                      type="password"
+                      value={loginPassword}
+                      onInput={(e) => setLoginPassword((e.target as HTMLInputElement).value)}
+                      placeholder="Choose a strong password"
+                      autocomplete="new-password"
+                    />
+                  </div>
+                  <div class="field">
+                    <label class="label">Confirm Password</label>
+                    <input
+                      class="input"
+                      type="password"
+                      value={loginPasswordConfirm}
+                      onInput={(e) => setLoginPasswordConfirm((e.target as HTMLInputElement).value)}
+                      placeholder="Confirm your password"
+                      autocomplete="new-password"
+                    />
+                    {loginPasswordConfirm && loginPassword !== loginPasswordConfirm && (
+                      <p class="error-msg">Passwords do not match</p>
+                    )}
+                  </div>
+
+                  {/* Registration code field - only show in Protected mode */}
+                  {registrationMode === 'protected' && (
+                    <div class="field">
+                      <label class="label">
+                        Registration Code
+                        <span style="color: var(--error); margin-left: 6px;">*</span>
+                      </label>
+                      <input
+                        class="input input-mono"
+                        type="text"
+                        value={registrationCode}
+                        onInput={(e) => {
+                          setRegistrationCode((e.target as HTMLInputElement).value);
+                          setError('');
+                        }}
+                        placeholder="6-digit code from admin (required)"
+                        maxLength={6}
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        autocomplete="one-time-code"
+                      />
+                      <p class="help-text" style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">
+                        Enter the 6-digit registration code from your administrator
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
+
               {error && <p class="error-msg">{error}</p>}
               <div class="setup-actions">
                 <button class="btn" onClick={() => setStep(1)}>
                   <ArrowLeft size={16} style={{ marginRight: '6px' }} /> Back
                 </button>
-                <button
-                  class="btn btn-primary"
-                  onClick={async () => {
-                    setError('');
-                    setLoading(true);
-                    try {
-                      // Validate registration code before proceeding to step 3
-                      const url = apiUrl.replace(/\/+$/, '');
-                      const api = new ApiClient(url);
-                      // Only validate if registration code is provided
-                      if (registrationCode.trim()) {
-                        await api.validateRegistrationCode(registrationCode.trim());
+                {registrationMode !== 'disabled' && (
+                  <button
+                    class="btn btn-primary"
+                    onClick={async () => {
+                      setError('');
+                      setLoading(true);
+                      try {
+                        const url = apiUrl.replace(/\/+$/, '');
+                        const api = new ApiClient(url);
+
+                        // In Protected mode, require registration code
+                        if (registrationMode === 'protected' && !registrationCode.trim()) {
+                          setError('Registration code is required. Please check with your administrator.');
+                          setLoading(false);
+                          return;
+                        }
+
+                        // Validate code if provided
+                        if (registrationCode.trim()) {
+                          await api.validateRegistrationCode(registrationCode.trim());
+                        }
+
+                        // Code is valid (or not required), proceed to step 3
+                        setStep(3);
+                      } catch (e: any) {
+                        const msg = e?.message || '';
+                        if (/registration code required/i.test(msg) || /invalid or expired registration code/i.test(msg)) {
+                          setError('Invalid or expired registration code. Please check with your administrator.');
+                        } else {
+                          setError(e.message || 'Registration validation failed');
+                        }
+                      } finally {
+                        setLoading(false);
                       }
-                      // Code is valid (or not required), proceed to step 3
-                      setStep(3);
-                    } catch (e: any) {
-                      const msg = e?.message || '';
-                      if (/registration code required/i.test(msg) || /invalid or expired registration code/i.test(msg)) {
-                        setError('Invalid or expired registration code. Please check with your administrator.');
-                      } else {
-                        setError(e.message || 'Registration validation failed');
-                      }
-                    } finally {
-                      setLoading(false);
-                    }
-                  }}
-                  disabled={!canProceedStep2 || loading}
-                >
-                  {loading ? <><span class="spinner" /> Validating...</> : <>Next <ArrowRight size={16} style={{ marginLeft: '6px' }} /></>}
-                </button>
+                    }}
+                    disabled={!canProceedStep2 || loading}
+                  >
+                    {loading ? <><span class="spinner" /> Validating...</> : <>Next <ArrowRight size={16} style={{ marginLeft: '6px' }} /></>}
+                  </button>
+                )}
               </div>
             </>
           )}
