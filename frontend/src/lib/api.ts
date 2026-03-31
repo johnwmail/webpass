@@ -66,6 +66,15 @@ export class ApiClient {
     return res.json();
   }
 
+  /** GET /api/registration/mode — get registration mode */
+  async getRegistrationMode(): Promise<{ mode: 'disabled' | 'open' | 'protected' }> {
+    const res = await fetch(this.url('/api/registration/mode'));
+    if (!res.ok) {
+      throw new Error(`Failed to fetch registration mode (${res.status})`);
+    }
+    return res.json();
+  }
+
   /** POST /api/:fp/login */
   async login(
     password: string

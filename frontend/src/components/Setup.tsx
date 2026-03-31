@@ -47,6 +47,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
   const qrRef = useRef<HTMLCanvasElement>(null);
 
   const [setupApi, setSetupApi] = useState<ApiClient | null>(null);
+  const [registrationMode, setRegistrationMode] = useState<'disabled' | 'open' | 'protected' | 'unknown'>('unknown');
 
   useEffect(() => {
     const defaultUrl = window.location.origin;
@@ -152,25 +153,17 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
     try {
       const url = apiUrl.replace(/\/+$/, '');
       const api = new ApiClient(url);
-
-      const encrypted = await aesEncrypt(url, loginPassword);
-      await saveAccount({
-        fingerprint,
-        privateKey,
-        publicKey,
-        apiUrlEncrypted: encrypted.encrypted,
-        apiUrlSalt: encrypted.salt,
-        apiUrlIv: encrypted.iv,
-        label: accountName.trim() || undefined,
-      });
-
       api.fingerprint = fingerprint;
 
       let loginResult: { token?: string; requires_2fa?: boolean } | null = null;
       let existingUser = false;
+      let isNewUser = false;
+
+      // Step 1: Try to create user on backend FIRST (before saving to IndexedDB)
       try {
         await api.setup(loginPassword, publicKey, fingerprint, registrationCode || undefined);
         loginResult = await api.login(loginPassword);
+        isNewUser = true;
       } catch (e: any) {
         const msg = e?.message || '';
         // Check if error is about registration code
@@ -187,6 +180,20 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
       }
 
       if (loginResult?.requires_2fa) {
+        // 2FA required - save account to IndexedDB first (backend user already exists)
+        // User will complete login on the login page with 2FA code
+        if (isNewUser) {
+          const encrypted = await aesEncrypt(url, loginPassword);
+          await saveAccount({
+            fingerprint,
+            privateKey,
+            publicKey,
+            apiUrlEncrypted: encrypted.encrypted,
+            apiUrlSalt: encrypted.salt,
+            apiUrlIv: encrypted.iv,
+            label: accountName.trim() || undefined,
+          });
+        }
         session.clear();
         onComplete();
         return;
@@ -194,6 +201,21 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
 
       if (loginResult?.token) {
         api.token = loginResult.token;
+
+        // Step 2: ONLY save to IndexedDB AFTER backend confirms user exists
+        if (isNewUser) {
+          const encrypted = await aesEncrypt(url, loginPassword);
+          await saveAccount({
+            fingerprint,
+            privateKey,
+            publicKey,
+            apiUrlEncrypted: encrypted.encrypted,
+            apiUrlSalt: encrypted.salt,
+            apiUrlIv: encrypted.iv,
+            label: accountName.trim() || undefined,
+          });
+        }
+
         if (existingUser) {
           session.activate({
             fingerprint,
@@ -204,6 +226,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
           onAuthenticated();
           return;
         }
+
         setSetupApi(api);
       }
 
@@ -254,6 +277,16 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
   const handleStep1Next = async () => {
     const success = await testConnection();
     if (success) {
+      // Fetch registration mode when entering step 2
+      try {
+        const url = apiUrl.replace(/\/+$/, '');
+        const api = new ApiClient(url);
+        const modeResult = await api.getRegistrationMode();
+        setRegistrationMode(modeResult.mode);
+      } catch (e: any) {
+        // If we can't fetch mode, assume unknown and let backend enforce
+        setRegistrationMode('unknown');
+      }
       setStep(2);
       setError('');
     }
@@ -373,26 +406,48 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                   <p class="error-msg">Passwords do not match</p>
                 )}
               </div>
-              <div class="field">
-                <label class="label">Registration Code (if required)</label>
-                <input
-                  class="input input-mono"
-                  type="text"
-                  value={registrationCode}
-                  onInput={(e) => {
-                    setRegistrationCode((e.target as HTMLInputElement).value);
-                    setError('');
-                  }}
-                  placeholder="6-digit code from admin"
-                  maxLength={6}
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  autocomplete="one-time-code"
-                />
-                <p class="help-text" style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">
-                  Enter the 6-digit registration code if your administrator requires one
-                </p>
-              </div>
+              
+              {/* Registration code field - only show in Protected or Open mode */}
+              {registrationMode !== 'disabled' && (
+                <div class="field">
+                  <label class="label">
+                    Registration Code
+                    {registrationMode === 'protected' && <span style="color: var(--error); margin-left: 6px;">*</span>}
+                    {registrationMode === 'open' && <span style="color: var(--text-muted); font-weight: normal; margin-left: 6px;">(optional)</span>}
+                  </label>
+                  <input
+                    class="input input-mono"
+                    type="text"
+                    value={registrationCode}
+                    onInput={(e) => {
+                      setRegistrationCode((e.target as HTMLInputElement).value);
+                      setError('');
+                    }}
+                    placeholder={registrationMode === 'protected' ? '6-digit code from admin (required)' : '6-digit code from admin'}
+                    maxLength={6}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    autocomplete="one-time-code"
+                  />
+                  <p class="help-text" style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">
+                    {registrationMode === 'protected'
+                      ? 'Enter the 6-digit registration code from your administrator'
+                      : 'Enter the 6-digit registration code if your administrator requires one'}
+                  </p>
+                </div>
+              )}
+              
+              {/* Show message in Disabled mode */}
+              {registrationMode === 'disabled' && (
+                <div class="notice notice-error">
+                  <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+                  <div>
+                    <strong>Registration is disabled</strong><br />
+                    <span style="font-size: 12px;">Contact your administrator to enable registration</span>
+                  </div>
+                </div>
+              )}
+              
               {error && <p class="error-msg">{error}</p>}
               <div class="setup-actions">
                 <button class="btn" onClick={() => setStep(1)}>
@@ -404,13 +459,29 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                     setError('');
                     setLoading(true);
                     try {
-                      // Validate registration code before proceeding to step 3
+                      // Check registration mode and validate code if required
                       const url = apiUrl.replace(/\/+$/, '');
                       const api = new ApiClient(url);
-                      // Only validate if registration code is provided
+
+                      // In Disabled mode, block registration
+                      if (registrationMode === 'disabled') {
+                        setError('Registration is currently disabled. Contact your administrator.');
+                        setLoading(false);
+                        return;
+                      }
+
+                      // In Protected mode, require registration code
+                      if (registrationMode === 'protected' && !registrationCode.trim()) {
+                        setError('Registration code is required. Please check with your administrator.');
+                        setLoading(false);
+                        return;
+                      }
+
+                      // Validate code if provided
                       if (registrationCode.trim()) {
                         await api.validateRegistrationCode(registrationCode.trim());
                       }
+
                       // Code is valid (or not required), proceed to step 3
                       setStep(3);
                     } catch (e: any) {

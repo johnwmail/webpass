@@ -92,7 +92,7 @@ test.describe('Registration - Protected Mode', () => {
 
   test('registration code input has correct attributes', async ({ page }) => {
     testUser = await generateTestUser();
-    
+
     await page.goto('/');
     await page.getByRole('button', { name: /Get Started/i }).click();
     await page.waitForSelector('input[type="url"]', { timeout: 5000 });
@@ -101,15 +101,15 @@ test.describe('Registration - Protected Mode', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill('test-password');
     await page.getByPlaceholder('Confirm your password').fill('test-password');
-    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill((await testUser.registrationCode) || '');
 
-    const codeInput = page.getByPlaceholder('6-digit code from admin');
+    const codeInput = page.getByPlaceholder('6-digit code from admin (required)');
 
     await expect(codeInput).toHaveAttribute('maxlength', '6');
     await expect(codeInput).toHaveAttribute('inputmode', 'numeric');
-    await expect(codeInput).toHaveAttribute('placeholder', '6-digit code from admin');
+    await expect(codeInput).toHaveAttribute('placeholder', '6-digit code from admin (required)');
 
-    const helpText = page.getByText(/6-digit registration code if your administrator/i);
+    const helpText = page.getByText(/6-digit registration code from your administrator/i);
     await expect(helpText).toBeVisible();
   });
 });

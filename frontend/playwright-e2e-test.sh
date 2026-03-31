@@ -4,9 +4,10 @@
 # Playwright starts the server automatically via webServer config
 #
 # By default: Runs comprehensive test suite:
-#   - ALL tests in Protected mode (matches production)
-#   - Registration tests in Open mode
-#   - Registration tests in Disabled mode
+#   - Phase 1: ALL tests in Protected mode (excluding registration)
+#   - Phase 2: Registration tests in Open mode
+#   - Phase 3: Registration tests in Protected mode
+#   - Phase 4: Registration tests in Disabled mode
 #
 # Usage: ./playwright-e2e-test.sh [OPTIONS] [playwright args...]
 #
@@ -16,14 +17,14 @@
 #                  - all: All tests + registration in all 3 modes
 #                  - protected: All tests in Protected mode only
 #                  - open: All tests in Open mode only
-#                  - disabled: All tests except registration
+#                  - disabled: Registration tests in Disabled mode only
 #                  - registration: Registration tests only (all 3 modes)
 #
 # Examples:
 #   ./playwright-e2e-test.sh                    # Comprehensive suite (default)
 #   ./playwright-e2e-test.sh --mode protected   # All tests, Protected mode only
 #   ./playwright-e2e-test.sh --mode open        # All tests, Open mode only
-#   ./playwright-e2e-test.sh --mode disabled    # All tests except registration
+#   ./playwright-e2e-test.sh --mode disabled    # Registration tests, Disabled mode only
 #   ./playwright-e2e-test.sh --mode registration # Registration tests only (3 modes)
 #   ./playwright-e2e-test.sh --headed           # Run with browser UI visible
 #   ./playwright-e2e-test.sh --workers=1        # Run with single worker
@@ -291,7 +292,7 @@ run_open_mode() {
 run_disabled_mode() {
     log_info ""
     log_info "========================================="
-    log_info "Disabled Mode (registration not allowed) - ALL TESTS"
+    log_info "Disabled Mode (registration not allowed) - Registration Tests Only"
     log_info "========================================="
     log_info ""
 
@@ -303,11 +304,11 @@ run_disabled_mode() {
     export REGISTRATION_CODE_FILE=""
 
     log_info "  REGISTRATION_ENABLED: false"
-    log_info "  Running: ALL E2E tests (registration tests excluded)"
+    log_info "  Running: Registration tests in Disabled mode only"
 
-    # Run ALL tests except registration - Playwright starts server automatically
+    # Run only registration-disabled tests - Playwright starts server automatically
     cd "$FRONTEND_DIR"
-    npx playwright test --grep-invert "Registration" "${PLAYWRIGHT_ARGS[@]}"
+    npx playwright test tests/e2e/registration-disabled.spec.ts "${PLAYWRIGHT_ARGS[@]}"
     local exit_code=$?
     cd "$ROOT_DIR"
     return $exit_code
@@ -390,7 +391,7 @@ run_all_tests() {
         pkill -f "webpass-server" 2>/dev/null || true
         pkill -f "go run.*cmd/srv" 2>/dev/null || true
         sleep 2
-        
+
         export REGISTRATION_ENABLED=true
         export REGISTRATION_TOTP_SECRET=""
         export REGISTRATION_TOTP_PERIOD=""
@@ -409,7 +410,7 @@ run_all_tests() {
         pkill -f "webpass-server" 2>/dev/null || true
         pkill -f "go run.*cmd/srv" 2>/dev/null || true
         sleep 2
-        
+
         export REGISTRATION_ENABLED=true
         export REGISTRATION_TOTP_SECRET="JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
         export REGISTRATION_TOTP_PERIOD=3600
@@ -428,7 +429,7 @@ run_all_tests() {
         pkill -f "webpass-server" 2>/dev/null || true
         pkill -f "go run.*cmd/srv" 2>/dev/null || true
         sleep 2
-        
+
         export REGISTRATION_ENABLED=false
         export REGISTRATION_TOTP_SECRET=""
         export REGISTRATION_TOTP_PERIOD=""

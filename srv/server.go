@@ -88,6 +88,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api", s.handleCreateUser)
 	mux.HandleFunc("POST /api/{fingerprint}/login", s.handleLogin)
 	mux.HandleFunc("POST /api/{fingerprint}/login/2fa", s.handleLogin2FA)
+	mux.HandleFunc("GET /api/registration/mode", s.handleGetRegistrationMode)
 	mux.HandleFunc("POST /api/registration/validate", s.handleValidateRegistrationCode)
 
 	// Authenticated routes
@@ -346,6 +347,22 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusCreated)
 	jsonOK(w, map[string]string{"fingerprint": fp})
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/registration/mode — get registration mode
+// ---------------------------------------------------------------------------
+
+func (s *Server) handleGetRegistrationMode(w http.ResponseWriter, r *http.Request) {
+	var mode string
+	if s.Registration == nil || !s.Registration.IsEnabled() {
+		mode = "disabled"
+	} else if s.Registration.IsProtected() {
+		mode = "protected"
+	} else {
+		mode = "open"
+	}
+	jsonOK(w, map[string]string{"mode": mode})
 }
 
 // ---------------------------------------------------------------------------
