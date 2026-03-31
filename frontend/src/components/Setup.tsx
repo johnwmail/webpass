@@ -543,14 +543,32 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                         const privKeyArmored = privKeyObj.armor();
                         const fp = await getFingerprint(pubKey);
                         
-                        // Check if user exists on backend
+                        // Check if user exists on backend and verify password
+                        let userExistsResult: any;
                         try {
-                          await api.checkUserExists(fp);
+                          userExistsResult = await api.checkUserExists(fp);
                         } catch (checkErr: any) {
                           if (checkErr.message.includes('404')) {
                             setError('Account not found on server. Please contact your administrator.');
                           } else {
                             throw checkErr;
+                          }
+                          setLoading(false);
+                          return;
+                        }
+                        
+                        // Verify password by attempting login
+                        try {
+                          const loginResult = await api.login(loginPassword);
+                          if (loginResult.requires_2fa) {
+                            // User has 2FA enabled, need to handle that
+                            // For now, save account and let them complete 2FA on login
+                          }
+                        } catch (loginErr: any) {
+                          if (loginErr.message.includes('invalid credentials') || loginErr.message.includes('401')) {
+                            setError('Wrong password. Please enter the password for this account.');
+                          } else {
+                            throw loginErr;
                           }
                           setLoading(false);
                           return;
