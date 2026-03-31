@@ -172,8 +172,16 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
         if (!/user already exists/i.test(msg)) {
           throw e;
         }
+        // User already exists - try to login with provided password
         existingUser = true;
-        loginResult = await api.login(loginPassword);
+        try {
+          loginResult = await api.login(loginPassword);
+        } catch (loginErr: any) {
+          // Login failed - password doesn't match existing account
+          setError('This account already exists with a different password. Please use the original password to access your existing data.');
+          setLoading(false);
+          return;
+        }
       }
 
       if (loginResult?.requires_2fa) {
