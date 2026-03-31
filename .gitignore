@@ -114,6 +114,7 @@ docker-compose.override.yml
 
 # AI assistant configuration (optional, can be committed if desired)
 # .qwen/
+.qwen/settings.json.*
 
 # Local development
 .local/
