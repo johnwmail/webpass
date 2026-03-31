@@ -268,8 +268,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
   }, [step, setupApi]);
 
   const canProceedStep1 = apiUrl.trim().length > 0;
-  const canProceedStep2 = loginPassword.length >= 1 && loginPassword === loginPasswordConfirm && 
-    (registrationMode !== 'disabled' || (importKeyData && importPassphrase));
+  const canProceedStep2 = loginPassword.length >= 1 && loginPassword === loginPasswordConfirm;
   const canProceedStep3 = keyReady;
 
   const handleStep1Next = async () => {
@@ -361,137 +360,93 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                   <Lock size={18} /> Step 2 of 4: Choose Password
                 </span>
               </div>
-              <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 20px; line-height: 1.6;">
-                This password is used for server authentication and to encrypt your API URL locally.
-                It is separate from your PGP passphrase.
-              </p>
-              <div class="field">
-                <label class="label">Account Name (optional)</label>
-                <input
-                  class="input"
-                  type="text"
-                  value={accountName}
-                  onInput={(e) => setAccountName((e.target as HTMLInputElement).value)}
-                  placeholder="e.g., Personal, Work, etc."
-                  autocomplete="off"
-                />
-                <p class="help-text" style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">
-                  A friendly name to help you identify this account. You can leave it blank to use the fingerprint.
-                </p>
-              </div>
-              <div class="field">
-                <label class="label">Login Password</label>
-                <input
-                  class="input"
-                  type="password"
-                  value={loginPassword}
-                  onInput={(e) => setLoginPassword((e.target as HTMLInputElement).value)}
-                  placeholder="Choose a strong password"
-                  autocomplete="new-password"
-                />
-              </div>
-              <div class="field">
-                <label class="label">Confirm Password</label>
-                <input
-                  class="input"
-                  type="password"
-                  value={loginPasswordConfirm}
-                  onInput={(e) => setLoginPasswordConfirm((e.target as HTMLInputElement).value)}
-                  placeholder="Confirm your password"
-                  autocomplete="new-password"
-                />
-                {loginPasswordConfirm && loginPassword !== loginPasswordConfirm && (
-                  <p class="error-msg">Passwords do not match</p>
-                )}
-              </div>
-              
-              {/* Registration code field - only show in Protected or Open mode */}
-              {registrationMode !== 'disabled' && (
-                <div class="field">
-                  <label class="label">
-                    Registration Code
-                    {registrationMode === 'protected' && <span style="color: var(--error); margin-left: 6px;">*</span>}
-                    {registrationMode === 'open' && <span style="color: var(--text-muted); font-weight: normal; margin-left: 6px;">(optional)</span>}
-                  </label>
-                  <input
-                    class="input input-mono"
-                    type="text"
-                    value={registrationCode}
-                    onInput={(e) => {
-                      setRegistrationCode((e.target as HTMLInputElement).value);
-                      setError('');
-                    }}
-                    placeholder={registrationMode === 'protected' ? '6-digit code from admin (required)' : '6-digit code from admin'}
-                    maxLength={6}
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    autocomplete="one-time-code"
-                  />
-                  <p class="help-text" style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">
-                    {registrationMode === 'protected'
-                      ? 'Enter the 6-digit registration code from your administrator'
-                      : 'Enter the 6-digit registration code if your administrator requires one'}
-                  </p>
+
+              {/* Disabled mode - block registration with minimal UI */}
+              {registrationMode === 'disabled' && (
+                <div class="notice notice-error">
+                  <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+                  <div>
+                    <strong>Registration is disabled</strong><br />
+                    <span style="font-size: 12px;">
+                      Contact your administrator to enable registration or use a browser where you've already set up your account.
+                    </span>
+                  </div>
                 </div>
               )}
 
-              {/* Disabled mode - import existing account */}
-              {registrationMode === 'disabled' && (
+              {/* Protected/Open mode - show password fields */}
+              {registrationMode !== 'disabled' && (
                 <>
+                  <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 20px; line-height: 1.6;">
+                    This password is used for server authentication and to encrypt your API URL locally.
+                    It is separate from your PGP passphrase.
+                  </p>
                   <div class="field">
-                    <label class="label">Import Existing Account</label>
-                    <p class="help-text" style="margin-bottom: 12px; font-size: 12px; color: var(--text-muted);">
-                      Registration is disabled. Import your existing PGP private key to add this account.
-                    </p>
+                    <label class="label">Account Name (optional)</label>
                     <input
-                      type="file"
-                      accept=".asc,.pgp,.key,.gpg"
-                      onChange={(e) => {
-                        const input = e.target as HTMLInputElement;
-                        const file = input.files?.[0];
-                        if (file) {
-                          const reader = new FileReader();
-                          reader.onload = () => {
-                            const data = reader.result as ArrayBuffer;
-                            const bytes = new Uint8Array(data);
-                            const decoder = new TextDecoder('utf-8', { fatal: false });
-                            const textPreview = decoder.decode(bytes.slice(0, 50));
-                            if (textPreview.includes('-----BEGIN PGP PRIVATE KEY BLOCK-----')) {
-                              setImportKeyData(decoder.decode(bytes));
-                              setImportKeyFormat('armored');
-                            } else {
-                              setImportKeyData(bytes);
-                              setImportKeyFormat('binary');
-                            }
-                            setError('');
-                          };
-                          reader.readAsArrayBuffer(file);
-                        }
-                      }}
-                      disabled={loading}
-                      style="width: 100%;"
+                      class="input"
+                      type="text"
+                      value={accountName}
+                      onInput={(e) => setAccountName((e.target as HTMLInputElement).value)}
+                      placeholder="e.g., Personal, Work, etc."
+                      autocomplete="off"
                     />
-                    {importKeyData && (
-                      <p style={`font-size: 12px; margin-top: 8px; ${importKeyFormat === 'binary' ? 'color: var(--success);' : 'color: var(--text-muted);'}`}>
-                        {importKeyFormat === 'binary' ? '✓ Binary key file detected' : '✓ Armored key file detected'}
-                      </p>
-                    )}
+                    <p class="help-text" style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">
+                      A friendly name to help you identify this account. You can leave it blank to use the fingerprint.
+                    </p>
                   </div>
                   <div class="field">
-                    <label class="label">Key Passphrase</label>
+                    <label class="label">Login Password</label>
                     <input
                       class="input"
                       type="password"
-                      value={importPassphrase}
-                      onInput={(e) => setImportPassphrase((e.target as HTMLInputElement).value)}
-                      placeholder="Passphrase for this key"
-                      autocomplete="one-time-code"
-                      name="pgp-import-passphrase"
-                      data-lpignore="true"
-                      data-bwignore="true"
-                      data-1p-ignore="true"
-                      disabled={loading || !importKeyData}
+                      value={loginPassword}
+                      onInput={(e) => setLoginPassword((e.target as HTMLInputElement).value)}
+                      placeholder="Choose a strong password"
+                      autocomplete="new-password"
                     />
+                  </div>
+                  <div class="field">
+                    <label class="label">Confirm Password</label>
+                    <input
+                      class="input"
+                      type="password"
+                      value={loginPasswordConfirm}
+                      onInput={(e) => setLoginPasswordConfirm((e.target as HTMLInputElement).value)}
+                      placeholder="Confirm your password"
+                      autocomplete="new-password"
+                    />
+                    {loginPasswordConfirm && loginPassword !== loginPasswordConfirm && (
+                      <p class="error-msg">Passwords do not match</p>
+                    )}
+                  </div>
+
+                  {/* Registration code field - only show in Protected or Open mode */}
+                  <div class="field">
+                    <label class="label">
+                      Registration Code
+                      {registrationMode === 'protected' && <span style="color: var(--error); margin-left: 6px;">*</span>}
+                      {registrationMode === 'open' && <span style="color: var(--text-muted); font-weight: normal; margin-left: 6px;">(optional)</span>}
+                    </label>
+                    <input
+                      class="input input-mono"
+                      type="text"
+                      value={registrationCode}
+                      onInput={(e) => {
+                        setRegistrationCode((e.target as HTMLInputElement).value);
+                        setError('');
+                      }}
+                      placeholder={registrationMode === 'protected' ? '6-digit code from admin (required)' : '6-digit code from admin'}
+                      maxLength={6}
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      autocomplete="one-time-code"
+                    />
+                    <p class="help-text" style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">
+                      {registrationMode === 'protected'
+                        ? 'Enter the 6-digit registration code from your administrator'
+                        : 'Enter the 6-digit registration code if your administrator requires one'}
+                    </p>
                   </div>
                 </>
               )}
@@ -511,88 +466,10 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                       const url = apiUrl.replace(/\/+$/, '');
                       const api = new ApiClient(url);
 
-                      // In Disabled mode, import existing account
+                      // In Disabled mode, block registration
                       if (registrationMode === 'disabled') {
-                        if (!importKeyData || !importPassphrase) {
-                          setError('Please import your PGP private key and enter its passphrase');
-                          setLoading(false);
-                          return;
-                        }
-                        // Validate the key and extract fingerprint
-                        const openpgp = await import('openpgp');
-                        let privKeyObj: any;
-                        if (importKeyFormat === 'armored' && typeof importKeyData === 'string') {
-                          privKeyObj = await openpgp.readPrivateKey({ armoredKey: importKeyData });
-                        } else if (importKeyFormat === 'binary' && importKeyData instanceof Uint8Array) {
-                          privKeyObj = await openpgp.readPrivateKey({ binaryKey: importKeyData });
-                        } else {
-                          throw new Error('Invalid key format');
-                        }
-                        // Decrypt the key to verify passphrase
-                        try {
-                          await openpgp.decryptKey({
-                            privateKey: privKeyObj,
-                            passphrase: importPassphrase,
-                          });
-                        } catch (decryptErr: any) {
-                          setError('Wrong passphrase for this key');
-                          setLoading(false);
-                          return;
-                        }
-                        const pubKey = privKeyObj.toPublic().armor();
-                        const privKeyArmored = privKeyObj.armor();
-                        const fp = await getFingerprint(pubKey);
-                        
-                        // Check if user exists on backend and verify password
-                        let userExistsResult: any;
-                        try {
-                          userExistsResult = await api.checkUserExists(fp);
-                        } catch (checkErr: any) {
-                          if (checkErr.message.includes('404')) {
-                            setError('Account not found on server. Please contact your administrator.');
-                          } else {
-                            throw checkErr;
-                          }
-                          setLoading(false);
-                          return;
-                        }
-                        
-                        // Verify password by attempting login
-                        try {
-                          const loginResult = await api.login(loginPassword);
-                          if (loginResult.requires_2fa) {
-                            // User has 2FA enabled, need to handle that
-                            // For now, save account and let them complete 2FA on login
-                          }
-                        } catch (loginErr: any) {
-                          // Check for authentication errors
-                          const msg = loginErr.message || '';
-                          if (msg.includes('invalid credentials') || msg.includes('401') || msg.includes('invalid password')) {
-                            setError('Wrong password. Please enter the password for this account.');
-                            setLoading(false);
-                            return;
-                          }
-                          // For other errors, show the error message
-                          setError(loginErr.message || 'Login verification failed');
-                          setLoading(false);
-                          return;
-                        }
-                        
-                        // Save account to IndexedDB
-                        const encrypted = await aesEncrypt(url, loginPassword);
-                        await saveAccount({
-                          fingerprint: fp,
-                          privateKey: privKeyArmored,
-                          publicKey: pubKey,
-                          apiUrlEncrypted: encrypted.encrypted,
-                          apiUrlSalt: encrypted.salt,
-                          apiUrlIv: encrypted.iv,
-                          label: accountName.trim() || undefined,
-                        });
-                        
-                        // Proceed to login
+                        setError('Registration is disabled. Contact your administrator.');
                         setLoading(false);
-                        onComplete();
                         return;
                       }
 
@@ -621,7 +498,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                       setLoading(false);
                     }
                   }}
-                  disabled={!canProceedStep2 || loading || (registrationMode === 'disabled' && (!importKeyData || !importPassphrase))}
+                  disabled={!canProceedStep2 || loading}
                 >
                   {loading ? <><span class="spinner" /> Validating...</> : <>Next <ArrowRight size={16} style={{ marginLeft: '6px' }} /></>}
                 </button>
