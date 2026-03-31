@@ -4,6 +4,52 @@ Secure user registration with TOTP-based verification.
 
 ---
 
+## API Endpoints
+
+### Get Registration Mode
+
+```http
+GET /api/registration/mode
+```
+
+**Response:**
+```json
+{
+  "enabled": true,
+  "protected": true
+}
+```
+
+- `enabled`: Whether registration is enabled
+- `protected`: Whether a TOTP code is required (true = protected mode, false = open mode)
+
+### Validate Registration Code
+
+```http
+POST /api/registration/validate
+Content-Type: application/json
+
+{
+  "code": "482156"
+}
+```
+
+**Response (valid code):**
+```json
+{
+  "valid": true
+}
+```
+
+**Response (invalid code):**
+```json
+{
+  "error": "invalid code"
+}
+```
+
+---
+
 ## Overview
 
 WebPass uses **TOTP-based registration tokens** to prevent unauthorized account creation. This ensures that only users with access to the server's registration code can create new accounts.

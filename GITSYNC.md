@@ -180,10 +180,12 @@ All endpoints require JWT authentication.
 | Method | Path                          | Body                                      | Description                              |
 |--------|-------------------------------|-------------------------------------------|------------------------------------------|
 | GET    | `/api/{fingerprint}/git/status`   | —                                         | Get sync status (repo URL, has encrypted PAT) |
+| GET    | `/api/{fingerprint}/git/config`   | —                                         | Get git configuration (repo URL, branch) |
 | POST   | `/api/{fingerprint}/git/config`   | `{ repo_url, encrypted_pat }`             | Configure git sync (PGP-encrypted PAT) |
 | POST   | `/api/{fingerprint}/git/session`  | `{ token }`                               | Set plaintext git token for current session |
 | POST   | `/api/{fingerprint}/git/push`     | `{ token? }`                              | Manual push to remote (force overwrite) |
 | POST   | `/api/{fingerprint}/git/pull`     | `{ token? }`                              | Manual pull from remote (fresh clone) |
+| POST   | `/api/{fingerprint}/git/toggle-sync` | `{ enabled: boolean }`                | Enable or disable git sync               |
 | GET    | `/api/{fingerprint}/git/log`      | —                                         | Get sync operation history (last 50)     |
 
 ---
