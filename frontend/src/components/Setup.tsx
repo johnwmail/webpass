@@ -65,12 +65,9 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
         throw new Error('URL must start with http:// or https://');
       }
       new URL(url);
-      const res = await fetch(`${url}/api`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      if (res.status === 400 || res.status === 200 || res.status === 201 || res.status === 409) {
+      // Use health check endpoint instead of POST /api to avoid 403 in disabled mode
+      const res = await fetch(`${url}/api/health`);
+      if (res.ok) {
         return true;
       } else {
         throw new Error(`Unexpected status: ${res.status}`);
