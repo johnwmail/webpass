@@ -75,6 +75,18 @@ export class ApiClient {
     return res.json();
   }
 
+  /** GET /api/:fingerprint — check if user exists */
+  async checkUserExists(fingerprint: string): Promise<{ exists: boolean; public_key?: string }> {
+    const res = await fetch(this.url(`/api/${fingerprint}`));
+    if (res.status === 404) {
+      throw new Error(`User not found (${res.status})`);
+    }
+    if (!res.ok) {
+      throw new Error(`Request failed (${res.status})`);
+    }
+    return res.json();
+  }
+
   /** POST /api/:fp/login */
   async login(
     password: string

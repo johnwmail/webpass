@@ -433,18 +433,50 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                   </p>
                 </div>
               )}
-              
-              {/* Show message in Disabled mode */}
+
+              {/* Disabled mode - import existing account */}
               {registrationMode === 'disabled' && (
-                <div class="notice notice-error">
-                  <AlertTriangle size={18} style={{ flexShrink: 0 }} />
-                  <div>
-                    <strong>Registration is disabled</strong><br />
-                    <span style="font-size: 12px;">Contact your administrator to enable registration</span>
-                  </div>
+                <div class="field">
+                  <label class="label">Import Existing Account</label>
+                  <p class="help-text" style="margin-bottom: 12px; font-size: 12px; color: var(--text-muted);">
+                    Registration is disabled. Import your existing PGP private key to add this account.
+                  </p>
+                  <input
+                    type="file"
+                    accept=".asc,.pgp,.key,.gpg"
+                    onChange={(e) => {
+                      const input = e.target as HTMLInputElement;
+                      const file = input.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const data = reader.result as ArrayBuffer;
+                          const bytes = new Uint8Array(data);
+                          const decoder = new TextDecoder('utf-8', { fatal: false });
+                          const textPreview = decoder.decode(bytes.slice(0, 50));
+                          if (textPreview.includes('-----BEGIN PGP PRIVATE KEY BLOCK-----')) {
+                            setImportKeyData(decoder.decode(bytes));
+                            setImportKeyFormat('armored');
+                          } else {
+                            setImportKeyData(bytes);
+                            setImportKeyFormat('binary');
+                          }
+                          setError('');
+                        };
+                        reader.readAsArrayBuffer(file);
+                      }
+                    }}
+                    disabled={loading}
+                    style="width: 100%;"
+                  />
+                  {importKeyData && (
+                    <p style={`font-size: 12px; margin-top: 8px; ${importKeyFormat === 'binary' ? 'color: var(--success);' : 'color: var(--text-muted);'}`}>
+                      {importKeyFormat === 'binary' ? '✓ Binary key file detected' : '✓ Armored key file detected'}
+                    </p>
+                  )}
                 </div>
               )}
-              
+
               {error && <p class="error-msg">{error}</p>}
               <div class="setup-actions">
                 <button class="btn" onClick={() => setStep(1)}>
@@ -460,9 +492,38 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                       const url = apiUrl.replace(/\/+$/, '');
                       const api = new ApiClient(url);
 
-                      // In Disabled mode, block registration
+                      // In Disabled mode, require PGP key import
                       if (registrationMode === 'disabled') {
-                        setError('Registration is currently disabled. Contact your administrator.');
+                        if (!importKeyData) {
+                          setError('Please import your existing PGP private key');
+                          setLoading(false);
+                          return;
+                        }
+                        // Validate the key and extract fingerprint
+                        const openpgp = await import('openpgp');
+                        let privKeyObj: any;
+                        if (importKeyFormat === 'armored' && typeof importKeyData === 'string') {
+                          privKeyObj = await openpgp.readPrivateKey({ armoredKey: importKeyData });
+                        } else if (importKeyFormat === 'binary' && importKeyData instanceof Uint8Array) {
+                          privKeyObj = await openpgp.readPrivateKey({ binaryKey: importKeyData });
+                        } else {
+                          throw new Error('Invalid key format');
+                        }
+                        const pubKey = privKeyObj.toPublic().armor();
+                        const fp = await getFingerprint(pubKey);
+                        
+                        // Check if user exists on backend
+                        try {
+                          await api.checkUserExists(fp);
+                          // User exists, proceed to step 3
+                          setStep(3);
+                        } catch (checkErr: any) {
+                          if (checkErr.message.includes('404')) {
+                            setError('Account not found on server. Please contact your administrator.');
+                          } else {
+                            throw checkErr;
+                          }
+                        }
                         setLoading(false);
                         return;
                       }

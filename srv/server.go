@@ -86,6 +86,7 @@ func (s *Server) Handler() http.Handler {
 
 	// Public routes
 	mux.HandleFunc("POST /api", s.handleCreateUser)
+	mux.HandleFunc("GET /api/{fingerprint}", s.handleGetUser)
 	mux.HandleFunc("POST /api/{fingerprint}/login", s.handleLogin)
 	mux.HandleFunc("POST /api/{fingerprint}/login/2fa", s.handleLogin2FA)
 	mux.HandleFunc("GET /api/registration/mode", s.handleGetRegistrationMode)
@@ -347,6 +348,35 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusCreated)
 	jsonOK(w, map[string]string{"fingerprint": fp})
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/{fingerprint} — check if user exists
+// ---------------------------------------------------------------------------
+
+func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
+	fp := r.PathValue("fingerprint")
+	if fp == "" {
+		jsonError(w, "fingerprint required", http.StatusBadRequest)
+		return
+	}
+
+	user, err := s.Q.GetUser(r.Context(), fp)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			jsonError(w, "user not found", http.StatusNotFound)
+			return
+		}
+		slog.Error("get user", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	jsonOK(w, map[string]string{
+		"exists":      "true",
+		"public_key":  user.PublicKey,
+		"fingerprint": user.Fingerprint,
+	})
 }
 
 // ---------------------------------------------------------------------------
