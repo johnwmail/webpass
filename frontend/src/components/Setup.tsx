@@ -187,18 +187,16 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
       if (loginResult?.requires_2fa) {
         // 2FA required - save account to IndexedDB first (backend user already exists)
         // User will complete login on the login page with 2FA code
-        if (isNewUser) {
-          const encrypted = await aesEncrypt(url, loginPassword);
-          await saveAccount({
-            fingerprint,
-            privateKey,
-            publicKey,
-            apiUrlEncrypted: encrypted.encrypted,
-            apiUrlSalt: encrypted.salt,
-            apiUrlIv: encrypted.iv,
-            label: accountName.trim() || undefined,
-          });
-        }
+        const encrypted = await aesEncrypt(url, loginPassword);
+        await saveAccount({
+          fingerprint,
+          privateKey,
+          publicKey,
+          apiUrlEncrypted: encrypted.encrypted,
+          apiUrlSalt: encrypted.salt,
+          apiUrlIv: encrypted.iv,
+          label: accountName.trim() || undefined,
+        });
         session.clear();
         onComplete();
         return;
@@ -207,19 +205,17 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
       if (loginResult?.token) {
         api.token = loginResult.token;
 
-        // Step 2: ONLY save to IndexedDB AFTER backend confirms user exists
-        if (isNewUser) {
-          const encrypted = await aesEncrypt(url, loginPassword);
-          await saveAccount({
-            fingerprint,
-            privateKey,
-            publicKey,
-            apiUrlEncrypted: encrypted.encrypted,
-            apiUrlSalt: encrypted.salt,
-            apiUrlIv: encrypted.iv,
-            label: accountName.trim() || undefined,
-          });
-        }
+        // Save account to IndexedDB (both new and existing users on this client)
+        const encrypted = await aesEncrypt(url, loginPassword);
+        await saveAccount({
+          fingerprint,
+          privateKey,
+          publicKey,
+          apiUrlEncrypted: encrypted.encrypted,
+          apiUrlSalt: encrypted.salt,
+          apiUrlIv: encrypted.iv,
+          label: accountName.trim() || undefined,
+        });
 
         if (existingUser) {
           session.activate({
