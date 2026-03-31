@@ -421,33 +421,32 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                     )}
                   </div>
 
-                  {/* Registration code field - only show in Protected or Open mode */}
-                  <div class="field">
-                    <label class="label">
-                      Registration Code
-                      {registrationMode === 'protected' && <span style="color: var(--error); margin-left: 6px;">*</span>}
-                      {registrationMode === 'open' && <span style="color: var(--text-muted); font-weight: normal; margin-left: 6px;">(optional)</span>}
-                    </label>
-                    <input
-                      class="input input-mono"
-                      type="text"
-                      value={registrationCode}
-                      onInput={(e) => {
-                        setRegistrationCode((e.target as HTMLInputElement).value);
-                        setError('');
-                      }}
-                      placeholder={registrationMode === 'protected' ? '6-digit code from admin (required)' : '6-digit code from admin'}
-                      maxLength={6}
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      autocomplete="one-time-code"
-                    />
-                    <p class="help-text" style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">
-                      {registrationMode === 'protected'
-                        ? 'Enter the 6-digit registration code from your administrator'
-                        : 'Enter the 6-digit registration code if your administrator requires one'}
-                    </p>
-                  </div>
+                  {/* Registration code field - only show in Protected mode */}
+                  {registrationMode === 'protected' && (
+                    <div class="field">
+                      <label class="label">
+                        Registration Code
+                        <span style="color: var(--error); margin-left: 6px;">*</span>
+                      </label>
+                      <input
+                        class="input input-mono"
+                        type="text"
+                        value={registrationCode}
+                        onInput={(e) => {
+                          setRegistrationCode((e.target as HTMLInputElement).value);
+                          setError('');
+                        }}
+                        placeholder="6-digit code from admin (required)"
+                        maxLength={6}
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        autocomplete="one-time-code"
+                      />
+                      <p class="help-text" style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">
+                        Enter the 6-digit registration code from your administrator
+                      </p>
+                    </div>
+                  )}
                 </>
               )}
 
