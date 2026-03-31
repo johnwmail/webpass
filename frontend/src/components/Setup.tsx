@@ -565,11 +565,15 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                             // For now, save account and let them complete 2FA on login
                           }
                         } catch (loginErr: any) {
-                          if (loginErr.message.includes('invalid credentials') || loginErr.message.includes('401')) {
+                          // Check for authentication errors
+                          const msg = loginErr.message || '';
+                          if (msg.includes('invalid credentials') || msg.includes('401') || msg.includes('invalid password')) {
                             setError('Wrong password. Please enter the password for this account.');
-                          } else {
-                            throw loginErr;
+                            setLoading(false);
+                            return;
                           }
+                          // For other errors, show the error message
+                          setError(loginErr.message || 'Login verification failed');
                           setLoading(false);
                           return;
                         }

@@ -97,8 +97,21 @@ export class ApiClient {
       body: JSON.stringify({ password }),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Request failed' }));
-      throw new Error(err.error || `Login failed (${res.status})`);
+      // Try to parse JSON error, fallback to text for HTML responses
+      const text = await res.text().catch(() => '');
+      let errMsg = `Login failed (${res.status})`;
+      try {
+        const err = JSON.parse(text);
+        errMsg = err.error || errMsg;
+      } catch {
+        // Response was not JSON (e.g., HTML error page)
+        if (res.status === 404) {
+          errMsg = 'User not found';
+        } else if (res.status === 401) {
+          errMsg = 'invalid credentials';
+        }
+      }
+      throw new Error(errMsg);
     }
     return res.json();
   }
