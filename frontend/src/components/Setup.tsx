@@ -456,52 +456,46 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                 <button class="btn" onClick={() => setStep(1)}>
                   <ArrowLeft size={16} style={{ marginRight: '6px' }} /> Back
                 </button>
-                <button
-                  class="btn btn-primary"
-                  onClick={async () => {
-                    setError('');
-                    setLoading(true);
-                    try {
-                      // Check registration mode and validate code if required
-                      const url = apiUrl.replace(/\/+$/, '');
-                      const api = new ApiClient(url);
+                {registrationMode !== 'disabled' && (
+                  <button
+                    class="btn btn-primary"
+                    onClick={async () => {
+                      setError('');
+                      setLoading(true);
+                      try {
+                        const url = apiUrl.replace(/\/+$/, '');
+                        const api = new ApiClient(url);
 
-                      // In Disabled mode, block registration
-                      if (registrationMode === 'disabled') {
-                        setError('Registration is disabled. Contact your administrator.');
+                        // In Protected mode, require registration code
+                        if (registrationMode === 'protected' && !registrationCode.trim()) {
+                          setError('Registration code is required. Please check with your administrator.');
+                          setLoading(false);
+                          return;
+                        }
+
+                        // Validate code if provided
+                        if (registrationCode.trim()) {
+                          await api.validateRegistrationCode(registrationCode.trim());
+                        }
+
+                        // Code is valid (or not required), proceed to step 3
+                        setStep(3);
+                      } catch (e: any) {
+                        const msg = e?.message || '';
+                        if (/registration code required/i.test(msg) || /invalid or expired registration code/i.test(msg)) {
+                          setError('Invalid or expired registration code. Please check with your administrator.');
+                        } else {
+                          setError(e.message || 'Registration validation failed');
+                        }
+                      } finally {
                         setLoading(false);
-                        return;
                       }
-
-                      // In Protected mode, require registration code
-                      if (registrationMode === 'protected' && !registrationCode.trim()) {
-                        setError('Registration code is required. Please check with your administrator.');
-                        setLoading(false);
-                        return;
-                      }
-
-                      // Validate code if provided
-                      if (registrationCode.trim()) {
-                        await api.validateRegistrationCode(registrationCode.trim());
-                      }
-
-                      // Code is valid (or not required), proceed to step 3
-                      setStep(3);
-                    } catch (e: any) {
-                      const msg = e?.message || '';
-                      if (/registration code required/i.test(msg) || /invalid or expired registration code/i.test(msg)) {
-                        setError('Invalid or expired registration code. Please check with your administrator.');
-                      } else {
-                        setError(e.message || 'Registration validation failed');
-                      }
-                    } finally {
-                      setLoading(false);
-                    }
-                  }}
-                  disabled={!canProceedStep2 || loading}
-                >
-                  {loading ? <><span class="spinner" /> Validating...</> : <>Next <ArrowRight size={16} style={{ marginLeft: '6px' }} /></>}
-                </button>
+                    }}
+                    disabled={!canProceedStep2 || loading}
+                  >
+                    {loading ? <><span class="spinner" /> Validating...</> : <>Next <ArrowRight size={16} style={{ marginLeft: '6px' }} /></>}
+                  </button>
+                )}
               </div>
             </>
           )}
