@@ -3,8 +3,12 @@ name: Integration Tests
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '.qwen/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '.qwen/**'
   workflow_dispatch:
 
 jobs:
