@@ -29,10 +29,12 @@ Automate the release process for WebPass by:
 **The skill will:**
 1. ✅ Run pre-flight checks automatically (git status, branch, CI workflows)
 2. ✅ Suggest next version (patch increment)
-3. ⏸️ **Ask you to confirm the version** (only question!)
-4. ✅ Create and push tag
-5. ✅ Monitor workflows silently (no intermediate prompts)
-6. ✅ Show final report
+3. ⏸️ **Ask you to confirm the version** (ONLY QUESTION - no other prompts!)
+4. ✅ Create and push tag (automatic)
+5. ✅ Monitor workflows silently (automatic, no prompts, may take several minutes)
+6. ✅ Show final report (automatic)
+
+**Important:** After version confirmation, ALL steps run automatically. No intermediate questions or approvals needed.
 
 ---
 
@@ -40,11 +42,11 @@ Automate the release process for WebPass by:
 
 | Step | Description | User Action |
 |------|-------------|-------------|
-| 1 | Pre-flight checks | None (automatic) |
-| 2 | Suggest version | **Confirm or enter custom version** |
-| 3 | Push tag | None (automatic) |
-| 4 | Monitor workflows | None (automatic, may take several minutes) |
-| 5 | Final report | None (automatic) |
+| 1 | Pre-flight checks | None (fully automatic) |
+| 2 | Suggest version | **Confirm or enter custom version** (ONLY interaction) |
+| 3 | Push tag | None (fully automatic) |
+| 4 | Monitor workflows | None (fully automatic, silent) |
+| 5 | Final report | None (fully automatic) |
 
 ---
 
@@ -58,7 +60,7 @@ Suggested: v0.3.10
 [User confirms version]
 
 ✅ Tag v0.3.10 created and pushed
-⏳ Monitoring workflows... (this takes a few minutes)
+⏳ Monitoring workflows... (this takes a few minutes, no prompts)
 
 🎉 Release v0.3.10 complete!
 ```
