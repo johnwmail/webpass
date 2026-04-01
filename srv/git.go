@@ -249,8 +249,16 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 		return nil, fmt.Errorf("get remote: %w", err)
 	}
 
-	// Force push with specific branch refspec
-	refSpec := gitconfig.RefSpec("+refs/heads/main:refs/heads/main")
+	// Get current branch name from the cloned repo
+	headRef, err := repo.Head()
+	if err != nil {
+		return nil, fmt.Errorf("get HEAD ref: %w", err)
+	}
+	branchName := headRef.Name().Short()
+	slog.Info("[PUSH] Detected branch", "branch", branchName)
+
+	// Force push current branch to remote
+	refSpec := gitconfig.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/heads/%s", branchName, branchName))
 	pushErr := remote.Push(&git.PushOptions{
 		RemoteName: "origin",
 		Auth:       auth,
@@ -265,7 +273,7 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 			return nil, fmt.Errorf("git push --force: %w", pushErr)
 		}
 	} else {
-		slog.Info("[PUSH] Pushed --force")
+		slog.Info("[PUSH] Pushed --force", "branch", branchName)
 	}
 
 	// Step 9: Cleanup after
