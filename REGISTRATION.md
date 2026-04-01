@@ -329,6 +329,204 @@ const response = await fetch(`${apiUrl}/api`, {
 
 ---
 
+## E2E Test Scenarios: Existing Account on Fresh Browser
+
+This section documents the test flows for verifying that existing users can successfully set up their account on a new browser/client (simulating the scenario where IndexedDB is cleared or user switches devices).
+
+### Test Overview
+
+| Test | Mode | Scenario | Expected Result |
+|------|------|----------|-----------------|
+| Flow 1 | Open | Existing account setup on fresh browser | Account saved to IndexedDB, can login |
+| Flow 2 | Open | Wrong password on fresh browser | Error shown, account NOT saved |
+| Flow 3 | Open | Existing account with 2FA on fresh browser | Account saved, 2FA login works |
+| Flow 4 | Open | Multiple accounts - partial fresh browser | Each account can be re-setup independently |
+| Flow 5 | Protected | Existing account setup on fresh browser | Account saved to IndexedDB, can login |
+| Flow 6 | Protected | Invalid TOTP code on fresh browser | Error shown, account NOT saved |
+| Flow 7 | Protected | Existing account with 2FA on fresh browser | Account saved, 2FA login works |
+
+### Fresh Browser Simulation
+
+Tests simulate a "fresh browser" using this sequence:
+
+1. **Clear IndexedDB** - Delete `webpass` database from current context
+2. **Clear localStorage** - Remove all localStorage data
+3. **Close browser context** - Close the current browser
+4. **Open new browser context** - Launch completely fresh browser (no stored data)
+
+This approach ensures tests match real-world behavior when users:
+- Switch to a new device
+- Use incognito/private browsing
+- Clear browser data
+- Use a different browser
+
+### Flow 1: Open Mode - Happy Path
+
+```
+Browser Context A (Original):
+  1. Register new account (password: "correct-123")
+  2. Complete setup → Welcome page shows account
+  3. Logout
+
+Simulate Fresh Browser:
+  1. Clear IndexedDB (webpass database)
+  2. Clear localStorage
+  3. Close Browser Context A
+  4. Open Browser Context B (fresh)
+
+Browser Context B (Fresh):
+  1. Visit app → "No accounts found"
+  2. Click "Get Started"
+  3. Enter SAME password ("correct-123")
+  4. Backend: "user already exists" → login succeeds
+  5. Complete PGP key setup
+  6. Complete setup
+
+Verification:
+  ✓ Account IS listed on Welcome page
+  ✓ Can login with password
+  ✓ Main app loads successfully
+```
+
+### Flow 2: Open Mode - Wrong Password
+
+```
+Browser Context A (Original):
+  1. Register new account (password: "correct-123")
+  2. Complete setup → Logout
+
+Simulate Fresh Browser:
+  1. Clear IndexedDB + localStorage
+  2. Close Browser Context A
+  3. Open Browser Context B (fresh)
+
+Browser Context B (Fresh):
+  1. Visit app → "No accounts found"
+  2. Click "Get Started"
+  3. Enter WRONG password ("wrong-456")
+  4. Backend: "user already exists" → login fails
+  5. Error shown: "This account already exists with a different password"
+
+Verification:
+  ✓ Error message displayed at Step 2
+  ✓ Setup does NOT proceed to Step 3 (PGP Key)
+  ✓ Account NOT saved to IndexedDB
+```
+
+### Flow 3: Open Mode - With 2FA Enabled
+
+```
+Browser Context A (Original):
+  1. Register new account (skip 2FA during setup)
+  2. Complete setup → Login
+  3. Settings → Enable 2FA
+  4. Logout
+
+Simulate Fresh Browser:
+  1. Clear IndexedDB + localStorage
+  2. Close Browser Context A
+  3. Open Browser Context B (fresh)
+
+Browser Context B (Fresh):
+  1. Visit app → "No accounts found"
+  2. Click "Get Started"
+  3. Enter correct password
+  4. Backend: "user already exists" + requires_2fa=true
+  5. Account saved to IndexedDB (KEY FIX)
+  6. Session cleared → Redirect to Welcome
+  7. Select account → Enter password
+  8. 2FA code input appears
+  9. Enter valid TOTP code → Login succeeds
+
+Verification:
+  ✓ Account IS listed on Welcome page (before 2FA login)
+  ✓ 2FA code input appears after password
+  ✓ Can complete 2FA login
+  ✓ Main app loads successfully
+```
+
+### Flow 5: Protected Mode - Happy Path
+
+```
+Browser Context A (Original):
+  1. Register new account with valid TOTP code
+  2. Complete setup → Welcome page shows account
+  3. Logout
+
+Simulate Fresh Browser:
+  1. Clear IndexedDB + localStorage
+  2. Close Browser Context A
+  3. Open Browser Context B (fresh)
+
+Browser Context B (Fresh):
+  1. Visit app → "No accounts found"
+  2. Click "Get Started"
+  3. Enter SAME password + valid TOTP code
+  4. Backend: TOTP valid + user exists → login succeeds
+  5. Complete PGP key setup
+  6. Complete setup
+
+Verification:
+  ✓ Account IS listed on Welcome page
+  ✓ Can login with password
+  ✓ Main app loads successfully
+```
+
+### Flow 6: Protected Mode - Invalid TOTP Code
+
+```
+Browser Context A (Original):
+  1. Register new account with valid TOTP code
+  2. Complete setup → Logout
+
+Simulate Fresh Browser:
+  1. Clear IndexedDB + localStorage
+  2. Close Browser Context A
+  3. Open Browser Context B (fresh)
+
+Browser Context B (Fresh):
+  1. Visit app → "No accounts found"
+  2. Click "Get Started"
+  3. Enter correct password + INVALID TOTP code ("000000")
+  4. Backend: TOTP invalid → reject registration
+  5. Error shown: "Invalid or expired registration code"
+
+Verification:
+  ✓ Error message displayed at Step 2
+  ✓ Setup does NOT proceed to Step 3 (PGP Key)
+  ✓ Account NOT saved to IndexedDB
+```
+
+### Implementation Notes
+
+**Test Location:**
+- Open Mode tests: `frontend/tests/e2e/registration-open.spec.ts`
+- Protected Mode tests: `frontend/tests/e2e/registration-protected.spec.ts`
+
+**Helper Function:**
+```typescript
+async function simulateFreshBrowser(page: Page) {
+  // Clear data on current page
+  await page.evaluate(async () => {
+    indexedDB.deleteDatabase('webpass');
+    localStorage.clear();
+  });
+  // Close and open new browser context
+  const context = page.context();
+  await context.close();
+  // New context created by test fixture
+}
+```
+
+**Key Fix Being Tested:**
+The fix ensures that when an existing user sets up their account on a new browser (IndexedDB cleared), the account credentials are properly saved to IndexedDB. Previously, the code only saved for `isNewUser = true`, leaving existing users without local account data.
+
+**Related Files:**
+- `frontend/src/components/Setup.tsx` - Contains the fix (lines 188-219)
+- `frontend/src/lib/storage.ts` - IndexedDB operations
+
+---
+
 ## Troubleshooting
 
 ### "Invalid or expired registration code"
