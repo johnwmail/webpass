@@ -22,6 +22,51 @@ const WEBPASS_REPO_URL = process.env.WEBPASS_REPO_URL || '';
 const WEBPASS_REPO_PAT = process.env.WEBPASS_REPO_PAT || '';
 
 /**
+ * Helper to verify entries exist in remote git repo
+ * Clones repo and checks for .gpg files using Node.js child_process
+ */
+async function verifyEntriesInRemoteRepo(
+  repoUrl: string,
+  pat: string,
+  expectedEntries: { folder: string; name: string }[]
+): Promise<boolean> {
+  const { execSync } = await import('child_process');
+  const fs = await import('fs');
+  const os = await import('os');
+  const path = await import('path');
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'webpass-git-verify-'));
+  const cloneDir = path.join(tempDir, 'repo');
+
+  try {
+    // Clone repo using PAT
+    const urlWithAuth = repoUrl.replace('https://', `https://token:${pat}@`);
+    execSync(`git clone --depth 1 ${urlWithAuth} ${cloneDir}`, { stdio: 'pipe' });
+
+    // Check for each entry's .gpg file
+    for (const entry of expectedEntries) {
+      const gpgPath = path.join(cloneDir, entry.folder, `${entry.name}.gpg`);
+      if (!fs.existsSync(gpgPath)) {
+        console.log(`Missing entry in remote: ${entry.folder}/${entry.name}.gpg`);
+        return false;
+      }
+    }
+
+    return true;
+  } catch (error: any) {
+    console.error('Failed to verify remote repo:', error.message);
+    return false;
+  } finally {
+    // Cleanup temp directory
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch (e) {
+      // Ignore cleanup errors
+    }
+  }
+}
+
+/**
  * Helper function to register and login via UI
  */
 async function registerAndLogin(page: any, testUser: any) {
@@ -352,4 +397,122 @@ test.describe('Git Sync - Push/Pull Workflow', () => {
   // - "PULL: REJECTING - local has unpushed changes" when local ahead of remote
   // - "remote has changes, please pull first" when remote ahead of local
   // Manual testing recommended for full conflict scenarios
+});
+
+test.describe('Git Sync - Branch Detection', () => {
+  let testUser: TestUser;
+  let pgpPassphrase: string;
+
+  test.beforeEach(async ({ page }) => {
+    testUser = await generateTestUser();
+    await apiRegister(testUser);
+    pgpPassphrase = await registerAndLogin(page, testUser);
+  });
+
+  test.afterEach(async () => {
+    if (testUser) {
+      await apiDeleteAccount(testUser).catch(() => {});
+    }
+  });
+
+  test('push auto-detects branch and entries appear in remote repo', async ({ page }) => {
+    // Skip test if credentials not configured
+    test.skip(!WEBPASS_REPO_URL || !WEBPASS_REPO_PAT, 'WEBPASS_REPO_URL and WEBPASS_REPO_PAT environment variables required');
+
+    const timestamp = Date.now();
+    const entryFolder = `BranchTest-Folder-${timestamp}`;
+    const entryName = `Branch Test Entry-${timestamp}`;
+
+    // Step 1: Create entry FIRST (before configuring git)
+    await page.getByRole('button', { name: /Entry/i }).first().click();
+    await page.waitForTimeout(1000);
+    await page.getByPlaceholder('e.g. Email (optional)').fill(entryFolder);
+    await page.getByPlaceholder('Entry name').fill(entryName);
+    await page.getByPlaceholder('Password').fill('BranchTest123!');
+    await page.getByRole('button', { name: /Save/i }).click();
+
+    // Wait for entry list to update
+    await page.waitForTimeout(3000);
+    await expect(page.getByRole('button', { name: /Entry/i })).toBeVisible({ timeout: 5000 });
+
+    // Step 2: Configure git sync
+    await openGitSync(page);
+    await page.getByPlaceholder('https://github.com/user/private-repo.git').fill(WEBPASS_REPO_URL);
+    await page.getByPlaceholder('ghp_...').fill(WEBPASS_REPO_PAT);
+    await page.getByRole('button', { name: /Configure/i }).click();
+    await page.waitForTimeout(5000);
+
+    // Step 3: Push
+    await page.getByRole('button', { name: /Push Now/i }).click();
+    await page.getByText('🔐 Enter PGP Passphrase', { exact: false }).waitFor({ timeout: 5000 });
+    await page.getByPlaceholder('PGP passphrase').fill(pgpPassphrase);
+    await page.getByRole('button', { name: 'OK' }).click();
+    await page.waitForTimeout(15000);
+
+    // UI should show success (or modal may have closed)
+    const errorMsg = page.locator('.error-msg');
+    const errorVisible = await errorMsg.isVisible().catch(() => false);
+    expect(errorVisible).toBeFalsy();
+
+    // CRITICAL: Verify entry actually exists in remote repo
+    const inRemote = await verifyEntriesInRemoteRepo(
+      WEBPASS_REPO_URL,
+      WEBPASS_REPO_PAT,
+      [{ folder: entryFolder, name: entryName }]
+    );
+    expect(inRemote).toBeTruthy();
+  });
+
+  test('push to empty remote repo initializes new branch', async ({ page }) => {
+    // Skip test if credentials not configured
+    test.skip(!WEBPASS_REPO_URL || !WEBPASS_REPO_PAT, 'WEBPASS_REPO_URL and WEBPASS_REPO_PAT environment variables required');
+
+    const emptyRepoUrl = process.env.WEBPASS_REPO_URL_EMPTY || '';
+    const emptyRepoPat = process.env.WEBPASS_REPO_PAT_EMPTY || '';
+
+    test.skip(!emptyRepoUrl, 'WEBPASS_REPO_URL_EMPTY required for empty repo test');
+
+    const timestamp = Date.now();
+    const entryFolder = `EmptyRepo-Folder-${timestamp}`;
+    const entryName = `Empty Repo Entry-${timestamp}`;
+
+    // Step 1: Create entry FIRST
+    await page.getByRole('button', { name: /Entry/i }).first().click();
+    await page.waitForTimeout(1000);
+    await page.getByPlaceholder('e.g. Email (optional)').fill(entryFolder);
+    await page.getByPlaceholder('Entry name').fill(entryName);
+    await page.getByPlaceholder('Password').fill('EmptyRepo123!');
+    await page.getByRole('button', { name: /Save/i }).click();
+
+    // Wait for entry list to update
+    await page.waitForTimeout(3000);
+    await expect(page.getByRole('button', { name: /Entry/i })).toBeVisible({ timeout: 5000 });
+
+    // Step 2: Configure git sync with empty repo
+    await openGitSync(page);
+    await page.getByPlaceholder('https://github.com/user/private-repo.git').fill(emptyRepoUrl);
+    await page.getByPlaceholder('ghp_...').fill(emptyRepoPat);
+    await page.getByRole('button', { name: /Configure/i }).click();
+    await page.waitForTimeout(5000);
+
+    // Step 3: Push to empty repo - should initialize and create branch
+    await page.getByRole('button', { name: /Push Now/i }).click();
+    await page.getByText('🔐 Enter PGP Passphrase', { exact: false }).waitFor({ timeout: 5000 });
+    await page.getByPlaceholder('PGP passphrase').fill(pgpPassphrase);
+    await page.getByRole('button', { name: 'OK' }).click();
+    await page.waitForTimeout(15000);
+
+    // Should succeed - backend initializes fresh repo when clone fails
+    const errorMsg = page.locator('.error-msg');
+    const errorVisible = await errorMsg.isVisible().catch(() => false);
+    expect(errorVisible).toBeFalsy();
+
+    // CRITICAL: Verify entry actually exists in remote repo
+    const inRemote = await verifyEntriesInRemoteRepo(
+      emptyRepoUrl,
+      emptyRepoPat,
+      [{ folder: entryFolder, name: entryName }]
+    );
+    expect(inRemote).toBeTruthy();
+  });
 });
