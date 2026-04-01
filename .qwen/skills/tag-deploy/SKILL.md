@@ -27,14 +27,14 @@ Automate the release process for WebPass by:
 ```
 
 **The skill will:**
-1. ✅ Run pre-flight checks automatically (git status, branch, CI workflows)
-2. ✅ Suggest next version (patch increment)
-3. ⏸️ **Ask you to confirm the version** (ONLY QUESTION - no other prompts!)
+1. ⏸️ **Ask you to confirm the version FIRST** (ONLY QUESTION!)
+2. ✅ Run pre-flight checks automatically (git status, branch, CI workflows)
+3. ✅ Wait for CI to complete (automatic, silent)
 4. ✅ Create and push tag (automatic)
-5. ✅ Monitor workflows silently (automatic, no prompts, may take several minutes)
+5. ✅ Monitor release workflows (automatic, silent)
 6. ✅ Show final report (automatic)
 
-**Important:** After version confirmation, ALL steps run automatically. No intermediate questions or approvals needed.
+**Important:** Version confirmation happens FIRST - before any waiting. After confirmation, ALL steps run automatically with no further prompts.
 
 ---
 
@@ -42,27 +42,29 @@ Automate the release process for WebPass by:
 
 | Step | Description | User Action |
 |------|-------------|-------------|
-| 1 | Pre-flight checks | None (fully automatic) |
-| 2 | Suggest version | **Confirm or enter custom version** (ONLY interaction) |
-| 3 | Push tag | None (fully automatic) |
-| 4 | Monitor workflows | None (fully automatic, silent) |
-| 5 | Final report | None (fully automatic) |
+| 1 | **Ask version** | **Confirm or enter custom version** (ONLY interaction) |
+| 2 | Pre-flight checks | None (fully automatic) |
+| 3 | Wait for CI | None (fully automatic, may take minutes) |
+| 4 | Push tag | None (fully automatic) |
+| 5 | Monitor workflows | None (fully automatic, silent) |
+| 6 | Final report | None (fully automatic) |
 
 ---
 
 ## Example Session
 
 ```
-✅ Pre-flight checks passed (CI & Integration tests successful)
-Latest tag: v0.3.9
-Suggested: v0.3.10
+Latest tag: v0.3.10
+Suggested: v0.3.11
 
-[User confirms version]
+[User confirms version: v0.3.11]
 
-✅ Tag v0.3.10 created and pushed
-⏳ Monitoring workflows... (this takes a few minutes, no prompts)
+✅ Pre-flight checks passed (CI & Integration tests successful or in-progress)
+⏳ Waiting for CI workflows to complete... (this takes a few minutes)
+✅ Tag v0.3.11 created and pushed
+⏳ Monitoring release workflows... (silent, no prompts)
 
-🎉 Release v0.3.10 complete!
+🎉 Release v0.3.11 complete!
 ```
 
 ---
