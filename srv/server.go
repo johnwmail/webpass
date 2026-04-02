@@ -34,6 +34,7 @@ type Server struct {
 	StaticDir       string // path to frontend dist/ directory (optional)
 	GitService      *GitService
 	Registration    *RegistrationService
+	RateLimiter     *RateLimiter // rate limiter for auth endpoints
 	sessionDuration time.Duration
 	// Version info (set from main package)
 	Version   string
@@ -71,6 +72,9 @@ func New(dbPath string, jwtKey []byte, sessionDurationMin int) (*Server, error) 
 	// Initialize Registration service
 	s.Registration = NewRegistrationService()
 
+	// Initialize Rate Limiter
+	s.RateLimiter = NewRateLimiter()
+
 	return s, nil
 }
 
@@ -84,15 +88,17 @@ func (s *Server) Serve(addr string) error {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	// Public routes
-	mux.HandleFunc("POST /api", s.handleCreateUser)
+	// Public routes (no rate limiting)
 	mux.HandleFunc("GET /api/{fingerprint}", s.handleGetUser)
-	mux.HandleFunc("POST /api/{fingerprint}/login", s.handleLogin)
-	mux.HandleFunc("POST /api/{fingerprint}/login/2fa", s.handleLogin2FA)
 	mux.HandleFunc("GET /api/registration/mode", s.handleGetRegistrationMode)
 	mux.HandleFunc("POST /api/registration/validate", s.handleValidateRegistrationCode)
 
-	// Authenticated routes
+	// Rate-limited routes (authentication endpoints)
+	mux.HandleFunc("POST /api", s.rateLimitMiddleware(s.handleCreateUser))
+	mux.HandleFunc("POST /api/{fingerprint}/login", s.rateLimitMiddleware(s.handleLogin))
+	mux.HandleFunc("POST /api/{fingerprint}/login/2fa", s.rateLimitMiddleware(s.handleLogin2FA))
+
+	// Authenticated routes (no rate limiting - already protected by JWT)
 	mux.HandleFunc("POST /api/{fingerprint}/totp/setup", s.requireAuth(s.handleTOTPSetup))
 	mux.HandleFunc("POST /api/{fingerprint}/totp/confirm", s.requireAuth(s.handleTOTPConfirm))
 	mux.HandleFunc("GET /api/{fingerprint}/entries", s.requireAuth(s.handleListEntries))
@@ -218,6 +224,53 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
+}
+
+// rateLimitMiddleware wraps a handler, checking rate limits before processing.
+// It extracts the key (fingerprint or IP) and checks if the request is allowed.
+func (s *Server) rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Extract key: prefer fingerprint from path, fallback to IP
+		key := r.PathValue("fingerprint")
+		if key == "" {
+			// Fallback to IP address if no fingerprint in path
+			key = getClientIP(r)
+		}
+
+		if !s.RateLimiter.Allow(key) {
+			// Rate limiter already logs the rejection with details
+			http.Error(w, "too many attempts, please try again later", http.StatusTooManyRequests)
+			return
+		}
+
+		next(w, r)
+	}
+}
+
+// getClientIP extracts the client IP address from the request.
+// It checks X-Forwarded-For and X-Real-IP headers first, then falls back to RemoteAddr.
+func getClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header (for reverse proxy setups)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take the first IP in the list
+		parts := strings.Split(xff, ",")
+		if len(parts) > 0 {
+			return strings.TrimSpace(parts[0])
+		}
+	}
+
+	// Check X-Real-IP header
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+
+	// Fallback to RemoteAddr (may include port)
+	ip := r.RemoteAddr
+	// Remove port if present
+	if colonIdx := strings.LastIndex(ip, ":"); colonIdx != -1 {
+		ip = ip[:colonIdx]
+	}
+	return ip
 }
 
 func (s *Server) verifyToken(r *http.Request) (string, error) {

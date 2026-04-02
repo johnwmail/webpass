@@ -191,6 +191,7 @@ cd "$ROOT_DIR"
 # =============================================================================
 MODE="all"
 PLAYWRIGHT_ARGS=()
+SPECIFIC_TEST=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -202,8 +203,17 @@ while [[ $# -gt 0 ]]; do
             MODE="${1#*=}"
             shift
             ;;
-        *)
+        -*)
             PLAYWRIGHT_ARGS+=("$1")
+            shift
+            ;;
+        *)
+            # First non-flag argument is a specific test file
+            if [ -z "$SPECIFIC_TEST" ]; then
+                SPECIFIC_TEST="$1"
+            else
+                PLAYWRIGHT_ARGS+=("$1")
+            fi
             shift
             ;;
     esac
@@ -213,6 +223,38 @@ done
 if [[ ! "$MODE" =~ ^(all|protected|open|disabled|registration)$ ]]; then
     log_error "Invalid mode: $MODE (valid: all, protected, open, disabled, registration)"
     exit 1
+fi
+
+# If a specific test file is provided, run it directly with default rate limits
+if [ -n "$SPECIFIC_TEST" ]; then
+    log_info "Running specific test file: $SPECIFIC_TEST"
+    log_info "Using default rate limits (5 attempts / 15 minutes)"
+    
+    # Set Protected Mode environment variables (default for single test runs)
+    export REGISTRATION_ENABLED=true
+    export REGISTRATION_TOTP_SECRET="JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+    export REGISTRATION_TOTP_PERIOD=3600
+    export REGISTRATION_TOTP_ALGO=SHA1
+    export REGISTRATION_CODE_FILE="$REGISTRATION_CODE_FILE"
+    # Use default rate limits
+    unset RATE_LIMIT_ATTEMPTS
+    unset RATE_LIMIT_WINDOW_MINUTES
+    
+    cd "$FRONTEND_DIR"
+    npx playwright test "$SPECIFIC_TEST" "${PLAYWRIGHT_ARGS[@]}"
+    exit_code=$?
+    cd "$ROOT_DIR"
+    
+    if [ $exit_code -ne 0 ]; then
+        log_error "Tests failed (exit code: $exit_code)"
+        exit $exit_code
+    fi
+    
+    log_info ""
+    log_info "========================================="
+    log_info "All tests passed!"
+    log_info "========================================="
+    exit 0
 fi
 
 # Log test configuration
@@ -248,11 +290,15 @@ run_protected_mode() {
     export REGISTRATION_TOTP_PERIOD=3600
     export REGISTRATION_TOTP_ALGO=SHA1
     export REGISTRATION_CODE_FILE="$REGISTRATION_CODE_FILE"
+    # Relax rate limits to prevent false failures during test execution
+    export RATE_LIMIT_ATTEMPTS=100
+    export RATE_LIMIT_WINDOW_MINUTES=1
 
     log_info "  REGISTRATION_ENABLED: true"
     log_info "  REGISTRATION_TOTP_SECRET: ***CONFIGURED***"
     log_info "  REGISTRATION_TOTP_PERIOD: 3600 seconds (1 hour)"
     log_info "  REGISTRATION_CODE_FILE: $REGISTRATION_CODE_FILE"
+    log_info "  RATE_LIMIT_ATTEMPTS: 100 (relaxed for testing)"
     log_info "  Running: ALL E2E tests"
 
     # Run ALL tests - Playwright starts server automatically
@@ -276,9 +322,13 @@ run_open_mode() {
     export REGISTRATION_TOTP_PERIOD=""
     export REGISTRATION_TOTP_ALGO=""
     export REGISTRATION_CODE_FILE=""
+    # Relax rate limits to prevent false failures during test execution
+    export RATE_LIMIT_ATTEMPTS=100
+    export RATE_LIMIT_WINDOW_MINUTES=1
 
     log_info "  REGISTRATION_ENABLED: true"
     log_info "  REGISTRATION_TOTP_SECRET: (not set - open mode)"
+    log_info "  RATE_LIMIT_ATTEMPTS: 100 (relaxed for testing)"
     log_info "  Running: ALL E2E tests"
 
     # Run ALL tests - Playwright starts server automatically
@@ -366,26 +416,52 @@ run_all_tests() {
     log_info "Comprehensive Test Suite"
     log_info "========================================="
     log_info ""
-    log_info "Phase 1: ALL tests in Protected mode (excluding registration)"
-    log_info "Phase 2: Registration tests in Open mode"
-    log_info "Phase 3: Registration tests in Protected mode"
-    log_info "Phase 4: Registration tests in Disabled mode"
+    log_info "Phase 1: Rate limit tests (default rate limits)"
+    log_info "Phase 2: ALL other tests in Protected mode (relaxed rate limits)"
+    log_info "Phase 3: Registration tests in Open mode"
+    log_info "Phase 4: Registration tests in Protected mode"
+    log_info "Phase 5: Registration tests in Disabled mode"
     log_info ""
 
     local total_exit=0
 
-    # Phase 1: All tests EXCEPT registration in Protected mode
+    # Phase 1: Rate limit tests with DEFAULT rate limits (5 attempts / 15 min)
     export REGISTRATION_ENABLED=true
     export REGISTRATION_TOTP_SECRET="JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
     export REGISTRATION_TOTP_PERIOD=3600
     export REGISTRATION_TOTP_ALGO=SHA1
     export REGISTRATION_CODE_FILE="$REGISTRATION_CODE_FILE"
-    log_info "Running all tests in Protected mode (registration tests excluded)..."
+    # Use default rate limits for rate limit tests
+    unset RATE_LIMIT_ATTEMPTS
+    unset RATE_LIMIT_WINDOW_MINUTES
+    log_info "Running rate limit tests (default rate limits)..."
     cd "$FRONTEND_DIR"
-    npx playwright test --grep-invert "Registration" "${PLAYWRIGHT_ARGS[@]}" || total_exit=$?
+    npx playwright test tests/e2e/ratelimit.spec.ts "${PLAYWRIGHT_ARGS[@]}" || total_exit=$?
     cd "$ROOT_DIR"
 
-    # Phase 2: Registration tests in Open mode
+    # Phase 2: All other tests EXCEPT registration in Protected mode (relaxed rate limits)
+    if [ $total_exit -eq 0 ]; then
+        # Kill server to force restart with new env vars
+        pkill -f "webpass-server" 2>/dev/null || true
+        pkill -f "go run.*cmd/srv" 2>/dev/null || true
+        sleep 2
+
+        export REGISTRATION_ENABLED=true
+        export REGISTRATION_TOTP_SECRET="JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+        export REGISTRATION_TOTP_PERIOD=3600
+        export REGISTRATION_TOTP_ALGO=SHA1
+        export REGISTRATION_CODE_FILE="$REGISTRATION_CODE_FILE"
+        # Relax rate limits for other tests to prevent false failures
+        export RATE_LIMIT_ATTEMPTS=100
+        export RATE_LIMIT_WINDOW_MINUTES=1
+        log_info ""
+        log_info "Running all tests in Protected mode (registration tests excluded, relaxed rate limits)..."
+        cd "$FRONTEND_DIR"
+        npx playwright test --grep-invert "Registration|Rate Limiting" "${PLAYWRIGHT_ARGS[@]}" || total_exit=$?
+        cd "$ROOT_DIR"
+    fi
+
+    # Phase 3: Registration tests in Open mode
     if [ $total_exit -eq 0 ]; then
         # Kill server to force restart with new env vars
         pkill -f "webpass-server" 2>/dev/null || true
@@ -404,7 +480,7 @@ run_all_tests() {
         cd "$ROOT_DIR"
     fi
 
-    # Phase 3: Registration tests in Protected mode
+    # Phase 4: Registration tests in Protected mode
     if [ $total_exit -eq 0 ]; then
         # Kill server to force restart with new env vars
         pkill -f "webpass-server" 2>/dev/null || true
@@ -423,7 +499,7 @@ run_all_tests() {
         cd "$ROOT_DIR"
     fi
 
-    # Phase 4: Registration tests in Disabled mode
+    # Phase 5: Registration tests in Disabled mode
     if [ $total_exit -eq 0 ]; then
         # Kill server to force restart with new env vars
         pkill -f "webpass-server" 2>/dev/null || true
