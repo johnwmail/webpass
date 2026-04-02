@@ -143,14 +143,14 @@ func (rl *RateLimiter) Allow(key string) bool {
 	if len(valid) >= rl.limit {
 		// Update the stored timestamps even if rejected (to keep fresh data)
 		rl.requests[key] = valid
-		
+
 		// Log rate limit rejection
 		slog.Warn("rate limit exceeded",
 			"key", key,
 			"attempts", len(valid),
 			"limit", rl.limit,
 			"window_minutes", int(rl.window.Minutes()))
-		
+
 		return false
 	}
 
