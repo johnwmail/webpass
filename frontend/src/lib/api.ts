@@ -46,8 +46,19 @@ export class ApiClient {
       body: JSON.stringify({ password, public_key: publicKey, fingerprint }),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Request failed' }));
-      throw new Error(err.error || `Setup failed (${res.status})`);
+      const text = await res.text().catch(() => '');
+      let errMsg = `Setup failed (${res.status})`;
+      try {
+        const err = JSON.parse(text);
+        errMsg = err.error || errMsg;
+      } catch {
+        if (res.status === 429) {
+          errMsg = 'Too many attempts. Please wait before trying again.';
+        } else if (text) {
+          errMsg = text;
+        }
+      }
+      throw new Error(errMsg);
     }
     return res.json();
   }
@@ -118,11 +129,16 @@ export class ApiClient {
         const err = JSON.parse(text);
         errMsg = err.error || errMsg;
       } catch {
-        // Response was not JSON (e.g., HTML error page)
-        if (res.status === 404) {
+        // Response was not JSON (e.g., HTML error page or plain text)
+        if (res.status === 429) {
+          errMsg = 'Too many attempts. Please wait before trying again.';
+        } else if (res.status === 404) {
           errMsg = 'User not found';
         } else if (res.status === 401) {
           errMsg = 'invalid credentials';
+        } else if (text) {
+          // Use plain text error message from server
+          errMsg = text;
         }
       }
       throw new Error(errMsg);
@@ -144,8 +160,19 @@ export class ApiClient {
       }
     );
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Request failed' }));
-      throw new Error(err.error || `2FA failed (${res.status})`);
+      const text = await res.text().catch(() => '');
+      let errMsg = `2FA failed (${res.status})`;
+      try {
+        const err = JSON.parse(text);
+        errMsg = err.error || errMsg;
+      } catch {
+        if (res.status === 429) {
+          errMsg = 'Too many attempts. Please wait before trying again.';
+        } else if (text) {
+          errMsg = text;
+        }
+      }
+      throw new Error(errMsg);
     }
     return res.json();
   }

@@ -17,6 +17,260 @@ import (
 	"github.com/pquerna/otp/totp"
 )
 
+// ---------------------------------------------------------------------------
+// Rate Limiter Tests
+// ---------------------------------------------------------------------------
+
+func TestRateLimiter_Allow(t *testing.T) {
+	// Use very short window for testing
+	t.Setenv("RATE_LIMIT_ATTEMPTS", "3")
+	t.Setenv("RATE_LIMIT_WINDOW_MINUTES", "1")
+
+	rl := NewRateLimiter()
+	defer rl.Stop()
+
+	key := "test-key-1"
+
+	// First 3 requests should be allowed
+	for i := 0; i < 3; i++ {
+		if !rl.Allow(key) {
+			t.Fatalf("request %d should be allowed", i+1)
+		}
+	}
+
+	// 4th request should be rejected
+	if rl.Allow(key) {
+		t.Fatal("request 4 should be rejected")
+	}
+}
+
+func TestRateLimiter_DifferentKeys(t *testing.T) {
+	t.Setenv("RATE_LIMIT_ATTEMPTS", "2")
+	t.Setenv("RATE_LIMIT_WINDOW_MINUTES", "1")
+
+	rl := NewRateLimiter()
+	defer rl.Stop()
+
+	// Key 1: use up the limit
+	rl.Allow("key1")
+	rl.Allow("key1")
+	if rl.Allow("key1") {
+		t.Fatal("key1 third request should be rejected")
+	}
+
+	// Key 2: should still have full limit
+	if !rl.Allow("key2") {
+		t.Fatal("key2 first request should be allowed")
+	}
+	if !rl.Allow("key2") {
+		t.Fatal("key2 second request should be allowed")
+	}
+	if rl.Allow("key2") {
+		t.Fatal("key2 third request should be rejected")
+	}
+}
+
+func TestRateLimiter_Remaining(t *testing.T) {
+	t.Setenv("RATE_LIMIT_ATTEMPTS", "5")
+	t.Setenv("RATE_LIMIT_WINDOW_MINUTES", "1")
+
+	rl := NewRateLimiter()
+	defer rl.Stop()
+
+	key := "test-key"
+
+	// Initially should have 5 remaining
+	if rem := rl.Remaining(key); rem != 5 {
+		t.Fatalf("expected 5 remaining, got %d", rem)
+	}
+
+	// After 2 requests, should have 3 remaining
+	rl.Allow(key)
+	rl.Allow(key)
+	if rem := rl.Remaining(key); rem != 3 {
+		t.Fatalf("expected 3 remaining after 2 requests, got %d", rem)
+	}
+
+	// After hitting limit, should have 0 remaining
+	rl.Allow(key)
+	rl.Allow(key)
+	rl.Allow(key)
+	if rem := rl.Remaining(key); rem != 0 {
+		t.Fatalf("expected 0 remaining after hitting limit, got %d", rem)
+	}
+}
+
+func TestRateLimiter_IsAllowed(t *testing.T) {
+	t.Setenv("RATE_LIMIT_ATTEMPTS", "2")
+	t.Setenv("RATE_LIMIT_WINDOW_MINUTES", "1")
+
+	rl := NewRateLimiter()
+	defer rl.Stop()
+
+	key := "test-key"
+
+	// IsAllowed should not record the request
+	if !rl.IsAllowed(key) {
+		t.Fatal("should be allowed initially")
+	}
+	if !rl.IsAllowed(key) {
+		t.Fatal("should still be allowed (IsAllowed doesn't record)")
+	}
+
+	// After recording requests, IsAllowed should reflect the state
+	rl.Allow(key)
+	rl.Allow(key)
+	if rl.IsAllowed(key) {
+		t.Fatal("should not be allowed after hitting limit")
+	}
+}
+
+func TestRateLimiter_WindowExpiry(t *testing.T) {
+	// Use very short window for testing
+	t.Setenv("RATE_LIMIT_ATTEMPTS", "2")
+	t.Setenv("RATE_LIMIT_WINDOW_MINUTES", "1")
+
+	rl := NewRateLimiter()
+	defer rl.Stop()
+
+	key := "test-key"
+
+	// Use up the limit
+	rl.Allow(key)
+	rl.Allow(key)
+	if rl.Allow(key) {
+		t.Fatal("should be rate limited")
+	}
+
+	// Manually expire the timestamps by modifying the internal state
+	// This simulates time passing
+	rl.mu.Lock()
+	if timestamps, ok := rl.requests[key]; ok {
+		// Set timestamps to 2 minutes ago (beyond the 1-minute window)
+		for i := range timestamps {
+			timestamps[i] = time.Now().Add(-2 * time.Minute)
+		}
+		rl.requests[key] = timestamps
+	}
+	rl.mu.Unlock()
+
+	// Now should be allowed again (old timestamps expired)
+	if !rl.Allow(key) {
+		t.Fatal("should be allowed after window expires")
+	}
+}
+
+func TestRateLimiter_EnvConfig(t *testing.T) {
+	// Test custom configuration via environment
+	t.Setenv("RATE_LIMIT_ATTEMPTS", "10")
+	t.Setenv("RATE_LIMIT_WINDOW_MINUTES", "30")
+
+	rl := NewRateLimiter()
+	defer rl.Stop()
+
+	// Should use custom values
+	if rl.limit != 10 {
+		t.Fatalf("expected limit 10, got %d", rl.limit)
+	}
+	if rl.window != 30*time.Minute {
+		t.Fatalf("expected window 30m, got %v", rl.window)
+	}
+}
+
+func TestRateLimiter_InvalidEnv(t *testing.T) {
+	// Test invalid environment values (should use defaults)
+	t.Setenv("RATE_LIMIT_ATTEMPTS", "invalid")
+	t.Setenv("RATE_LIMIT_WINDOW_MINUTES", "-5")
+
+	rl := NewRateLimiter()
+	defer rl.Stop()
+
+	// Should use defaults
+	if rl.limit != defaultLimit {
+		t.Fatalf("expected default limit %d, got %d", defaultLimit, rl.limit)
+	}
+	if rl.window != defaultWindowMin*time.Minute {
+		t.Fatalf("expected default window %dm, got %v", defaultWindowMin, rl.window)
+	}
+}
+
+func TestRateLimitMiddleware_Integration(t *testing.T) {
+	t.Setenv("RATE_LIMIT_ATTEMPTS", "3")
+	t.Setenv("RATE_LIMIT_WINDOW_MINUTES", "1")
+
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	fp := "ratelimit-test"
+
+	// First 3 login attempts should be processed (may fail auth, but not rate limited)
+	for i := 0; i < 3; i++ {
+		resp := doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"wrong"}`, "")
+		// Should get 401 (invalid credentials), not 429 (rate limited)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			t.Fatalf("request %d should not be rate limited", i+1)
+		}
+	}
+
+	// 4th attempt should be rate limited
+	resp := doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"wrong"}`, "")
+	expectStatus(t, resp, http.StatusTooManyRequests)
+}
+
+func TestRateLimit_Registration(t *testing.T) {
+	t.Setenv("RATE_LIMIT_ATTEMPTS", "2")
+	t.Setenv("RATE_LIMIT_WINDOW_MINUTES", "1")
+	t.Setenv("REGISTRATION_ENABLED", "true")
+
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	// First 2 registration attempts should be processed
+	for i := 0; i < 2; i++ {
+		body := `{"password":"pw","public_key":"pk` + string(rune('0'+i)) + `","fingerprint":"fp` + string(rune('0'+i)) + `"}`
+		resp := doReq(t, ts, "POST", "/api", body, "")
+		// Should not be rate limited (may get other errors, but not 429)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			t.Fatalf("registration %d should not be rate limited", i+1)
+		}
+	}
+
+	// 3rd registration should be rate limited
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk3","fingerprint":"fp3"}`, "")
+	expectStatus(t, resp, http.StatusTooManyRequests)
+}
+
+func TestRateLimit_Login2FA(t *testing.T) {
+	t.Setenv("RATE_LIMIT_ATTEMPTS", "2")
+	t.Setenv("RATE_LIMIT_WINDOW_MINUTES", "1")
+
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	// Create user
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"fp2fa"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+
+	// First 2 login attempts (password check, will get requires_2fa or proceed)
+	for i := 0; i < 2; i++ {
+		resp := doReq(t, ts, "POST", "/api/fp2fa/login", `{"password":"pw"}`, "")
+		if resp.StatusCode == http.StatusTooManyRequests {
+			t.Fatalf("login attempt %d should not be rate limited", i+1)
+		}
+	}
+
+	// 3rd login should be rate limited
+	resp = doReq(t, ts, "POST", "/api/fp2fa/login", `{"password":"pw"}`, "")
+	expectStatus(t, resp, http.StatusTooManyRequests)
+}
+
+// ---------------------------------------------------------------------------
+// Test Helpers
+// ---------------------------------------------------------------------------
+
 // newTestServer creates a Server backed by a temp SQLite DB.
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
