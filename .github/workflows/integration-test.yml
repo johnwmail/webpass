@@ -74,6 +74,9 @@ jobs:
           REGISTRATION_TOTP_SECRET: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
           REGISTRATION_TOTP_PERIOD: 3600
           REGISTRATION_TOTP_ALGO: SHA1
+          # Relaxed rate limits for E2E tests to prevent false failures
+          RATE_LIMIT_ATTEMPTS: 100
+          RATE_LIMIT_WINDOW_MINUTES: 1
           WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
           WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
 
@@ -96,6 +99,9 @@ jobs:
           GIT_REPO_ROOT: /tmp/git-repos
           REGISTRATION_ENABLED: true
           REGISTRATION_TOTP_SECRET: ""
+          # Relaxed rate limits for E2E tests to prevent false failures
+          RATE_LIMIT_ATTEMPTS: 100
+          RATE_LIMIT_WINDOW_MINUTES: 1
           WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
           WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
 
@@ -120,6 +126,9 @@ jobs:
           REGISTRATION_TOTP_SECRET: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
           REGISTRATION_TOTP_PERIOD: 3600
           REGISTRATION_TOTP_ALGO: SHA1
+          # Relaxed rate limits for E2E tests to prevent false failures
+          RATE_LIMIT_ATTEMPTS: 100
+          RATE_LIMIT_WINDOW_MINUTES: 1
           WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
           WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
 
@@ -142,6 +151,9 @@ jobs:
           GIT_REPO_ROOT: /tmp/git-repos
           REGISTRATION_ENABLED: false
           REGISTRATION_TOTP_SECRET: ""
+          # Relaxed rate limits for E2E tests to prevent false failures
+          RATE_LIMIT_ATTEMPTS: 100
+          RATE_LIMIT_WINDOW_MINUTES: 1
           WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
           WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
 
