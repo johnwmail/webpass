@@ -36,6 +36,9 @@ type Server struct {
 	Registration    *RegistrationService
 	RateLimiter     *RateLimiter // rate limiter for auth endpoints
 	sessionDuration time.Duration
+	cookieAuth      bool   // whether to use httpOnly cookies instead of localStorage
+	cookieSecure    bool   // whether to set Secure flag on cookies
+	cookieDomain    string // optional cookie domain
 	// Version info (set from main package)
 	Version   string
 	BuildTime string
@@ -52,10 +55,24 @@ func New(dbPath string, jwtKey []byte, sessionDurationMin int) (*Server, error) 
 		return nil, fmt.Errorf("run migrations: %w", err)
 	}
 
+	// Check if cookie-based auth is enabled (default: false for local dev without HTTPS)
+	cookieAuthEnv := strings.TrimSpace(os.Getenv("COOKIE_AUTH_ENABLED"))
+	cookieAuth := cookieAuthEnv == "1" || strings.EqualFold(cookieAuthEnv, "true")
+
+	// Cookie Secure flag: set to true if running on HTTPS (check HTTPS environment or addr)
+	cookieSecureEnv := strings.TrimSpace(os.Getenv("COOKIE_SECURE"))
+	cookieSecure := cookieSecureEnv == "1" || strings.EqualFold(cookieSecureEnv, "true")
+
+	// Cookie domain (optional)
+	cookieDomain := strings.TrimSpace(os.Getenv("COOKIE_DOMAIN"))
+
 	s := &Server{
-		DB:     wdb,
-		Q:      dbgen.New(wdb),
-		JWTKey: jwtKey,
+		DB:           wdb,
+		Q:            dbgen.New(wdb),
+		JWTKey:       jwtKey,
+		cookieAuth:   cookieAuth,
+		cookieSecure: cookieSecure,
+		cookieDomain: cookieDomain,
 	}
 	s.sessionDuration = time.Duration(sessionDurationMin) * time.Minute
 
@@ -97,6 +114,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api", s.rateLimitMiddleware(s.handleCreateUser))
 	mux.HandleFunc("POST /api/{fingerprint}/login", s.rateLimitMiddleware(s.handleLogin))
 	mux.HandleFunc("POST /api/{fingerprint}/login/2fa", s.rateLimitMiddleware(s.handleLogin2FA))
+	mux.HandleFunc("POST /api/logout", s.handleLogout)
 
 	// Authenticated routes (no rate limiting - already protected by JWT)
 	mux.HandleFunc("POST /api/{fingerprint}/totp/setup", s.requireAuth(s.handleTOTPSetup))
@@ -274,6 +292,31 @@ func getClientIP(r *http.Request) string {
 }
 
 func (s *Server) verifyToken(r *http.Request) (string, error) {
+	// Try cookie first (when cookie auth is enabled)
+	if s.cookieAuth {
+		cookie, err := r.Cookie("webpass_auth")
+		if err == nil && cookie.Value != "" {
+			tokenStr := cookie.Value
+			token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) {
+				if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+					return nil, fmt.Errorf("unexpected signing method")
+				}
+				return s.JWTKey, nil
+			})
+			if err == nil && token.Valid {
+				claims, ok := token.Claims.(jwt.MapClaims)
+				if ok {
+					fp, ok := claims["fp"].(string)
+					if ok {
+						return fp, nil
+					}
+				}
+			}
+		}
+		return "", fmt.Errorf("missing auth cookie")
+	}
+
+	// Fallback to Authorization header (when cookie auth is disabled)
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(auth, "Bearer ") {
 		return "", fmt.Errorf("missing bearer token")
@@ -297,6 +340,40 @@ func (s *Server) verifyToken(r *http.Request) (string, error) {
 		return "", fmt.Errorf("missing fp claim")
 	}
 	return fp, nil
+}
+
+// setAuthCookie sets the httpOnly authentication cookie
+func (s *Server) setAuthCookie(w http.ResponseWriter, token string) {
+	if !s.cookieAuth {
+		return
+	}
+
+	cookie := &http.Cookie{
+		Name:     "webpass_auth",
+		Value:    token,
+		Path:     "/api",
+		HttpOnly: true,
+		Secure:   s.cookieSecure,
+		SameSite: http.SameSiteStrictMode,
+		Domain:   s.cookieDomain,
+		MaxAge:   int(s.sessionDuration.Seconds()),
+	}
+	http.SetCookie(w, cookie)
+}
+
+// clearAuthCookie clears the authentication cookie
+func (s *Server) clearAuthCookie(w http.ResponseWriter) {
+	cookie := &http.Cookie{
+		Name:     "webpass_auth",
+		Value:    "",
+		Path:     "/api",
+		HttpOnly: true,
+		Secure:   s.cookieSecure,
+		SameSite: http.SameSiteStrictMode,
+		Domain:   s.cookieDomain,
+		MaxAge:   -1, // Delete immediately
+	}
+	http.SetCookie(w, cookie)
 }
 
 // ---------------------------------------------------------------------------
@@ -521,6 +598,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+
+	// Set httpOnly cookie
+	s.setAuthCookie(w, token)
+
+	// Return token in response for backward compatibility (client can ignore)
 	jsonOK(w, map[string]string{"token": token})
 }
 
@@ -561,7 +643,21 @@ func (s *Server) handleLogin2FA(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+
+	// Set httpOnly cookie
+	s.setAuthCookie(w, token)
+
+	// Return token in response for backward compatibility (client can ignore)
 	jsonOK(w, map[string]string{"token": token})
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/logout — clear auth cookie
+// ---------------------------------------------------------------------------
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	s.clearAuthCookie(w)
+	jsonOK(w, map[string]string{"status": "logged out"})
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,6 @@
 import { ApiClient } from './api';
 import type { SessionState } from '../types';
 
-const SESSION_DURATION_MS = 5 * 60 * 1000; // 5 minutes (matches server default)
 const STORAGE_KEY = 'webpass_session';
 
 class Session {
@@ -13,51 +12,52 @@ class Session {
   private _listeners: Set<() => void> = new Set();
 
   constructor() {
-    // Restore session from localStorage on init
+    // Restore session from sessionStorage on init (only non-sensitive metadata)
     this._restore();
   }
 
   private _restore() {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
+      const stored = sessionStorage.getItem(STORAGE_KEY);
       if (stored) {
         const state: SessionState = JSON.parse(stored);
-        if (state.token && state.expiresAt && Date.now() < state.expiresAt && state.fingerprint) {
+        // Note: token is now in httpOnly cookie, we only restore metadata here
+        if (state.fingerprint && state.publicKey && state.apiUrl) {
           this.fingerprint = state.fingerprint;
-          this.token = state.token;
-          this.expiresAt = state.expiresAt;
           this.publicKey = state.publicKey;
-          if (state.apiUrl) {
-            this.api = new ApiClient(state.apiUrl);
-            this.api.token = state.token;
-            this.api.fingerprint = state.fingerprint;
-          }
+          this.api = new ApiClient(state.apiUrl);
+          this.api.fingerprint = state.fingerprint;
+          // Token will be read from cookie by the browser automatically
         } else {
-          localStorage.removeItem(STORAGE_KEY);
+          sessionStorage.removeItem(STORAGE_KEY);
         }
       }
     } catch (e) {
-      localStorage.removeItem(STORAGE_KEY);
+      sessionStorage.removeItem(STORAGE_KEY);
     }
   }
 
   private _persist() {
     try {
       const state = this.getState();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      // Only store non-sensitive metadata (fingerprint, publicKey, apiUrl)
+      // Token is stored in httpOnly cookie by the server
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (e) {
       // Ignore persistence errors
     }
   }
 
   isActive(): boolean {
-    if (!this.token || !this.expiresAt) return false;
-    return Date.now() < this.expiresAt;
+    // Session is active if we have fingerprint and API client
+    // Token validity is verified server-side via cookie
+    return this.fingerprint !== null && this.api !== null;
   }
 
   remainingSeconds(): number {
-    if (!this.expiresAt) return 0;
-    return Math.max(0, Math.floor((this.expiresAt - Date.now()) / 1000));
+    // With cookie-based auth, we don't track expiry client-side
+    // The server validates the cookie expiry on each request
+    return 0;
   }
 
   activate(opts: {
@@ -67,12 +67,12 @@ class Session {
     publicKey: string;
   }) {
     this.fingerprint = opts.fingerprint;
-    this.token = opts.token;
-    this.expiresAt = Date.now() + SESSION_DURATION_MS;
+    this.token = opts.token; // Keep for backward compatibility, but not stored
     this.publicKey = opts.publicKey;
     this.api = new ApiClient(opts.apiUrl);
-    this.api.token = opts.token;
     this.api.fingerprint = opts.fingerprint;
+    this.api.token = opts.token; // Set token on API client for Authorization header
+    // Token is now in httpOnly cookie - don't store it in sessionStorage
     this._persist();
     this._notify();
   }
@@ -83,15 +83,15 @@ class Session {
     this.api = null;
     this.expiresAt = null;
     this.publicKey = null;
-    localStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(STORAGE_KEY);
     this._notify();
   }
 
   getState(): SessionState {
     return {
       fingerprint: this.fingerprint,
-      token: this.token,
-      expiresAt: this.expiresAt,
+      token: null, // Token is in cookie, not exposed to JS
+      expiresAt: null, // Expiry is server-side now
       apiUrl: this.api?.baseUrl || null,
       publicKey: this.publicKey,
     };

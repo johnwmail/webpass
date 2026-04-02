@@ -1,5 +1,7 @@
 /**
  * API helpers for E2E test setup and teardown.
+ * Supports both cookie-based auth and Bearer token auth.
+ * Uses a simple cookie jar to persist cookies between requests.
  */
 
 const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:8080';
@@ -15,6 +17,65 @@ export interface TestUser {
 
 export interface ApiError {
   error: string;
+}
+
+// Simple cookie jar to persist cookies between API calls (per-user basis)
+const userCookies = new Map<string, Map<string, string>>();
+
+/**
+ * Get or create cookie jar for a specific user.
+ */
+function getUserCookieJar(fingerprint: string): Map<string, string> {
+  if (!userCookies.has(fingerprint)) {
+    userCookies.set(fingerprint, new Map<string, string>());
+  }
+  return userCookies.get(fingerprint)!;
+}
+
+/**
+ * Get cookie header for requests.
+ */
+function getCookieHeader(fingerprint: string): string | undefined {
+  const jar = getUserCookieJar(fingerprint);
+  const cookies = Array.from(jar.entries())
+    .map(([name, value]) => `${name}=${value}`)
+    .join('; ');
+  return cookies || undefined;
+}
+
+/**
+ * Extract cookies from response and store in user's jar.
+ */
+function extractCookies(fingerprint: string, headers: Headers) {
+  const setCookie = headers.get('set-cookie');
+  if (setCookie) {
+    const jar = getUserCookieJar(fingerprint);
+    const cookies = setCookie.split(',');
+    for (const cookie of cookies) {
+      const match = cookie.match(/^([^=;]+)=([^;]+)/);
+      if (match) {
+        jar.set(match[1], match[2]);
+      }
+    }
+  }
+}
+
+/**
+ * Clear cookie jar for a specific user.
+ */
+export function clearUserCookies(fingerprint: string): void {
+  userCookies.delete(fingerprint);
+}
+
+/**
+ * Generate a random hex string.
+ */
+function cryptoRandomHex(length: number): string {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 /**
@@ -38,18 +99,26 @@ export async function apiRegister(overrides?: Partial<TestUser>): Promise<TestUs
   });
   const registrationCode = totp.generate();
 
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Registration-Code': registrationCode,
+  };
+  const cookieHeader = getCookieHeader(user.fingerprint);
+  if (cookieHeader) {
+    headers['Cookie'] = cookieHeader;
+  }
+
   const response = await fetch(`${BASE_URL}/api`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Registration-Code': registrationCode,
-    },
+    headers,
     body: JSON.stringify({
       fingerprint: user.fingerprint,
       password: user.password,
       public_key: user.publicKey,
     }),
   });
+
+  extractCookies(user.fingerprint, response.headers);
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: response.statusText }));
@@ -61,13 +130,24 @@ export async function apiRegister(overrides?: Partial<TestUser>): Promise<TestUs
 
 /**
  * Login via API and return the JWT token.
+ * Also sets auth cookie if server uses cookie auth.
  */
 export async function apiLogin(user: TestUser): Promise<string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  const cookieHeader = getCookieHeader(user.fingerprint);
+  if (cookieHeader) {
+    headers['Cookie'] = cookieHeader;
+  }
+
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/login`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({ password: user.password }),
   });
+
+  extractCookies(user.fingerprint, response.headers);
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: response.statusText }));
@@ -82,11 +162,21 @@ export async function apiLogin(user: TestUser): Promise<string> {
  * Login with 2FA via API.
  */
 export async function apiLoginWith2FA(user: TestUser, totpCode: string): Promise<string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  const cookieHeader = getCookieHeader(user.fingerprint);
+  if (cookieHeader) {
+    headers['Cookie'] = cookieHeader;
+  }
+
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/login/2fa`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({ password: user.password, totp_code: totpCode }),
   });
+
+  extractCookies(user.fingerprint, response.headers);
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: response.statusText }));
@@ -99,20 +189,24 @@ export async function apiLoginWith2FA(user: TestUser, totpCode: string): Promise
 
 /**
  * Create an entry via API.
+ * Uses cookie auth for compatibility with cookie auth mode.
  */
 export async function apiCreateEntry(
   user: TestUser,
   path: string,
   blob: string | Uint8Array
 ): Promise<void> {
-  const token = await apiLogin(user);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/octet-stream',
+  };
+  const cookieHeader = getCookieHeader(user.fingerprint);
+  if (cookieHeader) {
+    headers['Cookie'] = cookieHeader;
+  }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/entries/${encodeURIComponent(path)}`, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/octet-stream',
-      'Authorization': `Bearer ${token}`,
-    },
+    headers,
     body: blob,
   });
 
@@ -126,11 +220,15 @@ export async function apiCreateEntry(
  * Get an entry via API.
  */
 export async function apiGetEntry(user: TestUser, path: string): Promise<string> {
-  const token = await apiLogin(user);
+  const headers: Record<string, string> = {};
+  const cookieHeader = getCookieHeader(user.fingerprint);
+  if (cookieHeader) {
+    headers['Cookie'] = cookieHeader;
+  }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/entries/${encodeURIComponent(path)}`, {
     method: 'GET',
-    headers: { 'Authorization': `Bearer ${token}` },
+    headers,
   });
 
   if (!response.ok) {
@@ -147,11 +245,15 @@ export async function apiGetEntry(user: TestUser, path: string): Promise<string>
 export async function apiListEntries(
   user: TestUser
 ): Promise<Array<{ path: string; created: string; updated: string }>> {
-  const token = await apiLogin(user);
+  const headers: Record<string, string> = {};
+  const cookieHeader = getCookieHeader(user.fingerprint);
+  if (cookieHeader) {
+    headers['Cookie'] = cookieHeader;
+  }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/entries`, {
     method: 'GET',
-    headers: { 'Authorization': `Bearer ${token}` },
+    headers,
   });
 
   if (!response.ok) {
@@ -167,11 +269,15 @@ export async function apiListEntries(
  * Delete an entry via API.
  */
 export async function apiDeleteEntry(user: TestUser, path: string): Promise<void> {
-  const token = await apiLogin(user);
+  const headers: Record<string, string> = {};
+  const cookieHeader = getCookieHeader(user.fingerprint);
+  if (cookieHeader) {
+    headers['Cookie'] = cookieHeader;
+  }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/entries/${encodeURIComponent(path)}`, {
     method: 'DELETE',
-    headers: { 'Authorization': `Bearer ${token}` },
+    headers,
   });
 
   if (!response.ok) {
@@ -182,22 +288,35 @@ export async function apiDeleteEntry(user: TestUser, path: string): Promise<void
 
 /**
  * Delete user account via API.
+ * Uses cookie-based authentication.
  */
 export async function apiDeleteAccount(user: TestUser): Promise<void> {
   try {
-    const token = await apiLogin(user);
+    // First login to get cookie set
+    await apiLogin(user);
+
+    const headers: Record<string, string> = {};
+    const cookieHeader = getCookieHeader(user.fingerprint);
+    if (cookieHeader) {
+      headers['Cookie'] = cookieHeader;
+    }
 
     const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/account`, {
       method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` },
+      headers,
     });
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: response.statusText }));
       throw new Error(`Failed to delete account: ${response.status} ${JSON.stringify(error)}`);
     }
+    
+    // Clear cookie jar after successful deletion
+    clearUserCookies(user.fingerprint);
   } catch (e) {
     // Ignore errors - account might not exist
+    // Still clear cookies to avoid stale auth
+    clearUserCookies(user.fingerprint);
   }
 }
 
@@ -205,11 +324,15 @@ export async function apiDeleteAccount(user: TestUser): Promise<void> {
  * Setup TOTP via API.
  */
 export async function apiSetupTOTP(user: TestUser): Promise<{ secret: string; url: string }> {
-  const token = await apiLogin(user);
+  const headers: Record<string, string> = {};
+  const cookieHeader = getCookieHeader(user.fingerprint);
+  if (cookieHeader) {
+    headers['Cookie'] = cookieHeader;
+  }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/totp/setup`, {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${token}` },
+    headers,
   });
 
   if (!response.ok) {
@@ -228,14 +351,17 @@ export async function apiConfirmTOTP(
   secret: string,
   code: string
 ): Promise<{ enabled: boolean }> {
-  const token = await apiLogin(user);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  const cookieHeader = getCookieHeader(user.fingerprint);
+  if (cookieHeader) {
+    headers['Cookie'] = cookieHeader;
+  }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/totp/confirm`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
+    headers,
     body: JSON.stringify({ secret, code }),
   });
 
@@ -251,11 +377,15 @@ export async function apiConfirmTOTP(
  * Export entries via API.
  */
 export async function apiExport(user: TestUser): Promise<Uint8Array> {
-  const token = await apiLogin(user);
+  const headers: Record<string, string> = {};
+  const cookieHeader = getCookieHeader(user.fingerprint);
+  if (cookieHeader) {
+    headers['Cookie'] = cookieHeader;
+  }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/export`, {
     method: 'GET',
-    headers: { 'Authorization': `Bearer ${token}` },
+    headers,
   });
 
   if (!response.ok) {
@@ -274,14 +404,17 @@ export async function apiImport(
   user: TestUser,
   tarGzData: Uint8Array
 ): Promise<{ imported: number }> {
-  const token = await apiLogin(user);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/octet-stream',
+  };
+  const cookieHeader = getCookieHeader(user.fingerprint);
+  if (cookieHeader) {
+    headers['Cookie'] = cookieHeader;
+  }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/import`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/octet-stream',
-      'Authorization': `Bearer ${token}`,
-    },
+    headers,
     body: tarGzData,
   });
 
@@ -302,14 +435,17 @@ export async function apiConfigureGit(
   pat: string,
   pgpPassphrase?: string
 ): Promise<void> {
-  const token = await apiLogin(user);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  const cookieHeader = getCookieHeader(user.fingerprint);
+  if (cookieHeader) {
+    headers['Cookie'] = cookieHeader;
+  }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/git/config`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
+    headers,
     body: JSON.stringify({
       repo_url: remoteUrl,
       encrypted_pat: pat,
@@ -326,14 +462,17 @@ export async function apiConfigureGit(
  * Set git session token via API.
  */
 export async function apiSetGitSession(user: TestUser, token: string): Promise<void> {
-  const authToken = await apiLogin(user);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  const cookieHeader = getCookieHeader(user.fingerprint);
+  if (cookieHeader) {
+    headers['Cookie'] = cookieHeader;
+  }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/git/session`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${authToken}`,
-    },
+    headers,
     body: JSON.stringify({ token }),
   });
 
@@ -347,11 +486,15 @@ export async function apiSetGitSession(user: TestUser, token: string): Promise<v
  * Push to git remote via API.
  */
 export async function apiGitPush(user: TestUser): Promise<{ message?: string }> {
-  const token = await apiLogin(user);
+  const headers: Record<string, string> = {};
+  const cookieHeader = getCookieHeader(user.fingerprint);
+  if (cookieHeader) {
+    headers['Cookie'] = cookieHeader;
+  }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/git/push`, {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${token}` },
+    headers,
   });
 
   if (!response.ok) {
@@ -366,11 +509,15 @@ export async function apiGitPush(user: TestUser): Promise<{ message?: string }> 
  * Pull from git remote via API.
  */
 export async function apiGitPull(user: TestUser): Promise<{ message?: string }> {
-  const token = await apiLogin(user);
+  const headers: Record<string, string> = {};
+  const cookieHeader = getCookieHeader(user.fingerprint);
+  if (cookieHeader) {
+    headers['Cookie'] = cookieHeader;
+  }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/git/pull`, {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${token}` },
+    headers,
   });
 
   if (!response.ok) {
@@ -379,15 +526,4 @@ export async function apiGitPull(user: TestUser): Promise<{ message?: string }> 
   }
 
   return await response.json();
-}
-
-/**
- * Generate a random hex string.
- */
-function cryptoRandomHex(length: number): string {
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes)
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
 }

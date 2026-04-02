@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -893,6 +894,355 @@ func TestChangePasswordWith2FA(t *testing.T) {
 	newLogin2faBody := `{"password":"newpass789","totp_code":"` + newLogin2faCode + `"}`
 	newLogin2faResp := doReq(t, ts, "POST", "/api/"+fp+"/login/2fa", newLogin2faBody, "")
 	expectStatus(t, newLogin2faResp, http.StatusOK)
+}
+
+// ---------------------------------------------------------------------------
+// Cookie-based Authentication Tests
+// ---------------------------------------------------------------------------
+
+func TestCookieAuth_LoginSetsCookie(t *testing.T) {
+	// Enable cookie auth
+	t.Setenv("COOKIE_AUTH_ENABLED", "true")
+	t.Setenv("COOKIE_SECURE", "false")
+
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	// Create user
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookie1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+
+	// Login
+	resp = doReq(t, ts, "POST", "/api/cookie1/login", `{"password":"pw"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+
+	// Verify cookie is set
+	cookies := resp.Cookies()
+	var authCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == "webpass_auth" {
+			authCookie = c
+			break
+		}
+	}
+	if authCookie == nil {
+		t.Fatal("expected webpass_auth cookie in response")
+	}
+	if authCookie.Value == "" {
+		t.Fatal("cookie value should not be empty")
+	}
+	if !authCookie.HttpOnly {
+		t.Fatal("cookie should be HttpOnly")
+	}
+	if authCookie.Secure {
+		t.Fatal("cookie should not be Secure when COOKIE_SECURE=false")
+	}
+	if authCookie.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("expected SameSite=Strict, got %v", authCookie.SameSite)
+	}
+	if authCookie.Path != "/api" {
+		t.Fatalf("expected path /api, got %s", authCookie.Path)
+	}
+}
+
+func TestCookieAuth_Login2FA_SetsCookie(t *testing.T) {
+	t.Setenv("COOKIE_AUTH_ENABLED", "true")
+	t.Setenv("COOKIE_SECURE", "false")
+
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	// Create user
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookie2fa"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+
+	// Login to get cookie
+	loginResp := doReq(t, ts, "POST", "/api/cookie2fa/login", `{"password":"pw"}`, "")
+	expectStatus(t, loginResp, http.StatusOK)
+
+	// Extract cookie
+	cookies := loginResp.Cookies()
+	var authCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == "webpass_auth" {
+			authCookie = c
+			break
+		}
+	}
+	if authCookie == nil {
+		t.Fatal("expected webpass_auth cookie")
+	}
+
+	// Setup TOTP using cookie
+	totpReq, _ := http.NewRequest("POST", ts.URL+"/api/cookie2fa/totp/setup", nil)
+	totpReq.AddCookie(authCookie)
+	totpResp, err := http.DefaultClient.Do(totpReq)
+	if err != nil {
+		t.Fatalf("TOTP setup request failed: %v", err)
+	}
+	expectStatus(t, totpResp, http.StatusOK)
+	var totpData map[string]string
+	decodeJSON(t, totpResp, &totpData)
+	totpSecret := totpData["secret"]
+
+	code, _ := totp.GenerateCode(totpSecret, time.Now())
+	confirmBody := `{"secret":"` + totpSecret + `","code":"` + code + `"}`
+	confirmReq, _ := http.NewRequest("POST", ts.URL+"/api/cookie2fa/totp/confirm", strings.NewReader(confirmBody))
+	confirmReq.Header.Set("Content-Type", "application/json")
+	confirmReq.AddCookie(authCookie)
+	confirmResp, err := http.DefaultClient.Do(confirmReq)
+	if err != nil {
+		t.Fatalf("TOTP confirm request failed: %v", err)
+	}
+	expectStatus(t, confirmResp, http.StatusOK)
+
+	// Login with 2FA
+	login2faCode, _ := totp.GenerateCode(totpSecret, time.Now())
+	login2faBody := `{"password":"pw","totp_code":"` + login2faCode + `"}`
+	login2faResp := doReq(t, ts, "POST", "/api/cookie2fa/login/2fa", login2faBody, "")
+	expectStatus(t, login2faResp, http.StatusOK)
+
+	// Verify cookie is set
+	cookies = login2faResp.Cookies()
+	var authCookie2 *http.Cookie
+	for _, c := range cookies {
+		if c.Name == "webpass_auth" {
+			authCookie2 = c
+			break
+		}
+	}
+	if authCookie2 == nil {
+		t.Fatal("expected webpass_auth cookie in 2FA login response")
+	}
+}
+
+func TestCookieAuth_AuthenticatedRequest(t *testing.T) {
+	t.Setenv("COOKIE_AUTH_ENABLED", "true")
+	t.Setenv("COOKIE_SECURE", "false")
+
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	// Create user and login to get cookie
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookie3"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+
+	loginResp := doReq(t, ts, "POST", "/api/cookie3/login", `{"password":"pw"}`, "")
+	expectStatus(t, loginResp, http.StatusOK)
+
+	// Extract cookie
+	cookies := loginResp.Cookies()
+	var authCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == "webpass_auth" {
+			authCookie = c
+			break
+		}
+	}
+	if authCookie == nil {
+		t.Fatal("expected webpass_auth cookie")
+	}
+
+	// Create HTTP client that sends cookies
+	client := &http.Client{
+		Jar: &testCookieJar{},
+	}
+
+	// Make request with cookie
+	req, _ := http.NewRequest("GET", ts.URL+"/api/cookie3/entries", nil)
+	req.AddCookie(authCookie)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+
+	// Should succeed with valid cookie
+	expectStatus(t, resp, http.StatusOK)
+}
+
+func TestCookieAuth_LogoutClearsCookie(t *testing.T) {
+	t.Setenv("COOKIE_AUTH_ENABLED", "true")
+	t.Setenv("COOKIE_SECURE", "false")
+
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	// Create user and login
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookie4"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+
+	loginResp := doReq(t, ts, "POST", "/api/cookie4/login", `{"password":"pw"}`, "")
+	expectStatus(t, loginResp, http.StatusOK)
+
+	// Verify cookie exists
+	cookies := loginResp.Cookies()
+	var authCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == "webpass_auth" {
+			authCookie = c
+			break
+		}
+	}
+	if authCookie == nil {
+		t.Fatal("expected webpass_auth cookie before logout")
+	}
+
+	// Call logout endpoint
+	logoutReq, _ := http.NewRequest("POST", ts.URL+"/api/logout", nil)
+	logoutReq.AddCookie(authCookie)
+	logoutResp, err := http.DefaultClient.Do(logoutReq)
+	if err != nil {
+		t.Fatalf("logout request failed: %v", err)
+	}
+	expectStatus(t, logoutResp, http.StatusOK)
+
+	// Verify cookie is cleared (MaxAge should be -1)
+	logoutCookies := logoutResp.Cookies()
+	var clearedCookie *http.Cookie
+	for _, c := range logoutCookies {
+		if c.Name == "webpass_auth" {
+			clearedCookie = c
+			break
+		}
+	}
+	if clearedCookie == nil {
+		t.Fatal("expected webpass_auth cookie in logout response")
+	}
+	if clearedCookie.MaxAge != -1 {
+		t.Fatalf("expected MaxAge=-1 to clear cookie, got %d", clearedCookie.MaxAge)
+	}
+}
+
+func TestCookieAuth_WithoutCookie_ReturnsUnauthorized(t *testing.T) {
+	t.Setenv("COOKIE_AUTH_ENABLED", "true")
+
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	// Create user
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookie5"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+
+	// Try to access protected endpoint without cookie
+	resp = doReq(t, ts, "GET", "/api/cookie5/entries", "", "")
+	expectStatus(t, resp, http.StatusUnauthorized)
+}
+
+func TestCookieAuth_SecureFlag(t *testing.T) {
+	t.Setenv("COOKIE_AUTH_ENABLED", "true")
+	t.Setenv("COOKIE_SECURE", "true")
+
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	// Create user and login
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookie6"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+
+	loginResp := doReq(t, ts, "POST", "/api/cookie6/login", `{"password":"pw"}`, "")
+	expectStatus(t, loginResp, http.StatusOK)
+
+	// Verify Secure flag is set
+	cookies := loginResp.Cookies()
+	var authCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == "webpass_auth" {
+			authCookie = c
+			break
+		}
+	}
+	if authCookie == nil {
+		t.Fatal("expected webpass_auth cookie")
+	}
+	if !authCookie.Secure {
+		t.Fatal("cookie should have Secure flag when COOKIE_SECURE=true")
+	}
+}
+
+func TestCookieAuth_Disabled_FallsBackToBearer(t *testing.T) {
+	t.Setenv("COOKIE_AUTH_ENABLED", "false")
+
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	// Create user
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookie7"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+
+	// Login should return token (no cookie when disabled)
+	loginResp := doReq(t, ts, "POST", "/api/cookie7/login", `{"password":"pw"}`, "")
+	expectStatus(t, loginResp, http.StatusOK)
+
+	// Verify no cookie is set
+	cookies := loginResp.Cookies()
+	for _, c := range cookies {
+		if c.Name == "webpass_auth" {
+			t.Fatal("should not set cookie when COOKIE_AUTH_ENABLED=false")
+		}
+	}
+
+	// Get token from response
+	var loginData map[string]string
+	decodeJSON(t, loginResp, &loginData)
+	token := loginData["token"]
+
+	// Access protected endpoint with Bearer token
+	resp = doReq(t, ts, "GET", "/api/cookie7/entries", "", token)
+	expectStatus(t, resp, http.StatusOK)
+}
+
+func TestCookieAuth_CookieDomain(t *testing.T) {
+	t.Setenv("COOKIE_AUTH_ENABLED", "true")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("COOKIE_DOMAIN", ".example.com")
+
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	// Create user and login
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookie8"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+
+	loginResp := doReq(t, ts, "POST", "/api/cookie8/login", `{"password":"pw"}`, "")
+	expectStatus(t, loginResp, http.StatusOK)
+
+	// Verify domain is set
+	cookies := loginResp.Cookies()
+	var authCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == "webpass_auth" {
+			authCookie = c
+			break
+		}
+	}
+	if authCookie == nil {
+		t.Fatal("expected webpass_auth cookie")
+	}
+	// http.Cookie normalizes domain (removes leading dot)
+	if authCookie.Domain != "example.com" {
+		t.Fatalf("expected domain example.com, got %s", authCookie.Domain)
+	}
+}
+
+// testCookieJar is a simple cookie jar for testing
+type testCookieJar struct {
+	cookies []*http.Cookie
+}
+
+func (j *testCookieJar) SetCookies(u *url.URL, cookies []*http.Cookie) {
+	j.cookies = append(j.cookies, cookies...)
+}
+
+func (j *testCookieJar) Cookies(u *url.URL) []*http.Cookie {
+	return j.cookies
 }
 
 // ---------------------------------------------------------------------------

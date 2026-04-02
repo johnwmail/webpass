@@ -788,7 +788,23 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
 
               <div class="setup-actions">
                 <div />
-                <button class="btn btn-primary" onClick={onComplete}>
+                <button
+                  class="btn btn-primary"
+                  onClick={() => {
+                    // For new users, activate session and go to main app
+                    if (setupApi) {
+                      session.activate({
+                        fingerprint,
+                        token: setupApi.token || '',
+                        apiUrl: setupApi.baseUrl,
+                        publicKey,
+                      });
+                      onAuthenticated();
+                    } else {
+                      onComplete();
+                    }
+                  }}
+                >
                   <Check size={16} style={{ marginRight: '8px' }} /> Complete Setup
                 </button>
               </div>
