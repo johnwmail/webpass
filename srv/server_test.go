@@ -1372,6 +1372,122 @@ func getCSRFToken(t *testing.T, ts *httptest.Server) string {
 	return ""
 }
 
+// ---------------------------------------------------------------------------
+// Path Traversal Tests
+// ---------------------------------------------------------------------------
+
+func TestPathTraversal_Rejected(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	csrf := getCSRFToken(t, ts)
+
+	// Create user
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"ptrav1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+
+	// Login
+	resp = doReq(t, ts, "POST", "/api/ptrav1/login", `{"password":"pw"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	var loginResp map[string]string
+	decodeJSON(t, resp, &loginResp)
+	token := loginResp["token"]
+
+	// Test paths that should be rejected after normalization
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"dot_only", "."},
+		{"slash_only", "/"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// PUT should reject invalid paths
+			resp = doReqRawWithCSRF(t, ts, "PUT", "/api/ptrav1/entries/"+tt.path, []byte("data"), token, csrf)
+			expectStatus(t, resp, http.StatusBadRequest)
+
+			// DELETE should reject invalid paths
+			resp = doReqWithCSRF(t, ts, "DELETE", "/api/ptrav1/entries/"+tt.path, "", token, csrf)
+			expectStatus(t, resp, http.StatusBadRequest)
+		})
+	}
+}
+
+func TestPathTraversal_MoveEntry(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	csrf := getCSRFToken(t, ts)
+
+	// Create user and login
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"ptrav2"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+
+	resp = doReq(t, ts, "POST", "/api/ptrav2/login", `{"password":"pw"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	var loginResp map[string]string
+	decodeJSON(t, resp, &loginResp)
+	token := loginResp["token"]
+
+	// Create a valid entry first
+	resp = doReqRawWithCSRF(t, ts, "PUT", "/api/ptrav2/entries/valid-entry", []byte("data"), token, csrf)
+	expectStatus(t, resp, http.StatusNoContent)
+
+	// Move with invalid "to" path should fail
+	resp = doReqWithCSRF(t, ts, "POST", "/api/ptrav2/entries/move", `{"from":"valid-entry","to":"../bad-path"}`, token, csrf)
+	expectStatus(t, resp, http.StatusBadRequest)
+
+	// Move with invalid "from" path should fail
+	resp = doReqWithCSRF(t, ts, "POST", "/api/ptrav2/entries/move", `{"from":"../bad-path","to":"new-path"}`, token, csrf)
+	expectStatus(t, resp, http.StatusBadRequest)
+}
+
+func TestPathTraversal_ValidPaths(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	csrf := getCSRFToken(t, ts)
+
+	// Create user and login
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"ptrav3"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+
+	resp = doReq(t, ts, "POST", "/api/ptrav3/login", `{"password":"pw"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	var loginResp map[string]string
+	decodeJSON(t, resp, &loginResp)
+	token := loginResp["token"]
+
+	validPaths := []string{
+		"simple",
+		"Email/gmail",
+		"Social/github",
+		"Work/email/work-account",
+		"a/b/c/d",
+	}
+
+	for _, path := range validPaths {
+		t.Run(path, func(t *testing.T) {
+			// PUT should accept valid paths
+			resp = doReqRawWithCSRF(t, ts, "PUT", "/api/ptrav3/entries/"+path, []byte("encrypted-data"), token, csrf)
+			expectStatus(t, resp, http.StatusNoContent)
+
+			// GET should return the entry
+			resp = doReqWithCSRF(t, ts, "GET", "/api/ptrav3/entries/"+path, "", token, csrf)
+			expectStatus(t, resp, http.StatusOK)
+
+			// DELETE should succeed
+			resp = doReqWithCSRF(t, ts, "DELETE", "/api/ptrav3/entries/"+path, "", token, csrf)
+			expectStatus(t, resp, http.StatusNoContent)
+		})
+	}
+}
+
 func expectStatus(t *testing.T, resp *http.Response, expected int) {
 	t.Helper()
 	if resp.StatusCode != expected {

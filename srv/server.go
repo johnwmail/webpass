@@ -888,6 +888,55 @@ func (s *Server) handleListEntries(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
+// Path validation
+// ---------------------------------------------------------------------------
+
+// validateEntryPath validates and cleans an entry path.
+// It rejects path traversal (..), null bytes, absolute paths, and empty segments.
+func validateEntryPath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("path is required")
+	}
+
+	// Reject null bytes
+	if strings.ContainsRune(path, '\x00') {
+		return "", fmt.Errorf("invalid characters in path")
+	}
+
+	// Reject path traversal
+	if strings.Contains(path, "..") {
+		return "", fmt.Errorf("path traversal not allowed")
+	}
+
+	// Reject absolute paths
+	if strings.HasPrefix(path, "/") {
+		return "", fmt.Errorf("absolute paths not allowed")
+	}
+
+	// Clean and validate structure
+	cleaned := filepath.Clean(path)
+	if cleaned == "." || cleaned == "/" {
+		return "", fmt.Errorf("invalid path")
+	}
+
+	// Validate path segments
+	segments := strings.Split(cleaned, "/")
+	for _, seg := range segments {
+		if seg == "" {
+			return "", fmt.Errorf("empty path segment")
+		}
+		// Reject control characters
+		for _, c := range seg {
+			if c < 32 || c == 127 {
+				return "", fmt.Errorf("invalid characters in path")
+			}
+		}
+	}
+
+	return cleaned, nil
+}
+
+// ---------------------------------------------------------------------------
 // GET /api/{fingerprint}/entries/{path...} — get entry blob
 // ---------------------------------------------------------------------------
 
@@ -899,9 +948,15 @@ func (s *Server) handleGetEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cleanPath, err := validateEntryPath(path)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	entry, err := s.Q.GetEntry(r.Context(), dbgen.GetEntryParams{
 		Fingerprint: fp,
-		Path:        path,
+		Path:        cleanPath,
 	})
 	if err != nil {
 		jsonError(w, "not found", http.StatusNotFound)
@@ -924,6 +979,12 @@ func (s *Server) handlePutEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cleanPath, err := validateEntryPath(path)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	content, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1 MB limit
 	if err != nil {
 		jsonError(w, "read body failed", http.StatusBadRequest)
@@ -936,7 +997,7 @@ func (s *Server) handlePutEntry(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.Q.UpsertEntry(r.Context(), dbgen.UpsertEntryParams{
 		Fingerprint: fp,
-		Path:        path,
+		Path:        cleanPath,
 		Content:     content,
 	}); err != nil {
 		slog.Error("upsert entry", "error", err)
@@ -959,9 +1020,15 @@ func (s *Server) handleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cleanPath, err := validateEntryPath(path)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	if err := s.Q.DeleteEntry(r.Context(), dbgen.DeleteEntryParams{
 		Fingerprint: fp,
-		Path:        path,
+		Path:        cleanPath,
 	}); err != nil {
 		slog.Error("delete entry", "error", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
@@ -1097,10 +1164,22 @@ func (s *Server) handleMoveEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cleanFrom, err := validateEntryPath(body.From)
+	if err != nil {
+		jsonError(w, "invalid from path: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cleanTo, err := validateEntryPath(body.To)
+	if err != nil {
+		jsonError(w, "invalid to path: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	if err := s.Q.MoveEntry(r.Context(), dbgen.MoveEntryParams{
-		Path:        body.To,
+		Path:        cleanTo,
 		Fingerprint: fp,
-		Path_2:      body.From,
+		Path_2:      cleanFrom,
 	}); err != nil {
 		slog.Error("move entry", "error", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
