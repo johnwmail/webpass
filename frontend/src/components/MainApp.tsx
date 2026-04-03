@@ -200,7 +200,7 @@ export function MainApp({ onLock }: Props) {
           <button class="btn btn-ghost btn-sm" onClick={() => setShowGenerator(true)} title="Password Generator">
             <Sparkles size={16} />
           </button>
-          <button class="btn btn-ghost btn-icon" onClick={() => setShowSettings(true)} title="Settings">
+          <button class="btn btn-ghost btn-icon" onClick={() => setShowSettings(true)} title="Settings" aria-label="Settings">
             <Settings size={18} />
           </button>
           <button class="btn btn-ghost btn-icon" onClick={onLock} title="Lock Session">

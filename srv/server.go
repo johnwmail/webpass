@@ -3,7 +3,9 @@ package srv
 import (
 	"archive/tar"
 	"compress/gzip"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -15,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,6 +39,10 @@ type Server struct {
 	Registration    *RegistrationService
 	RateLimiter     *RateLimiter // rate limiter for auth endpoints
 	sessionDuration time.Duration
+	cookieAuth      bool   // whether to use httpOnly cookies instead of localStorage
+	cookieSecure    bool   // whether to set Secure flag on cookies
+	cookieDomain    string // optional cookie domain
+	bcryptCost      int    // bcrypt cost factor for password hashing
 	// Version info (set from main package)
 	Version   string
 	BuildTime string
@@ -52,10 +59,36 @@ func New(dbPath string, jwtKey []byte, sessionDurationMin int) (*Server, error) 
 		return nil, fmt.Errorf("run migrations: %w", err)
 	}
 
+	// Check if cookie-based auth is enabled (default: false for local dev without HTTPS)
+	cookieAuthEnv := strings.TrimSpace(os.Getenv("COOKIE_AUTH_ENABLED"))
+	cookieAuth := cookieAuthEnv == "1" || strings.EqualFold(cookieAuthEnv, "true")
+
+	// Cookie Secure flag: set to true if running on HTTPS (check HTTPS environment or addr)
+	cookieSecureEnv := strings.TrimSpace(os.Getenv("COOKIE_SECURE"))
+	cookieSecure := cookieSecureEnv == "1" || strings.EqualFold(cookieSecureEnv, "true")
+
+	// Cookie domain (optional)
+	cookieDomain := strings.TrimSpace(os.Getenv("COOKIE_DOMAIN"))
+
+	// Bcrypt cost factor for password hashing (default: 12, range: 10-15)
+	bcryptCost := 12
+	bcryptCostEnv := strings.TrimSpace(os.Getenv("BCRYPT_COST"))
+	if bcryptCostEnv != "" {
+		if val, err := strconv.Atoi(bcryptCostEnv); err == nil && val >= 10 && val <= 15 {
+			bcryptCost = val
+		} else {
+			slog.Warn("Invalid BCRYPT_COST value, using default 12", "value", bcryptCostEnv)
+		}
+	}
+
 	s := &Server{
-		DB:     wdb,
-		Q:      dbgen.New(wdb),
-		JWTKey: jwtKey,
+		DB:           wdb,
+		Q:            dbgen.New(wdb),
+		JWTKey:       jwtKey,
+		cookieAuth:   cookieAuth,
+		cookieSecure: cookieSecure,
+		cookieDomain: cookieDomain,
+		bcryptCost:   bcryptCost,
 	}
 	s.sessionDuration = time.Duration(sessionDurationMin) * time.Minute
 
@@ -97,6 +130,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api", s.rateLimitMiddleware(s.handleCreateUser))
 	mux.HandleFunc("POST /api/{fingerprint}/login", s.rateLimitMiddleware(s.handleLogin))
 	mux.HandleFunc("POST /api/{fingerprint}/login/2fa", s.rateLimitMiddleware(s.handleLogin2FA))
+	mux.HandleFunc("POST /api/logout", s.handleLogout)
 
 	// Authenticated routes (no rate limiting - already protected by JWT)
 	mux.HandleFunc("POST /api/{fingerprint}/totp/setup", s.requireAuth(s.handleTOTPSetup))
@@ -154,7 +188,12 @@ func (s *Server) Handler() http.Handler {
 		})
 	}
 
-	return s.corsMiddleware(mux)
+	// Apply middleware chain: CORS -> Security Headers -> CSRF -> Router
+	handler := http.Handler(mux)
+	handler = s.csrfMiddleware(handler)
+	handler = securityHeadersMiddleware(handler)
+	handler = s.corsMiddleware(handler)
+	return handler
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +208,8 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 			if len(allowed) == 0 || allowed[origin] {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token")
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
 				w.Header().Set("Access-Control-Max-Age", "86400")
 			}
 		}
@@ -179,6 +219,134 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Security Headers
+// ---------------------------------------------------------------------------
+
+func securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Prevent MIME type sniffing
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		// Prevent clickjacking
+		w.Header().Set("X-Frame-Options", "DENY")
+		// Control referrer information
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		// Content Security Policy - restrict resource loading
+		// Note: worker-src must include 'self' and blob: for OpenPGP.js web workers
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		// Prevent browsers from applying XSS filtering
+		w.Header().Set("X-XSS-Protection", "0")
+		// Permissions Policy - restrict browser features
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// ---------------------------------------------------------------------------
+// CSRF Protection
+// ---------------------------------------------------------------------------
+
+// csrfTokenHeader is the header the client sends with the CSRF token
+const csrfTokenHeader = "X-CSRF-Token"
+
+// csrfTokenCookie is the name of the cookie holding the CSRF token
+const csrfTokenCookie = "webpass_csrf"
+
+// generateCSRFToken creates a random CSRF token
+func generateCSRFToken() string {
+	b := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, b); err != nil {
+		panic("csrf token generation failed: " + err.Error())
+	}
+	return base64.StdEncoding.EncodeToString(b)
+}
+
+// csrfMiddleware issues a CSRF token via cookie on GET requests and validates it on state-changing requests
+func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip CSRF for safe methods (GET, HEAD, OPTIONS)
+		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+			// Issue CSRF token if not already present
+			_, err := r.Cookie(csrfTokenCookie)
+			if err != nil {
+				token := generateCSRFToken()
+				cookie := &http.Cookie{
+					Name:     csrfTokenCookie,
+					Value:    token,
+					Path:     "/",   // Must match frontend app path so document.cookie can read it
+					HttpOnly: false, // Must be readable by JavaScript
+					Secure:   s.cookieSecure,
+					SameSite: http.SameSiteStrictMode,
+					Domain:   s.cookieDomain,
+					MaxAge:   int(s.sessionDuration.Seconds()),
+				}
+				http.SetCookie(w, cookie)
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Paths exempt from CSRF validation (authentication endpoints where user isn't logged in yet)
+		path := r.URL.Path
+		if path == "/api" || // POST /api (create user)
+			path == "/api/logout" || // POST /api/logout
+			path == "/api/registration/validate" || // POST /api/registration/validate
+			strings.HasSuffix(path, "/login") || // POST /api/{fingerprint}/login
+			strings.HasSuffix(path, "/login/2fa") { // POST /api/{fingerprint}/login/2fa
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// For state-changing requests (POST, PUT, DELETE, PATCH), validate CSRF token
+		token := r.Header.Get(csrfTokenHeader)
+		if token == "" {
+			// Also check form parameter as fallback
+			token = r.FormValue("csrf_token")
+		}
+		if token == "" {
+			slog.Warn("CSRF validation failed: missing CSRF token",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"remote_addr", r.RemoteAddr,
+			)
+			jsonError(w, "missing csrf token", http.StatusForbidden)
+			return
+		}
+
+		cookie, err := r.Cookie(csrfTokenCookie)
+		if err != nil {
+			slog.Warn("CSRF validation failed: missing CSRF cookie",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"remote_addr", r.RemoteAddr,
+			)
+			jsonError(w, "missing csrf cookie", http.StatusForbidden)
+			return
+		}
+
+		if !compareTokenSecure(token, cookie.Value) {
+			slog.Warn("CSRF validation failed: invalid CSRF token",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"remote_addr", r.RemoteAddr,
+			)
+			jsonError(w, "invalid csrf token", http.StatusForbidden)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// compareTokenSecure performs constant-time comparison to prevent timing attacks
+func compareTokenSecure(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 func parseCORSOrigins(raw string) map[string]bool {
@@ -274,6 +442,31 @@ func getClientIP(r *http.Request) string {
 }
 
 func (s *Server) verifyToken(r *http.Request) (string, error) {
+	// Try cookie first (when cookie auth is enabled)
+	if s.cookieAuth {
+		cookie, err := r.Cookie("webpass_auth")
+		if err == nil && cookie.Value != "" {
+			tokenStr := cookie.Value
+			token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) {
+				if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+					return nil, fmt.Errorf("unexpected signing method")
+				}
+				return s.JWTKey, nil
+			})
+			if err == nil && token.Valid {
+				claims, ok := token.Claims.(jwt.MapClaims)
+				if ok {
+					fp, ok := claims["fp"].(string)
+					if ok {
+						return fp, nil
+					}
+				}
+			}
+		}
+		return "", fmt.Errorf("missing auth cookie")
+	}
+
+	// Fallback to Authorization header (when cookie auth is disabled)
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(auth, "Bearer ") {
 		return "", fmt.Errorf("missing bearer token")
@@ -297,6 +490,40 @@ func (s *Server) verifyToken(r *http.Request) (string, error) {
 		return "", fmt.Errorf("missing fp claim")
 	}
 	return fp, nil
+}
+
+// setAuthCookie sets the httpOnly authentication cookie
+func (s *Server) setAuthCookie(w http.ResponseWriter, token string) {
+	if !s.cookieAuth {
+		return
+	}
+
+	cookie := &http.Cookie{
+		Name:     "webpass_auth",
+		Value:    token,
+		Path:     "/api",
+		HttpOnly: true,
+		Secure:   s.cookieSecure,
+		SameSite: http.SameSiteStrictMode,
+		Domain:   s.cookieDomain,
+		MaxAge:   int(s.sessionDuration.Seconds()),
+	}
+	http.SetCookie(w, cookie)
+}
+
+// clearAuthCookie clears the authentication cookie
+func (s *Server) clearAuthCookie(w http.ResponseWriter) {
+	cookie := &http.Cookie{
+		Name:     "webpass_auth",
+		Value:    "",
+		Path:     "/api",
+		HttpOnly: true,
+		Secure:   s.cookieSecure,
+		SameSite: http.SameSiteStrictMode,
+		Domain:   s.cookieDomain,
+		MaxAge:   -1, // Delete immediately
+	}
+	http.SetCookie(w, cookie)
 }
 
 // ---------------------------------------------------------------------------
@@ -375,7 +602,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		fp = fingerprintFromKey(body.PublicKey)
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), s.bcryptCost)
 	if err != nil {
 		slog.Error("bcrypt hash", "error", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
@@ -521,6 +748,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+
+	// Set httpOnly cookie
+	s.setAuthCookie(w, token)
+
+	// Return token in response for backward compatibility (client can ignore)
 	jsonOK(w, map[string]string{"token": token})
 }
 
@@ -561,7 +793,21 @@ func (s *Server) handleLogin2FA(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+
+	// Set httpOnly cookie
+	s.setAuthCookie(w, token)
+
+	// Return token in response for backward compatibility (client can ignore)
 	jsonOK(w, map[string]string{"token": token})
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/logout — clear auth cookie
+// ---------------------------------------------------------------------------
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	s.clearAuthCookie(w)
+	jsonOK(w, map[string]string{"status": "logged out"})
 }
 
 // ---------------------------------------------------------------------------
@@ -656,6 +902,55 @@ func (s *Server) handleListEntries(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
+// Path validation
+// ---------------------------------------------------------------------------
+
+// validateEntryPath validates and cleans an entry path.
+// It rejects path traversal (..), null bytes, absolute paths, and empty segments.
+func validateEntryPath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("path is required")
+	}
+
+	// Reject null bytes
+	if strings.ContainsRune(path, '\x00') {
+		return "", fmt.Errorf("invalid characters in path")
+	}
+
+	// Reject path traversal
+	if strings.Contains(path, "..") {
+		return "", fmt.Errorf("path traversal not allowed")
+	}
+
+	// Reject absolute paths
+	if strings.HasPrefix(path, "/") {
+		return "", fmt.Errorf("absolute paths not allowed")
+	}
+
+	// Clean and validate structure
+	cleaned := filepath.Clean(path)
+	if cleaned == "." || cleaned == "/" {
+		return "", fmt.Errorf("invalid path")
+	}
+
+	// Validate path segments
+	segments := strings.Split(cleaned, "/")
+	for _, seg := range segments {
+		if seg == "" {
+			return "", fmt.Errorf("empty path segment")
+		}
+		// Reject control characters
+		for _, c := range seg {
+			if c < 32 || c == 127 {
+				return "", fmt.Errorf("invalid characters in path")
+			}
+		}
+	}
+
+	return cleaned, nil
+}
+
+// ---------------------------------------------------------------------------
 // GET /api/{fingerprint}/entries/{path...} — get entry blob
 // ---------------------------------------------------------------------------
 
@@ -667,9 +962,15 @@ func (s *Server) handleGetEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cleanPath, err := validateEntryPath(path)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	entry, err := s.Q.GetEntry(r.Context(), dbgen.GetEntryParams{
 		Fingerprint: fp,
-		Path:        path,
+		Path:        cleanPath,
 	})
 	if err != nil {
 		jsonError(w, "not found", http.StatusNotFound)
@@ -692,6 +993,12 @@ func (s *Server) handlePutEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cleanPath, err := validateEntryPath(path)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	content, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1 MB limit
 	if err != nil {
 		jsonError(w, "read body failed", http.StatusBadRequest)
@@ -704,7 +1011,7 @@ func (s *Server) handlePutEntry(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.Q.UpsertEntry(r.Context(), dbgen.UpsertEntryParams{
 		Fingerprint: fp,
-		Path:        path,
+		Path:        cleanPath,
 		Content:     content,
 	}); err != nil {
 		slog.Error("upsert entry", "error", err)
@@ -727,9 +1034,15 @@ func (s *Server) handleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cleanPath, err := validateEntryPath(path)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	if err := s.Q.DeleteEntry(r.Context(), dbgen.DeleteEntryParams{
 		Fingerprint: fp,
-		Path:        path,
+		Path:        cleanPath,
 	}); err != nil {
 		slog.Error("delete entry", "error", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
@@ -825,7 +1138,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate new password hash
-	newHash, err := bcrypt.GenerateFromPassword([]byte(body.NewPassword), bcrypt.DefaultCost)
+	newHash, err := bcrypt.GenerateFromPassword([]byte(body.NewPassword), s.bcryptCost)
 	if err != nil {
 		slog.Error("bcrypt hash", "error", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
@@ -865,10 +1178,22 @@ func (s *Server) handleMoveEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cleanFrom, err := validateEntryPath(body.From)
+	if err != nil {
+		jsonError(w, "invalid from path: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cleanTo, err := validateEntryPath(body.To)
+	if err != nil {
+		jsonError(w, "invalid to path: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	if err := s.Q.MoveEntry(r.Context(), dbgen.MoveEntryParams{
-		Path:        body.To,
+		Path:        cleanTo,
 		Fingerprint: fp,
-		Path_2:      body.From,
+		Path_2:      cleanFrom,
 	}); err != nil {
 		slog.Error("move entry", "error", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)

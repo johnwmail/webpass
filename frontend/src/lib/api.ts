@@ -2,17 +2,47 @@ import type { EntryMeta } from '../types';
 
 export class ApiClient {
   baseUrl: string;
-  token: string | null = null;
+  token: string | null = null; // Kept for backward compatibility, not used for auth
   fingerprint: string = '';
+  private csrfToken: string | null = null;
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
   }
 
+  /** Get CSRF token from cookie */
+  private getCsrfToken(): string | null {
+    if (this.csrfToken) return this.csrfToken;
+    
+    // Read from cookie
+    const match = document.cookie.match(/(?:^|; )webpass_csrf=([^;]*)/);
+    if (match) {
+      this.csrfToken = decodeURIComponent(match[1]);
+    }
+    return this.csrfToken;
+  }
+
+  /** Refresh CSRF token from server (call after GET requests that might issue a new token) */
+  private refreshCsrfToken(): void {
+    const match = document.cookie.match(/(?:^|; )webpass_csrf=([^;]*)/);
+    if (match) {
+      this.csrfToken = decodeURIComponent(match[1]);
+    }
+  }
+
   private headers(binary = false): Record<string, string> {
     const h: Record<string, string> = {};
     if (!binary) h['Content-Type'] = 'application/json';
+    // Send Authorization header for backward compatibility with Bearer token auth
+    // When server uses cookie auth, browser sends cookie automatically via credentials: 'include'
     if (this.token) h['Authorization'] = `Bearer ${this.token}`;
+    
+    // Add CSRF token for state-changing requests
+    const csrfToken = this.getCsrfToken();
+    if (csrfToken) {
+      h['X-CSRF-Token'] = csrfToken;
+    }
+    
     return h;
   }
 
@@ -43,6 +73,7 @@ export class ApiClient {
     const res = await fetch(this.url('/api'), {
       method: 'POST',
       headers: headers,
+      credentials: 'include', // Send/receive cookies
       body: JSON.stringify({ password, public_key: publicKey, fingerprint }),
     });
     if (!res.ok) {
@@ -60,6 +91,8 @@ export class ApiClient {
       }
       throw new Error(errMsg);
     }
+    // Refresh CSRF token after successful setup
+    this.refreshCsrfToken();
     return res.json();
   }
 
@@ -68,6 +101,7 @@ export class ApiClient {
     const res = await fetch(this.url('/api/registration/validate'), {
       method: 'POST',
       headers: this.headers(),
+      credentials: 'include', // Send/receive cookies
       body: JSON.stringify({ code }),
     });
     if (!res.ok) {
@@ -79,7 +113,9 @@ export class ApiClient {
 
   /** GET /api/registration/mode — get registration mode */
   async getRegistrationMode(): Promise<{ mode: 'disabled' | 'open' | 'protected' }> {
-    const res = await fetch(this.url('/api/registration/mode'));
+    const res = await fetch(this.url('/api/registration/mode'), {
+      credentials: 'include', // Send/receive cookies
+    });
     if (!res.ok) {
       throw new Error(`Failed to fetch registration mode (${res.status})`);
     }
@@ -88,7 +124,9 @@ export class ApiClient {
 
   /** GET /api/:fingerprint — check if user exists */
   async checkUserExists(fingerprint: string): Promise<{ exists: boolean; public_key?: string }> {
-    const res = await fetch(this.url(`/api/${fingerprint}`));
+    const res = await fetch(this.url(`/api/${fingerprint}`), {
+      credentials: 'include', // Send/receive cookies
+    });
     if (res.status === 404) {
       throw new Error(`User not found (${res.status})`);
     }
@@ -119,6 +157,7 @@ export class ApiClient {
     const res = await fetch(this.url(`/api/${this.fingerprint}/login`), {
       method: 'POST',
       headers: this.headers(),
+      credentials: 'include', // Send/receive cookies
       body: JSON.stringify({ password }),
     });
     if (!res.ok) {
@@ -143,6 +182,8 @@ export class ApiClient {
       }
       throw new Error(errMsg);
     }
+    // Refresh CSRF token after successful login
+    this.refreshCsrfToken();
     return res.json();
   }
 
@@ -156,6 +197,7 @@ export class ApiClient {
       {
         method: 'POST',
         headers: this.headers(),
+        credentials: 'include', // Send/receive cookies
         body: JSON.stringify({ password, totp_code: code }),
       }
     );
@@ -174,14 +216,30 @@ export class ApiClient {
       }
       throw new Error(errMsg);
     }
+    // Refresh CSRF token after successful login
+    this.refreshCsrfToken();
     return res.json();
+  }
+
+  /** POST /api/logout — clear auth cookie */
+  async logout(): Promise<void> {
+    await fetch(this.url('/api/logout'), {
+      method: 'POST',
+      headers: this.headers(),
+      credentials: 'include', // Send/receive cookies
+    });
+    // Clear cached CSRF token
+    this.csrfToken = null;
   }
 
   /** GET /api/:fp/entries */
   async listEntries(): Promise<EntryMeta[]> {
     const res = await fetch(
       this.url(`/api/${this.fingerprint}/entries`),
-      { headers: this.headers() }
+      {
+        headers: this.headers(),
+        credentials: 'include',
+      }
     );
     if (!res.ok) throw new Error(`List entries failed (${res.status})`);
     const data = await res.json();
@@ -192,7 +250,10 @@ export class ApiClient {
   async getEntry(path: string): Promise<Uint8Array> {
     const res = await fetch(
       this.url(`/api/${this.fingerprint}/entries/${path}`),
-      { headers: this.headers() }
+      {
+        headers: this.headers(),
+        credentials: 'include',
+      }
     );
     if (!res.ok) throw new Error(`Get entry failed (${res.status})`);
     const buf = await res.arrayBuffer();
@@ -209,6 +270,7 @@ export class ApiClient {
           ...this.headers(true),
           'Content-Type': 'application/octet-stream',
         },
+        credentials: 'include',
         body: content.buffer as ArrayBuffer,
       }
     );
@@ -222,6 +284,7 @@ export class ApiClient {
       {
         method: 'DELETE',
         headers: this.headers(),
+        credentials: 'include',
       }
     );
     if (!res.ok) throw new Error(`Delete entry failed (${res.status})`);
@@ -234,6 +297,7 @@ export class ApiClient {
       {
         method: 'DELETE',
         headers: this.headers(),
+        credentials: 'include',
       }
     );
     if (!res.ok) throw new Error(`Delete account failed (${res.status})`);
@@ -246,6 +310,7 @@ export class ApiClient {
       {
         method: 'POST',
         headers: this.headers(),
+        credentials: 'include',
         body: JSON.stringify({ from, to }),
       }
     );
@@ -259,6 +324,7 @@ export class ApiClient {
       {
         method: 'POST',
         headers: this.headers(),
+        credentials: 'include',
       }
     );
     if (!res.ok) throw new Error(`TOTP setup failed (${res.status})`);
@@ -272,6 +338,7 @@ export class ApiClient {
       {
         method: 'POST',
         headers: this.headers(),
+        credentials: 'include',
         body: JSON.stringify({ secret, code }),
       }
     );
@@ -285,7 +352,10 @@ export class ApiClient {
   async exportAll(): Promise<Blob> {
     const res = await fetch(
       this.url(`/api/${this.fingerprint}/export`),
-      { headers: this.headers() }
+      {
+        headers: this.headers(),
+        credentials: 'include',
+      }
     );
     if (!res.ok) throw new Error(`Export failed (${res.status})`);
     return res.blob();
@@ -301,6 +371,7 @@ export class ApiClient {
           ...this.headers(true),
           'Content-Type': 'application/gzip',
         },
+        credentials: 'include',
         body: file,
       }
     );
@@ -326,6 +397,7 @@ export class ApiClient {
           ...this.headers(),
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
         body: JSON.stringify(entries),
       }
     );
@@ -351,7 +423,10 @@ export class ApiClient {
   }> {
     const res = await fetch(
       this.url(`/api/${this.fingerprint}/git/status`),
-      { headers: this.headers() }
+      {
+        headers: this.headers(),
+        credentials: 'include',
+      }
     );
     if (!res.ok) throw new Error(`Git status failed (${res.status})`);
     return res.json();
@@ -366,7 +441,10 @@ export class ApiClient {
   }> {
     const res = await fetch(
       this.url(`/api/${this.fingerprint}/git/config`),
-      { headers: this.headers() }
+      {
+        headers: this.headers(),
+        credentials: 'include',
+      }
     );
     if (!res.ok) throw new Error(`Git config fetch failed (${res.status})`);
     return res.json();
@@ -382,6 +460,7 @@ export class ApiClient {
       {
         method: 'POST',
         headers: this.headers(),
+        credentials: 'include',
         body: JSON.stringify({ repo_url: repoUrl, encrypted_pat: encryptedPat, branch: 'HEAD' }),
       }
     );
@@ -399,6 +478,7 @@ export class ApiClient {
       {
         method: 'POST',
         headers: this.headers(),
+        credentials: 'include',
         body: JSON.stringify({ token }),
       }
     );
@@ -420,6 +500,7 @@ export class ApiClient {
       {
         method: 'POST',
         headers: this.headers(),
+        credentials: 'include',
         body: JSON.stringify({ token: token || '' }),
       }
     );
@@ -442,6 +523,7 @@ export class ApiClient {
       {
         method: 'POST',
         headers: this.headers(),
+        credentials: 'include',
         body: JSON.stringify({ token: token || '' }),
       }
     );
@@ -459,6 +541,7 @@ export class ApiClient {
       {
         method: 'POST',
         headers: this.headers(),
+        credentials: 'include',
       }
     );
     if (!res.ok) {
@@ -481,7 +564,10 @@ export class ApiClient {
   }> {
     const res = await fetch(
       this.url(`/api/${this.fingerprint}/git/log`),
-      { headers: this.headers() }
+      {
+        headers: this.headers(),
+        credentials: 'include',
+      }
     );
     if (!res.ok) throw new Error(`Git log failed (${res.status})`);
     return res.json();
@@ -489,7 +575,7 @@ export class ApiClient {
 
   /** GET /api/version */
   async fetchVersion(): Promise<{ version: string; commit: string; build_time: string }> {
-    const res = await fetch(this.url('/api/version'));
+    const res = await fetch(this.url('/api/version'), { credentials: 'include' });
     if (!res.ok) throw new Error(`Version fetch failed (${res.status})`);
     return res.json();
   }
@@ -501,6 +587,7 @@ export class ApiClient {
       {
         method: 'POST',
         headers: this.headers(),
+        credentials: 'include',
         body: JSON.stringify({
           current_password: currentPassword,
           new_password: newPassword,

@@ -18,7 +18,15 @@ export function App() {
   }, []);
 
   const goToSetup = useCallback(() => setRoute('setup'), []);
-  const goToWelcome = useCallback(() => {
+  const goToWelcome = useCallback(async () => {
+    // Call logout endpoint to clear auth cookie
+    if (session.api) {
+      try {
+        await session.api.logout();
+      } catch {
+        // Ignore logout errors (cookie will still be cleared by session.clear())
+      }
+    }
     session.clear();
     setRoute('welcome');
   }, []);

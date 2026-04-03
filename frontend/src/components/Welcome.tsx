@@ -76,7 +76,7 @@ export function Welcome({ onSetup, onLogin }: Props) {
         const result = await api.login2fa(password, totpCode);
         session.activate({
           fingerprint: selectedFp,
-          token: result.token,
+          token: result.token || '',
           apiUrl,
           publicKey: account.publicKey,
         });
@@ -88,10 +88,11 @@ export function Welcome({ onSetup, onLogin }: Props) {
           setLoading(false);
           return;
         }
-        if (!result.token) throw new Error('No token received');
+        // With cookie auth, token might not be in response (it's in the cookie)
+        // Use empty string if token is not provided (cookie will be used for auth)
         session.activate({
           fingerprint: selectedFp,
-          token: result.token,
+          token: result.token || '',
           apiUrl,
           publicKey: account.publicKey,
         });

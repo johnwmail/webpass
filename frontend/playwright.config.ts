@@ -102,6 +102,7 @@ export default defineConfig({
       DISABLE_FRONTEND: 'false',
       STATIC_DIR: 'dist',
       GIT_REPO_ROOT: '/tmp/git-repos',
+      COOKIE_AUTH_ENABLED: process.env.COOKIE_AUTH_ENABLED || 'true',
       // Registration mode is set by the test script for each pass
       REGISTRATION_ENABLED: process.env.REGISTRATION_ENABLED || 'true',
       REGISTRATION_TOTP_SECRET: process.env.REGISTRATION_TOTP_SECRET || '',
