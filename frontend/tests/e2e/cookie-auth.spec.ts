@@ -172,7 +172,8 @@ test.describe('Cookie Authentication', () => {
     // Create a test entry
     await page.getByRole('button', { name: 'Entry' }).click();
     await page.waitForSelector('text=New Entry', { timeout: 5000 });
-    await page.getByPlaceholder('Entry name').fill('Test/cookie-test');
+    await page.getByPlaceholder('e.g. Email (optional)').fill('Test');
+    await page.getByPlaceholder('Entry name').fill('cookie-test');
     await page.getByPlaceholder('Username').fill('test@example.com');
     await page.getByPlaceholder('Password').fill('test-password');
     await page.getByRole('button', { name: 'Save' }).click();
@@ -189,7 +190,10 @@ test.describe('Cookie Authentication', () => {
 
     // Should successfully login and see the entry
     await page.getByText('Select an entry or create a new one').waitFor({ timeout: 10000 });
-    await expect(page.getByText('Test/cookie-test')).toBeVisible();
+    // Click on Test folder to expand it
+    await page.getByText('Test', { exact: false }).first().click();
+    await page.waitForTimeout(500);
+    await expect(page.getByText('cookie-test', { exact: true })).toBeVisible();
   });
 
   test('session persists across page reload with cookie', async ({ page, context }) => {

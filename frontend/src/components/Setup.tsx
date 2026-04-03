@@ -202,8 +202,12 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
         return;
       }
 
-      if (loginResult?.token) {
-        api.token = loginResult.token;
+      // With cookie auth, token might not be in response (it's in the cookie)
+      // Check for token or assume cookie auth is being used
+      if (loginResult?.token || loginResult) {
+        if (loginResult?.token) {
+          api.token = loginResult.token;
+        }
 
         // Save account to IndexedDB (both new and existing users on this client)
         const encrypted = await aesEncrypt(url, loginPassword);
@@ -220,7 +224,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
         if (existingUser) {
           session.activate({
             fingerprint,
-            token: loginResult.token,
+            token: loginResult?.token || '',
             apiUrl: url,
             publicKey,
           });
@@ -790,16 +794,21 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                 <div />
                 <button
                   class="btn btn-primary"
-                  onClick={() => {
-                    // For new users, activate session and go to main app
+                  onClick={async () => {
+                    // For new users, save session data and redirect to welcome page
+                    // so the account is listed for future logins
                     if (setupApi) {
+                      // Activate session temporarily to save account data
                       session.activate({
                         fingerprint,
                         token: setupApi.token || '',
                         apiUrl: setupApi.baseUrl,
                         publicKey,
                       });
-                      onAuthenticated();
+                      // Small delay to ensure session state is saved
+                      await new Promise(resolve => setTimeout(resolve, 50));
+                      // Redirect to welcome page where account will be listed
+                      onComplete();
                     } else {
                       onComplete();
                     }

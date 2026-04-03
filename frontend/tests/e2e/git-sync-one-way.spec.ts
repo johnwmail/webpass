@@ -15,6 +15,7 @@ import { generateTestUser } from '../helpers/test-data';
 import type { TestUser } from '../helpers/api';
 import {
   apiRegister,
+  apiLogin,
   apiDeleteAccount,
   apiDeleteEntry,
 } from '../helpers/api';
@@ -94,6 +95,8 @@ async function getFingerprintFromSettings(page: any): Promise<string> {
  * Delete an entry via API and reload page to refresh UI
  */
 async function deleteEntryViaAPI(page: any, testUser: TestUser, path: string) {
+  // Login first to populate the API helper's cookie jar with auth cookie
+  await apiLogin(testUser);
   await apiDeleteEntry(testUser, path);
   await page.reload();
   await page.getByText('Select an entry or create a new one').waitFor({ timeout: 10000 });
