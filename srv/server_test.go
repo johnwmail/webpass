@@ -300,7 +300,10 @@ func TestFullCRUDFlow(t *testing.T) {
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
-	// 1. Create user
+	// Get CSRF token
+	csrf := getCSRFToken(t, ts)
+
+	// 1. Create user (exempt from CSRF)
 	body := `{"password":"hunter2","public_key":"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 test","fingerprint":"abc123"}`
 	resp := doReq(t, ts, "POST", "/api", body, "")
 	expectStatus(t, resp, http.StatusCreated)
@@ -311,7 +314,7 @@ func TestFullCRUDFlow(t *testing.T) {
 	}
 	fp := createResp["fingerprint"]
 
-	// 2. Login
+	// 2. Login (exempt from CSRF)
 	resp = doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"hunter2"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 	var loginResp map[string]string
@@ -321,8 +324,8 @@ func TestFullCRUDFlow(t *testing.T) {
 		t.Fatal("expected token in login response")
 	}
 
-	// 3. PUT entry
-	resp = doReqRaw(t, ts, "PUT", "/api/"+fp+"/entries/Email/gmail", []byte("encrypted-blob-data"), token)
+	// 3. PUT entry (requires CSRF)
+	resp = doReqRawWithCSRF(t, ts, "PUT", "/api/"+fp+"/entries/Email/gmail", []byte("encrypted-blob-data"), token, csrf)
 	expectStatus(t, resp, http.StatusNoContent)
 
 	// 4. List entries
@@ -352,8 +355,8 @@ func TestFullCRUDFlow(t *testing.T) {
 		t.Fatalf("expected blob 'encrypted-blob-data', got %q", string(gotBlob))
 	}
 
-	// 6. Move entry
-	resp = doReq(t, ts, "POST", "/api/"+fp+"/entries/move", `{"from":"Email/gmail","to":"Email/gmail-moved"}`, token)
+	// 6. Move entry (requires CSRF)
+	resp = doReqWithCSRF(t, ts, "POST", "/api/"+fp+"/entries/move", `{"from":"Email/gmail","to":"Email/gmail-moved"}`, token, csrf)
 	expectStatus(t, resp, http.StatusNoContent)
 
 	// Verify moved
@@ -369,8 +372,8 @@ func TestFullCRUDFlow(t *testing.T) {
 	resp = doReq(t, ts, "GET", "/api/"+fp+"/entries/Email/gmail", "", token)
 	expectStatus(t, resp, http.StatusNotFound)
 
-	// 7. Delete entry
-	resp = doReq(t, ts, "DELETE", "/api/"+fp+"/entries/Email/gmail-moved", "", token)
+	// 7. Delete entry (requires CSRF)
+	resp = doReqWithCSRF(t, ts, "DELETE", "/api/"+fp+"/entries/Email/gmail-moved", "", token, csrf)
 	expectStatus(t, resp, http.StatusNoContent)
 
 	// Verify deleted
@@ -443,6 +446,9 @@ func TestTOTPFlow(t *testing.T) {
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
+	// Get CSRF token
+	csrf := getCSRFToken(t, ts)
+
 	// Create user and login
 	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"totp1"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
@@ -453,8 +459,8 @@ func TestTOTPFlow(t *testing.T) {
 	decodeJSON(t, resp, &lr)
 	token := lr["token"]
 
-	// Setup TOTP
-	resp = doReq(t, ts, "POST", "/api/totp1/totp/setup", "", token)
+	// Setup TOTP (requires CSRF)
+	resp = doReqWithCSRF(t, ts, "POST", "/api/totp1/totp/setup", "", token, csrf)
 	expectStatus(t, resp, http.StatusOK)
 	var setupResp map[string]string
 	decodeJSON(t, resp, &setupResp)
@@ -472,9 +478,9 @@ func TestTOTPFlow(t *testing.T) {
 		t.Fatalf("generate totp code: %v", err)
 	}
 
-	// Confirm TOTP
+	// Confirm TOTP (requires CSRF)
 	confirmBody := `{"secret":"` + secret + `","code":"` + code + `"}`
-	resp = doReq(t, ts, "POST", "/api/totp1/totp/confirm", confirmBody, token)
+	resp = doReqWithCSRF(t, ts, "POST", "/api/totp1/totp/confirm", confirmBody, token, csrf)
 	expectStatus(t, resp, http.StatusOK)
 	var confirmResp map[string]bool
 	decodeJSON(t, resp, &confirmResp)
@@ -521,6 +527,9 @@ func TestExportImport(t *testing.T) {
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
+	// Get CSRF token
+	csrf := getCSRFToken(t, ts)
+
 	// Create user and login
 	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"exp1"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
@@ -530,10 +539,10 @@ func TestExportImport(t *testing.T) {
 	decodeJSON(t, resp, &lr)
 	token := lr["token"]
 
-	// Create some entries
-	resp = doReqRaw(t, ts, "PUT", "/api/exp1/entries/Email/gmail", []byte("blob1"), token)
+	// Create some entries (requires CSRF)
+	resp = doReqRawWithCSRF(t, ts, "PUT", "/api/exp1/entries/Email/gmail", []byte("blob1"), token, csrf)
 	expectStatus(t, resp, http.StatusNoContent)
-	resp = doReqRaw(t, ts, "PUT", "/api/exp1/entries/Social/github", []byte("blob2"), token)
+	resp = doReqRawWithCSRF(t, ts, "PUT", "/api/exp1/entries/Social/github", []byte("blob2"), token, csrf)
 	expectStatus(t, resp, http.StatusNoContent)
 
 	// Export
@@ -580,8 +589,8 @@ func TestExportImport(t *testing.T) {
 	decodeJSON(t, resp, &lr2)
 	token2 := lr2["token"]
 
-	// Import the tar.gz
-	resp = doReqRaw(t, ts, "POST", "/api/imp1/import", exportData, token2)
+	// Import the tar.gz (requires CSRF)
+	resp = doReqRawWithCSRF(t, ts, "POST", "/api/imp1/import", exportData, token2, csrf)
 	expectStatus(t, resp, http.StatusOK)
 	var importResp map[string]int
 	decodeJSON(t, resp, &importResp)
@@ -657,6 +666,9 @@ func TestUpsertEntryUpdates(t *testing.T) {
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
+	// Get CSRF token
+	csrf := getCSRFToken(t, ts)
+
 	// Create user and login
 	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"upd1"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
@@ -666,12 +678,12 @@ func TestUpsertEntryUpdates(t *testing.T) {
 	decodeJSON(t, resp, &lr)
 	token := lr["token"]
 
-	// Create entry
-	resp = doReqRaw(t, ts, "PUT", "/api/upd1/entries/test", []byte("v1"), token)
+	// Create entry (requires CSRF)
+	resp = doReqRawWithCSRF(t, ts, "PUT", "/api/upd1/entries/test", []byte("v1"), token, csrf)
 	expectStatus(t, resp, http.StatusNoContent)
 
-	// Update same path
-	resp = doReqRaw(t, ts, "PUT", "/api/upd1/entries/test", []byte("v2"), token)
+	// Update same path (requires CSRF)
+	resp = doReqRawWithCSRF(t, ts, "PUT", "/api/upd1/entries/test", []byte("v2"), token, csrf)
 	expectStatus(t, resp, http.StatusNoContent)
 
 	// Should have v2
@@ -704,6 +716,9 @@ func TestDeleteAccount(t *testing.T) {
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
+	// Get CSRF token
+	csrf := getCSRFToken(t, ts)
+
 	// Create user
 	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"del1"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
@@ -713,18 +728,18 @@ func TestDeleteAccount(t *testing.T) {
 	decodeJSON(t, resp, &lr)
 	token := lr["token"]
 
-	// Create some entries
-	resp = doReqRaw(t, ts, "PUT", "/api/del1/entries/Email/gmail", []byte("blob1"), token)
+	// Create some entries (requires CSRF)
+	resp = doReqRawWithCSRF(t, ts, "PUT", "/api/del1/entries/Email/gmail", []byte("blob1"), token, csrf)
 	expectStatus(t, resp, http.StatusNoContent)
-	resp = doReqRaw(t, ts, "PUT", "/api/del1/entries/Social/github", []byte("blob2"), token)
+	resp = doReqRawWithCSRF(t, ts, "PUT", "/api/del1/entries/Social/github", []byte("blob2"), token, csrf)
 	expectStatus(t, resp, http.StatusNoContent)
 
 	// Verify entries exist
 	resp = doReq(t, ts, "GET", "/api/del1/entries", "", token)
 	expectStatus(t, resp, http.StatusOK)
 
-	// Delete account
-	resp = doReq(t, ts, "DELETE", "/api/del1/account", "", token)
+	// Delete account (requires CSRF)
+	resp = doReqWithCSRF(t, ts, "DELETE", "/api/del1/account", "", token, csrf)
 	expectStatus(t, resp, http.StatusNoContent)
 
 	// Verify user is deleted - login should fail
@@ -772,8 +787,9 @@ func TestDeleteAccount_WithGitRepo(t *testing.T) {
 		t.Fatalf("repo should exist: %v", err)
 	}
 
-	// Delete account
-	resp = doReq(t, ts, "DELETE", "/api/del2/account", "", token)
+	// Delete account (requires CSRF)
+	csrf := getCSRFToken(t, ts)
+	resp = doReqWithCSRF(t, ts, "DELETE", "/api/del2/account", "", token, csrf)
 	expectStatus(t, resp, http.StatusNoContent)
 
 	// Verify git repo is deleted
@@ -786,6 +802,9 @@ func TestChangePassword(t *testing.T) {
 	s := newTestServer(t)
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
+
+	// Get CSRF token
+	csrf := getCSRFToken(t, ts)
 
 	// 1. Create user
 	body := `{"password":"original123","public_key":"test-key","fingerprint":"test-fp"}`
@@ -800,9 +819,9 @@ func TestChangePassword(t *testing.T) {
 	decodeJSON(t, resp, &loginResp)
 	token := loginResp["token"]
 
-	// 3. Change password
+	// 3. Change password (requires CSRF)
 	changeBody := `{"current_password":"original123","new_password":"newpass456"}`
-	resp = doReq(t, ts, "POST", "/api/"+fp+"/password", changeBody, token)
+	resp = doReqWithCSRF(t, ts, "POST", "/api/"+fp+"/password", changeBody, token, csrf)
 	expectStatus(t, resp, http.StatusOK)
 	var changeResp map[string]string
 	decodeJSON(t, resp, &changeResp)
@@ -824,6 +843,9 @@ func TestChangePasswordWrongCurrent(t *testing.T) {
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
+	// Get CSRF token
+	csrf := getCSRFToken(t, ts)
+
 	// 1. Create user
 	body := `{"password":"correct123","public_key":"test-key","fingerprint":"test-fp2"}`
 	resp := doReq(t, ts, "POST", "/api", body, "")
@@ -837,9 +859,9 @@ func TestChangePasswordWrongCurrent(t *testing.T) {
 	decodeJSON(t, resp, &loginResp)
 	token := loginResp["token"]
 
-	// 3. Try to change password with wrong current password
+	// 3. Try to change password with wrong current password (requires CSRF)
 	changeBody := `{"current_password":"wrongpassword","new_password":"newpass456"}`
-	resp = doReq(t, ts, "POST", "/api/"+fp+"/password", changeBody, token)
+	resp = doReqWithCSRF(t, ts, "POST", "/api/"+fp+"/password", changeBody, token, csrf)
 	expectStatus(t, resp, http.StatusUnauthorized)
 }
 
@@ -848,20 +870,23 @@ func TestChangePasswordWith2FA(t *testing.T) {
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
+	// Get CSRF token
+	csrf := getCSRFToken(t, ts)
+
 	// 1. Create user
 	body := `{"password":"pass123","public_key":"test-key","fingerprint":"test-fp3"}`
 	resp := doReq(t, ts, "POST", "/api", body, "")
 	expectStatus(t, resp, http.StatusCreated)
 	fp := "test-fp3"
 
-	// 2. Setup TOTP
+	// 2. Setup TOTP (requires CSRF)
 	loginResp := doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"pass123"}`, "")
 	expectStatus(t, loginResp, http.StatusOK)
 	var loginData map[string]string
 	decodeJSON(t, loginResp, &loginData)
 	loginToken := loginData["token"]
 
-	totpResp := doReq(t, ts, "POST", "/api/"+fp+"/totp/setup", "", loginToken)
+	totpResp := doReqWithCSRF(t, ts, "POST", "/api/"+fp+"/totp/setup", "", loginToken, csrf)
 	expectStatus(t, totpResp, http.StatusOK)
 	var totpData map[string]string
 	decodeJSON(t, totpResp, &totpData)
@@ -870,9 +895,9 @@ func TestChangePasswordWith2FA(t *testing.T) {
 	// Generate valid TOTP code
 	code, _ := totp.GenerateCode(totpSecret, time.Now())
 
-	// 3. Confirm TOTP
+	// 3. Confirm TOTP (requires CSRF)
 	confirmBody := `{"secret":"` + totpSecret + `","code":"` + code + `"}`
-	confirmResp := doReq(t, ts, "POST", "/api/"+fp+"/totp/confirm", confirmBody, loginToken)
+	confirmResp := doReqWithCSRF(t, ts, "POST", "/api/"+fp+"/totp/confirm", confirmBody, loginToken, csrf)
 	expectStatus(t, confirmResp, http.StatusOK)
 
 	// 4. Login with 2FA to get new token
@@ -884,9 +909,9 @@ func TestChangePasswordWith2FA(t *testing.T) {
 	decodeJSON(t, login2faResp, &login2faData)
 	token := login2faData["token"]
 
-	// 5. Change password
+	// 5. Change password (requires CSRF)
 	changeBody := `{"current_password":"pass123","new_password":"newpass789"}`
-	resp = doReq(t, ts, "POST", "/api/"+fp+"/password", changeBody, token)
+	resp = doReqWithCSRF(t, ts, "POST", "/api/"+fp+"/password", changeBody, token, csrf)
 	expectStatus(t, resp, http.StatusOK)
 
 	// 6. Login with new password and 2FA should work
@@ -954,6 +979,9 @@ func TestCookieAuth_Login2FA_SetsCookie(t *testing.T) {
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
+	// Get CSRF token
+	csrf := getCSRFToken(t, ts)
+
 	// Create user
 	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookie2fa"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
@@ -975,9 +1003,15 @@ func TestCookieAuth_Login2FA_SetsCookie(t *testing.T) {
 		t.Fatal("expected webpass_auth cookie")
 	}
 
-	// Setup TOTP using cookie
+	// Setup TOTP using cookie (requires CSRF)
 	totpReq, _ := http.NewRequest("POST", ts.URL+"/api/cookie2fa/totp/setup", nil)
 	totpReq.AddCookie(authCookie)
+	totpReq.Header.Set("X-CSRF-Token", csrf)
+	totpReq.AddCookie(&http.Cookie{
+		Name:  "webpass_csrf",
+		Value: csrf,
+		Path:  "/api",
+	})
 	totpResp, err := http.DefaultClient.Do(totpReq)
 	if err != nil {
 		t.Fatalf("TOTP setup request failed: %v", err)
@@ -992,6 +1026,12 @@ func TestCookieAuth_Login2FA_SetsCookie(t *testing.T) {
 	confirmReq, _ := http.NewRequest("POST", ts.URL+"/api/cookie2fa/totp/confirm", strings.NewReader(confirmBody))
 	confirmReq.Header.Set("Content-Type", "application/json")
 	confirmReq.AddCookie(authCookie)
+	confirmReq.Header.Set("X-CSRF-Token", csrf)
+	confirmReq.AddCookie(&http.Cookie{
+		Name:  "webpass_csrf",
+		Value: csrf,
+		Path:  "/api",
+	})
 	confirmResp, err := http.DefaultClient.Do(confirmReq)
 	if err != nil {
 		t.Fatalf("TOTP confirm request failed: %v", err)
@@ -1251,6 +1291,11 @@ func (j *testCookieJar) Cookies(u *url.URL) []*http.Cookie {
 
 func doReq(t *testing.T, ts *httptest.Server, method, path, body, token string) *http.Response {
 	t.Helper()
+	return doReqWithCSRF(t, ts, method, path, body, token, "")
+}
+
+func doReqWithCSRF(t *testing.T, ts *httptest.Server, method, path, body, token, csrfToken string) *http.Response {
+	t.Helper()
 	var bodyReader io.Reader
 	if body != "" {
 		bodyReader = strings.NewReader(body)
@@ -1265,6 +1310,17 @@ func doReq(t *testing.T, ts *httptest.Server, method, path, body, token string) 
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	if csrfToken != "" {
+		req.Header.Set("X-CSRF-Token", csrfToken)
+	}
+	// Add CSRF cookie if present
+	if csrfToken != "" {
+		req.AddCookie(&http.Cookie{
+			Name:  "webpass_csrf",
+			Value: csrfToken,
+			Path:  "/api",
+		})
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("do request: %v", err)
@@ -1272,7 +1328,7 @@ func doReq(t *testing.T, ts *httptest.Server, method, path, body, token string) 
 	return resp
 }
 
-func doReqRaw(t *testing.T, ts *httptest.Server, method, path string, body []byte, token string) *http.Response {
+func doReqRawWithCSRF(t *testing.T, ts *httptest.Server, method, path string, body []byte, token, csrfToken string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequest(method, ts.URL+path, bytes.NewReader(body))
 	if err != nil {
@@ -1282,11 +1338,38 @@ func doReqRaw(t *testing.T, ts *httptest.Server, method, path string, body []byt
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	if csrfToken != "" {
+		req.Header.Set("X-CSRF-Token", csrfToken)
+		req.AddCookie(&http.Cookie{
+			Name:  "webpass_csrf",
+			Value: csrfToken,
+			Path:  "/api",
+		})
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("do request: %v", err)
 	}
 	return resp
+}
+
+// getCSRFToken makes a GET request to obtain a CSRF token from the server
+func getCSRFToken(t *testing.T, ts *httptest.Server) string {
+	t.Helper()
+	resp, err := http.Get(ts.URL + "/api/health")
+	if err != nil {
+		t.Fatalf("get csrf token: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	// Find CSRF cookie
+	for _, cookie := range resp.Cookies() {
+		if cookie.Name == "webpass_csrf" {
+			return cookie.Value
+		}
+	}
+	t.Fatal("no CSRF cookie found")
+	return ""
 }
 
 func expectStatus(t *testing.T, resp *http.Response, expected int) {

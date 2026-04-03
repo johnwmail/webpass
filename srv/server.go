@@ -3,7 +3,9 @@ package srv
 import (
 	"archive/tar"
 	"compress/gzip"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -172,7 +174,12 @@ func (s *Server) Handler() http.Handler {
 		})
 	}
 
-	return s.corsMiddleware(mux)
+	// Apply middleware chain: CORS -> Security Headers -> CSRF -> Router
+	handler := http.Handler(mux)
+	handler = s.csrfMiddleware(handler)
+	handler = securityHeadersMiddleware(handler)
+	handler = s.corsMiddleware(handler)
+	return handler
 }
 
 // ---------------------------------------------------------------------------
@@ -187,7 +194,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 			if len(allowed) == 0 || allowed[origin] {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token")
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 				w.Header().Set("Access-Control-Max-Age", "86400")
 			}
@@ -198,6 +205,134 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Security Headers
+// ---------------------------------------------------------------------------
+
+func securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Prevent MIME type sniffing
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		// Prevent clickjacking
+		w.Header().Set("X-Frame-Options", "DENY")
+		// Control referrer information
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		// Content Security Policy - restrict resource loading
+		// Note: worker-src must include 'self' and blob: for OpenPGP.js web workers
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		// Prevent browsers from applying XSS filtering
+		w.Header().Set("X-XSS-Protection", "0")
+		// Permissions Policy - restrict browser features
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// ---------------------------------------------------------------------------
+// CSRF Protection
+// ---------------------------------------------------------------------------
+
+// csrfTokenHeader is the header the client sends with the CSRF token
+const csrfTokenHeader = "X-CSRF-Token"
+
+// csrfTokenCookie is the name of the cookie holding the CSRF token
+const csrfTokenCookie = "webpass_csrf"
+
+// generateCSRFToken creates a random CSRF token
+func generateCSRFToken() string {
+	b := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, b); err != nil {
+		panic("csrf token generation failed: " + err.Error())
+	}
+	return base64.StdEncoding.EncodeToString(b)
+}
+
+// csrfMiddleware issues a CSRF token via cookie on GET requests and validates it on state-changing requests
+func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip CSRF for safe methods (GET, HEAD, OPTIONS)
+		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+			// Issue CSRF token if not already present
+			_, err := r.Cookie(csrfTokenCookie)
+			if err != nil {
+				token := generateCSRFToken()
+				cookie := &http.Cookie{
+					Name:     csrfTokenCookie,
+					Value:    token,
+					Path:     "/",   // Must match frontend app path so document.cookie can read it
+					HttpOnly: false, // Must be readable by JavaScript
+					Secure:   s.cookieSecure,
+					SameSite: http.SameSiteStrictMode,
+					Domain:   s.cookieDomain,
+					MaxAge:   int(s.sessionDuration.Seconds()),
+				}
+				http.SetCookie(w, cookie)
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Paths exempt from CSRF validation (authentication endpoints where user isn't logged in yet)
+		path := r.URL.Path
+		if path == "/api" || // POST /api (create user)
+			path == "/api/logout" || // POST /api/logout
+			path == "/api/registration/validate" || // POST /api/registration/validate
+			strings.HasSuffix(path, "/login") || // POST /api/{fingerprint}/login
+			strings.HasSuffix(path, "/login/2fa") { // POST /api/{fingerprint}/login/2fa
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// For state-changing requests (POST, PUT, DELETE, PATCH), validate CSRF token
+		token := r.Header.Get(csrfTokenHeader)
+		if token == "" {
+			// Also check form parameter as fallback
+			token = r.FormValue("csrf_token")
+		}
+		if token == "" {
+			slog.Warn("CSRF validation failed: missing CSRF token",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"remote_addr", r.RemoteAddr,
+			)
+			jsonError(w, "missing csrf token", http.StatusForbidden)
+			return
+		}
+
+		cookie, err := r.Cookie(csrfTokenCookie)
+		if err != nil {
+			slog.Warn("CSRF validation failed: missing CSRF cookie",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"remote_addr", r.RemoteAddr,
+			)
+			jsonError(w, "missing csrf cookie", http.StatusForbidden)
+			return
+		}
+
+		if !compareTokenSecure(token, cookie.Value) {
+			slog.Warn("CSRF validation failed: invalid CSRF token",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"remote_addr", r.RemoteAddr,
+			)
+			jsonError(w, "invalid csrf token", http.StatusForbidden)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// compareTokenSecure performs constant-time comparison to prevent timing attacks
+func compareTokenSecure(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 func parseCORSOrigins(raw string) map[string]bool {

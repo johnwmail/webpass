@@ -44,6 +44,33 @@ function getCookieHeader(fingerprint: string): string | undefined {
 }
 
 /**
+ * Ensure the user's cookie jar has a CSRF token by making a GET request.
+ */
+export async function ensureCsrfCookie(user: TestUser): Promise<void> {
+  // Make a simple GET request to get a CSRF cookie
+  // Use the checkUserExists endpoint which returns 200 or 404 but still sets cookies
+  try {
+    const response = await fetch(`${BASE_URL}/api/${user.fingerprint}`, {
+      method: 'GET',
+    });
+    extractCookies(user.fingerprint, response.headers);
+  } catch {
+    // Ignore errors - we just need the CSRF cookie
+  }
+}
+
+/**
+ * Add CSRF token from cookie jar to headers if available.
+ */
+function addCsrfHeader(fingerprint: string, headers: Record<string, string>): void {
+  const jar = getUserCookieJar(fingerprint);
+  const csrfToken = jar.get('webpass_csrf');
+  if (csrfToken) {
+    headers['X-CSRF-Token'] = csrfToken;
+  }
+}
+
+/**
  * Extract cookies from response and store in user's jar.
  */
 function extractCookies(fingerprint: string, headers: Headers) {
@@ -273,6 +300,7 @@ export async function apiDeleteEntry(user: TestUser, path: string): Promise<void
   const cookieHeader = getCookieHeader(user.fingerprint);
   if (cookieHeader) {
     headers['Cookie'] = cookieHeader;
+    addCsrfHeader(user.fingerprint, headers);
   }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/entries/${encodeURIComponent(path)}`, {
@@ -295,10 +323,14 @@ export async function apiDeleteAccount(user: TestUser): Promise<void> {
     // First login to get cookie set
     await apiLogin(user);
 
+    // Ensure we have a CSRF cookie
+    await ensureCsrfCookie(user);
+
     const headers: Record<string, string> = {};
     const cookieHeader = getCookieHeader(user.fingerprint);
     if (cookieHeader) {
       headers['Cookie'] = cookieHeader;
+      addCsrfHeader(user.fingerprint, headers);
     }
 
     const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/account`, {
@@ -328,6 +360,7 @@ export async function apiSetupTOTP(user: TestUser): Promise<{ secret: string; ur
   const cookieHeader = getCookieHeader(user.fingerprint);
   if (cookieHeader) {
     headers['Cookie'] = cookieHeader;
+    addCsrfHeader(user.fingerprint, headers);
   }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/totp/setup`, {
@@ -357,6 +390,7 @@ export async function apiConfirmTOTP(
   const cookieHeader = getCookieHeader(user.fingerprint);
   if (cookieHeader) {
     headers['Cookie'] = cookieHeader;
+    addCsrfHeader(user.fingerprint, headers);
   }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/totp/confirm`, {
@@ -410,6 +444,7 @@ export async function apiImport(
   const cookieHeader = getCookieHeader(user.fingerprint);
   if (cookieHeader) {
     headers['Cookie'] = cookieHeader;
+    addCsrfHeader(user.fingerprint, headers);
   }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/import`, {
@@ -441,6 +476,7 @@ export async function apiConfigureGit(
   const cookieHeader = getCookieHeader(user.fingerprint);
   if (cookieHeader) {
     headers['Cookie'] = cookieHeader;
+    addCsrfHeader(user.fingerprint, headers);
   }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/git/config`, {
@@ -468,6 +504,7 @@ export async function apiSetGitSession(user: TestUser, token: string): Promise<v
   const cookieHeader = getCookieHeader(user.fingerprint);
   if (cookieHeader) {
     headers['Cookie'] = cookieHeader;
+    addCsrfHeader(user.fingerprint, headers);
   }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/git/session`, {
@@ -490,6 +527,7 @@ export async function apiGitPush(user: TestUser): Promise<{ message?: string }> 
   const cookieHeader = getCookieHeader(user.fingerprint);
   if (cookieHeader) {
     headers['Cookie'] = cookieHeader;
+    addCsrfHeader(user.fingerprint, headers);
   }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/git/push`, {
@@ -513,6 +551,7 @@ export async function apiGitPull(user: TestUser): Promise<{ message?: string }> 
   const cookieHeader = getCookieHeader(user.fingerprint);
   if (cookieHeader) {
     headers['Cookie'] = cookieHeader;
+    addCsrfHeader(user.fingerprint, headers);
   }
 
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/git/pull`, {

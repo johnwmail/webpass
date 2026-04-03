@@ -4,9 +4,30 @@ export class ApiClient {
   baseUrl: string;
   token: string | null = null; // Kept for backward compatibility, not used for auth
   fingerprint: string = '';
+  private csrfToken: string | null = null;
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
+  }
+
+  /** Get CSRF token from cookie */
+  private getCsrfToken(): string | null {
+    if (this.csrfToken) return this.csrfToken;
+    
+    // Read from cookie
+    const match = document.cookie.match(/(?:^|; )webpass_csrf=([^;]*)/);
+    if (match) {
+      this.csrfToken = decodeURIComponent(match[1]);
+    }
+    return this.csrfToken;
+  }
+
+  /** Refresh CSRF token from server (call after GET requests that might issue a new token) */
+  private refreshCsrfToken(): void {
+    const match = document.cookie.match(/(?:^|; )webpass_csrf=([^;]*)/);
+    if (match) {
+      this.csrfToken = decodeURIComponent(match[1]);
+    }
   }
 
   private headers(binary = false): Record<string, string> {
@@ -15,6 +36,13 @@ export class ApiClient {
     // Send Authorization header for backward compatibility with Bearer token auth
     // When server uses cookie auth, browser sends cookie automatically via credentials: 'include'
     if (this.token) h['Authorization'] = `Bearer ${this.token}`;
+    
+    // Add CSRF token for state-changing requests
+    const csrfToken = this.getCsrfToken();
+    if (csrfToken) {
+      h['X-CSRF-Token'] = csrfToken;
+    }
+    
     return h;
   }
 
@@ -63,6 +91,8 @@ export class ApiClient {
       }
       throw new Error(errMsg);
     }
+    // Refresh CSRF token after successful setup
+    this.refreshCsrfToken();
     return res.json();
   }
 
@@ -152,6 +182,8 @@ export class ApiClient {
       }
       throw new Error(errMsg);
     }
+    // Refresh CSRF token after successful login
+    this.refreshCsrfToken();
     return res.json();
   }
 
@@ -184,6 +216,8 @@ export class ApiClient {
       }
       throw new Error(errMsg);
     }
+    // Refresh CSRF token after successful login
+    this.refreshCsrfToken();
     return res.json();
   }
 
@@ -194,6 +228,8 @@ export class ApiClient {
       headers: this.headers(),
       credentials: 'include', // Send/receive cookies
     });
+    // Clear cached CSRF token
+    this.csrfToken = null;
   }
 
   /** GET /api/:fp/entries */
