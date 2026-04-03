@@ -249,6 +249,7 @@ See [`.env.example`](.env.example) for all available options with detailed comme
 | `GIT_REPO_ROOT`| No       | Git repos directory (default: `/data/git-repos`) |
 | `SESSION_DURATION_MINUTES` | No | JWT session expiry in minutes (default: 5, range: 5-480) |
 | `DISABLE_FRONTEND` | No   | Disable frontend (`1` or `true`)         |
+| `BCRYPT_COST`  | No       | Password hashing cost factor (default: 12, range: 10-15) |
 
 ## 🎨 Theme System
 

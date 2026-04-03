@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,6 +42,7 @@ type Server struct {
 	cookieAuth      bool   // whether to use httpOnly cookies instead of localStorage
 	cookieSecure    bool   // whether to set Secure flag on cookies
 	cookieDomain    string // optional cookie domain
+	bcryptCost      int    // bcrypt cost factor for password hashing
 	// Version info (set from main package)
 	Version   string
 	BuildTime string
@@ -68,6 +70,17 @@ func New(dbPath string, jwtKey []byte, sessionDurationMin int) (*Server, error) 
 	// Cookie domain (optional)
 	cookieDomain := strings.TrimSpace(os.Getenv("COOKIE_DOMAIN"))
 
+	// Bcrypt cost factor for password hashing (default: 12, range: 10-15)
+	bcryptCost := 12
+	bcryptCostEnv := strings.TrimSpace(os.Getenv("BCRYPT_COST"))
+	if bcryptCostEnv != "" {
+		if val, err := strconv.Atoi(bcryptCostEnv); err == nil && val >= 10 && val <= 15 {
+			bcryptCost = val
+		} else {
+			slog.Warn("Invalid BCRYPT_COST value, using default 12", "value", bcryptCostEnv)
+		}
+	}
+
 	s := &Server{
 		DB:           wdb,
 		Q:            dbgen.New(wdb),
@@ -75,6 +88,7 @@ func New(dbPath string, jwtKey []byte, sessionDurationMin int) (*Server, error) 
 		cookieAuth:   cookieAuth,
 		cookieSecure: cookieSecure,
 		cookieDomain: cookieDomain,
+		bcryptCost:   bcryptCost,
 	}
 	s.sessionDuration = time.Duration(sessionDurationMin) * time.Minute
 
@@ -588,7 +602,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		fp = fingerprintFromKey(body.PublicKey)
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), s.bcryptCost)
 	if err != nil {
 		slog.Error("bcrypt hash", "error", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
@@ -1124,7 +1138,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate new password hash
-	newHash, err := bcrypt.GenerateFromPassword([]byte(body.NewPassword), bcrypt.DefaultCost)
+	newHash, err := bcrypt.GenerateFromPassword([]byte(body.NewPassword), s.bcryptCost)
 	if err != nil {
 		slog.Error("bcrypt hash", "error", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)

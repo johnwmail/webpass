@@ -1373,6 +1373,51 @@ func getCSRFToken(t *testing.T, ts *httptest.Server) string {
 }
 
 // ---------------------------------------------------------------------------
+// Bcrypt Cost Tests
+// ---------------------------------------------------------------------------
+
+func TestBcryptCost_Default(t *testing.T) {
+	// When BCRYPT_COST is not set, should default to 12
+	s := newTestServer(t)
+	if s.bcryptCost != 12 {
+		t.Fatalf("expected default bcrypt cost 12, got %d", s.bcryptCost)
+	}
+}
+
+func TestBcryptCost_Custom(t *testing.T) {
+	t.Setenv("BCRYPT_COST", "14")
+	s := newTestServer(t)
+	if s.bcryptCost != 14 {
+		t.Fatalf("expected bcrypt cost 14, got %d", s.bcryptCost)
+	}
+}
+
+func TestBcryptCost_InvalidValues(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue string
+		expected int
+	}{
+		{"too_low", "9", 12},
+		{"too_high", "16", 12},
+		{"not_number", "abc", 12},
+		{"empty", "", 12},
+		{"valid_min", "10", 10},
+		{"valid_max", "15", 15},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("BCRYPT_COST", tt.envValue)
+			s := newTestServer(t)
+			if s.bcryptCost != tt.expected {
+				t.Errorf("env=%q: expected cost %d, got %d", tt.envValue, tt.expected, s.bcryptCost)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Path Traversal Tests
 // ---------------------------------------------------------------------------
 
