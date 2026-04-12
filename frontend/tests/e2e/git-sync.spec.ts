@@ -315,7 +315,7 @@ test.describe('Git Sync - Push/Pull Workflow', () => {
     await page.getByText('🔐 Enter PGP Passphrase', { exact: false }).waitFor({ timeout: 5000 });
     await page.getByPlaceholder('PGP passphrase').fill(pgpPassphrase);
     await page.getByRole('button', { name: 'OK' }).click();
-    await page.waitForTimeout(15000);
+    await page.waitForTimeout(10000);
 
     // Modal may have closed after successful push - just verify no error
     const errorMsg = page.locator('.error-msg');
