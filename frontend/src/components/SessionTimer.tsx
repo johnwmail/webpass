@@ -10,18 +10,18 @@ export function SessionTimer({ onExpired }: Props) {
   const [remaining, setRemaining] = useState(session.remainingSeconds());
 
   useEffect(() => {
-    // With cookie-based auth, remainingSeconds() returns 0 but session doesn't expire client-side
-    // The server validates cookie expiry on each request
-    // So we skip the timer when remaining is 0 (cookie auth mode)
-    if (remaining === 0) {
+    // If no expiry time is set, don't start the timer
+    if (remaining <= 0) {
       return;
     }
-    
+
     const timer = setInterval(() => {
       const secs = session.remainingSeconds();
       setRemaining(secs);
       if (secs <= 0) {
         clearInterval(timer);
+        // Session expired — clear client state and notify parent
+        // The server-side cookie is also expired (httpOnly)
         session.clear();
         onExpired();
       }
@@ -29,23 +29,27 @@ export function SessionTimer({ onExpired }: Props) {
     return () => clearInterval(timer);
   }, [onExpired, remaining]);
 
-  // Don't show timer for cookie-based auth (remaining === 0)
-  if (remaining === 0) {
+  // Don't show timer if we don't know the expiry time
+  if (remaining <= 0) {
     return null;
   }
 
   const mins = Math.floor(remaining / 60);
   const secs = remaining % 60;
-  const isLow = remaining < 60;
+  const isLow = remaining <= 60;
 
   return (
-    <span style={{
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: '6px',
-      color: isLow ? 'var(--danger)' : 'var(--text-muted)',
-      fontSize: '12px'
-    }}>
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        color: isLow ? 'var(--danger)' : 'var(--text-muted)',
+        fontSize: '12px',
+        cursor: 'default',
+      }}
+      title={isLow ? 'Session is about to expire' : 'Session time remaining'}
+    >
       <Clock size={14} />
       {mins}:{secs.toString().padStart(2, '0')}
     </span>

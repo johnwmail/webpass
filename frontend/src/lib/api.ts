@@ -5,6 +5,7 @@ export class ApiClient {
   token: string | null = null; // Kept for backward compatibility, not used for auth
   fingerprint: string = '';
   private csrfToken: string | null = null;
+  private _sessionExpiredDispatched = false;
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
@@ -57,6 +58,29 @@ export class ApiClient {
       path = path.slice(4);
     }
     return `${this.baseUrl}${path}`;
+  }
+
+  /**
+   * Wrap a fetch call to handle 401 session expiry.
+   * On 401, clears the session and dispatches a 'session-expired' event
+   * so the app redirects to login.
+   * Note: `session` is imported lazily to avoid circular dependency with session.ts.
+   */
+  private async guardedFetch(url: string, init: RequestInit): Promise<Response> {
+    const res = await fetch(url, init);
+    if (res.status === 401) {
+      // Only dispatch once per session to avoid cascading redirects
+      if (!this._sessionExpiredDispatched) {
+        this._sessionExpiredDispatched = true;
+        const { session } = await import('./session');
+        session.clear();
+        window.dispatchEvent(new CustomEvent('session-expired'));
+      }
+      throw new Error('Session expired');
+    }
+    // Reset the flag on successful authenticated request
+    this._sessionExpiredDispatched = false;
+    return res;
   }
 
   /** POST /api — create user */
@@ -154,7 +178,7 @@ export class ApiClient {
   async login(
     password: string
   ): Promise<{ token?: string; requires_2fa?: boolean }> {
-    const res = await fetch(this.url(`/api/${this.fingerprint}/login`), {
+    const res = await this.guardedFetch(this.url(`/api/${this.fingerprint}/login`), {
       method: 'POST',
       headers: this.headers(),
       credentials: 'include', // Send/receive cookies
@@ -192,7 +216,7 @@ export class ApiClient {
     password: string,
     code: string
   ): Promise<{ token: string }> {
-    const res = await fetch(
+    const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/login/2fa`),
       {
         method: 'POST',
@@ -262,7 +286,7 @@ export class ApiClient {
 
   /** PUT /api/:fp/entries/:path */
   async putEntry(path: string, content: Uint8Array): Promise<void> {
-    const res = await fetch(
+    const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/entries/${path}`),
       {
         method: 'PUT',
@@ -279,7 +303,7 @@ export class ApiClient {
 
   /** DELETE /api/:fp/entries/:path */
   async deleteEntry(path: string): Promise<void> {
-    const res = await fetch(
+    const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/entries/${path}`),
       {
         method: 'DELETE',
@@ -292,7 +316,7 @@ export class ApiClient {
 
   /** DELETE /api/:fp/account — delete user account (server-side) */
   async deleteAccount(): Promise<void> {
-    const res = await fetch(
+    const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/account`),
       {
         method: 'DELETE',
@@ -305,7 +329,7 @@ export class ApiClient {
 
   /** POST /api/:fp/entries/move */
   async moveEntry(from: string, to: string): Promise<void> {
-    const res = await fetch(
+    const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/entries/move`),
       {
         method: 'POST',
@@ -319,7 +343,7 @@ export class ApiClient {
 
   /** POST /api/:fp/totp/setup */
   async setupTOTP(): Promise<{ secret: string; url: string }> {
-    const res = await fetch(
+    const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/totp/setup`),
       {
         method: 'POST',
@@ -333,7 +357,7 @@ export class ApiClient {
 
   /** POST /api/:fp/totp/confirm */
   async confirmTOTP(secret: string, code: string): Promise<void> {
-    const res = await fetch(
+    const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/totp/confirm`),
       {
         method: 'POST',
@@ -363,7 +387,7 @@ export class ApiClient {
 
   /** POST /api/:fp/import */
   async importArchive(file: File | Blob): Promise<{ imported: number }> {
-    const res = await fetch(
+    const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/import`),
       {
         method: 'POST',
@@ -389,7 +413,7 @@ export class ApiClient {
     overwritten?: number;
     errors?: Array<{ path: string; error: string }>;
   }> {
-    const res = await fetch(
+    const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/import`),
       {
         method: 'POST',
@@ -455,7 +479,7 @@ export class ApiClient {
     repoUrl: string,
     encryptedPat: string
   ): Promise<{ status: string }> {
-    const res = await fetch(
+    const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/git/config`),
       {
         method: 'POST',
@@ -473,7 +497,7 @@ export class ApiClient {
 
   /** POST /api/:fp/git/session — set git token for this session */
   async setGitSession(token: string): Promise<{ status: string }> {
-    const res = await fetch(
+    const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/git/session`),
       {
         method: 'POST',
@@ -495,7 +519,7 @@ export class ApiClient {
     operation: string;
     message: string;
   }> {
-    const res = await fetch(
+    const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/git/push`),
       {
         method: 'POST',
@@ -518,7 +542,7 @@ export class ApiClient {
     entries_changed?: number;
     message: string;
   }> {
-    const res = await fetch(
+    const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/git/pull`),
       {
         method: 'POST',
@@ -536,7 +560,7 @@ export class ApiClient {
 
   /** POST /api/:fp/git/toggle-sync — deprecated */
   async toggleGitSync(): Promise<{ status: string }> {
-    const res = await fetch(
+    const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/git/toggle-sync`),
       {
         method: 'POST',
@@ -582,7 +606,7 @@ export class ApiClient {
 
   /** POST /api/:fp/password — change password */
   async changePassword(currentPassword: string, newPassword: string): Promise<{ status: string }> {
-    const res = await fetch(
+    const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/password`),
       {
         method: 'POST',

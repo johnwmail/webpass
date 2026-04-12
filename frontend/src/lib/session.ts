@@ -27,6 +27,8 @@ class Session {
           this.publicKey = state.publicKey;
           this.api = new ApiClient(state.apiUrl);
           this.api.fingerprint = state.fingerprint;
+          // Restore expiry so timer survives page refreshes
+          this.expiresAt = state.expiresAt ?? null;
           // Token will be read from cookie by the browser automatically
         } else {
           sessionStorage.removeItem(STORAGE_KEY);
@@ -55,9 +57,24 @@ class Session {
   }
 
   remainingSeconds(): number {
-    // With cookie-based auth, we don't track expiry client-side
-    // The server validates the cookie expiry on each request
-    return 0;
+    if (this.expiresAt === null) return 0;
+    const now = Math.floor(Date.now() / 1000);
+    return Math.max(0, this.expiresAt - now);
+  }
+
+  /**
+   * Parse the `exp` claim from a JWT and return the epoch seconds.
+   * Returns null if the token is missing or malformed.
+   */
+  private _parseJwtExpiry(token: string): number | null {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) return null;
+      const payload = JSON.parse(atob(parts[1]));
+      return payload.exp ?? null;
+    } catch {
+      return null;
+    }
   }
 
   activate(opts: {
@@ -72,6 +89,8 @@ class Session {
     this.api = new ApiClient(opts.apiUrl);
     this.api.fingerprint = opts.fingerprint;
     this.api.token = opts.token; // Set token on API client for Authorization header
+    // Parse expiry from JWT token so the timer can show countdown
+    this.expiresAt = this._parseJwtExpiry(opts.token);
     // Token is now in httpOnly cookie - don't store it in sessionStorage
     this._persist();
     this._notify();
@@ -91,7 +110,7 @@ class Session {
     return {
       fingerprint: this.fingerprint,
       token: null, // Token is in cookie, not exposed to JS
-      expiresAt: null, // Expiry is server-side now
+      expiresAt: this.expiresAt, // Expiry is parsed from JWT
       apiUrl: this.api?.baseUrl || null,
       publicKey: this.publicKey,
     };
