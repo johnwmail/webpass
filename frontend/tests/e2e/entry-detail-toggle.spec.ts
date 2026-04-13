@@ -111,13 +111,6 @@ async function decryptEntry(page: any, pgpPassphrase: string) {
   await page.waitForTimeout(300);
 }
 
-/**
- * Helper function to wait for countdown timer
- */
-async function waitForCountdown(page: any, seconds: number) {
-  await page.waitForTimeout(seconds * 1000 + 500);
-}
-
 test.describe('Entry Detail Toggle Visibility', () => {
   let testUser: TestUser;
 
@@ -296,12 +289,14 @@ test.describe('Entry Detail Toggle Visibility', () => {
     const visibleText = await passwordElement.textContent();
     expect(visibleText).toContain('testpass123');
 
-    // Wait for 15 seconds auto-hide
-    await waitForCountdown(page, 15);
+    // Wait for 15 seconds auto-hide (with small buffer for timer precision)
+    await page.waitForTimeout(15500);
 
-    // Password should be hidden now
-    const hiddenText = await passwordElement.textContent();
-    expect(hiddenText).toContain('•');
+    // Password should be hidden now - use polling to handle timing variations
+    await expect(async () => {
+      const hiddenText = await passwordElement.textContent();
+      expect(hiddenText).toContain('•');
+    }).toPass({ timeout: 3000 });
   });
 
   test('notes hidden by default after decrypt', async ({ page }) => {
