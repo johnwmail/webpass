@@ -3,7 +3,7 @@ module srv.exe.dev
 go 1.26.1
 
 require (
-	github.com/go-git/go-git/v5 v5.17.1
+	github.com/go-git/go-git/v5 v5.18.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/pquerna/otp v1.5.0
 	golang.org/x/crypto v0.46.0
