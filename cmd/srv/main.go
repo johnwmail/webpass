@@ -1,12 +1,18 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"flag"
 	"fmt"
+	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
 	"runtime"
 	"strconv"
+	"syscall"
+	"time"
 
 	"srv.exe.dev/srv"
 )
@@ -92,7 +98,7 @@ func run() error {
 	fmt.Printf("  Database Path:   %s\n", dbPath)
 	fmt.Printf("  Static Dir:      %s\n", staticDir)
 	fmt.Printf("  Disable Frontend:%s\n", disableFrontend)
-	fmt.Printf("  Git Repo Root:   %s\n", gitRepoRoot)
+	fmt.Printf("  Git Repo Root:    %s\n", gitRepoRoot)
 	fmt.Printf("  CORS Origins:    %s\n", corsOrigins)
 	fmt.Printf("  Session Duration:%d minutes\n", sessionDurationMin)
 	fmt.Println()
@@ -123,5 +129,42 @@ func run() error {
 		}
 	}
 
-	return server.Serve(listenAddr)
+	// Create HTTP server
+	httpServer := &http.Server{
+		Addr:    listenAddr,
+		Handler: server.Handler(),
+	}
+
+	// Start server in goroutine
+	go func() {
+		slog.Info("starting server", "addr", listenAddr)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("server error", "error", err)
+		}
+	}()
+
+	// Wait for interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	<-quit
+
+	slog.Info("shutting down server...")
+
+	// Give outstanding requests 30 seconds to complete
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := httpServer.Shutdown(ctx); err != nil {
+		slog.Error("server shutdown error", "error", err)
+	}
+
+	// Close database connection
+	if err := server.CloseDB(); err != nil {
+		slog.Error("database close error", "error", err)
+	} else {
+		slog.Info("database connection closed")
+	}
+
+	slog.Info("server stopped")
+	return nil
 }

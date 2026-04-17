@@ -49,6 +49,14 @@ type Server struct {
 	Commit    string
 }
 
+// CloseDB closes the database connection for graceful shutdown.
+func (s *Server) CloseDB() error {
+	if s.DB != nil {
+		return s.DB.Close()
+	}
+	return nil
+}
+
 // New creates a new Server, opening the database and running migrations.
 func New(dbPath string, jwtKey []byte, sessionDurationMin int) (*Server, error) {
 	wdb, err := db.Open(dbPath)
@@ -534,6 +542,12 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+func jsonAPIErr(w http.ResponseWriter, err APIError) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(err.StatusCode())
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Message, "code": string(err.Code)})
 }
 
 func jsonOK(w http.ResponseWriter, v any) {
