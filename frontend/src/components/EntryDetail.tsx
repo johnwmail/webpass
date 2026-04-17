@@ -279,6 +279,7 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
                   class="btn btn-ghost btn-icon btn-sm"
                   onClick={handlePasswordToggle}
                   title={showPassword ? 'Hide' : 'Show'}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                   style={{ minWidth: 'auto', padding: '4px 8px' }}
                   data-testid="password-toggle-btn"
                 >
@@ -309,6 +310,7 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
                     class="btn btn-ghost btn-icon btn-sm"
                     onClick={handleNotesToggle}
                     title={showNotes ? 'Hide' : 'Show'}
+                    aria-label={showNotes ? 'Hide notes' : 'Show notes'}
                     style={{ minWidth: 'auto', padding: '4px 8px' }}
                     data-testid="notes-toggle-btn"
                   >

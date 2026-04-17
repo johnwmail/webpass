@@ -28,15 +28,15 @@ Add FK constraint on `git_config.fingerprint` referencing users table.
 
 ### 10. Testing Coverage
 Add unit tests for backend utilities and frontend edge cases.
-- [ ] TODO
+- [x] DONE - Added srv/errors_test.go for APIError type tests
 
 ### 12. Frontend State: Preact Signals
 Consider using Preact Signals for better state management.
-- [ ] TODO
+- [ ] TODO - Current pub/sub pattern works well; needs discussion before changing
 
 ### 13. Accessibility: ARIA Labels
 Add ARIA labels to icon-only buttons and custom components.
-- [ ] TODO
+- [x] DONE - Added aria-label to password/notes toggle buttons in EntryDetail and OTPDisplay
 
 ## Next Step - Needs Discussion
 

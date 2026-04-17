@@ -121,6 +121,7 @@ export function OTPDisplay({ content }: Props) {
               class="otp-copy"
               onClick={() => setShowOTP(!showOTP)}
               title={showOTP ? 'Hide' : 'Show'}
+              aria-label={showOTP ? 'Hide OTP code' : 'Show OTP code'}
             >
               {showOTP ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
