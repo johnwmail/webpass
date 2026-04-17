@@ -76,8 +76,8 @@ func run() error {
 		listenAddr = ":" + port
 	}
 
-	// Session duration (default 5 minutes, range: 5-480)
-	sessionDurationMin := 5 // default
+	// Session duration (hard limit, default 30 minutes, range: 5-480)
+	sessionDurationMin := 30 // default (hard limit)
 	if durationStr := os.Getenv("SESSION_DURATION_MINUTES"); durationStr != "" {
 		if duration, err := strconv.Atoi(durationStr); err == nil {
 			if duration >= 5 && duration <= 480 {
@@ -88,7 +88,7 @@ func run() error {
 				fmt.Printf("WARNING: SESSION_DURATION_MINUTES=%d too high, using maximum: 480\n", duration)
 			}
 		} else {
-			fmt.Printf("WARNING: Invalid SESSION_DURATION_MINUTES=%s, using default: 5\n", durationStr)
+			fmt.Printf("WARNING: Invalid SESSION_DURATION_MINUTES=%s, using default: 30\n", durationStr)
 		}
 	}
 
@@ -98,9 +98,10 @@ func run() error {
 	fmt.Printf("  Database Path:   %s\n", dbPath)
 	fmt.Printf("  Static Dir:      %s\n", staticDir)
 	fmt.Printf("  Disable Frontend:%s\n", disableFrontend)
-	fmt.Printf("  Git Repo Root:    %s\n", gitRepoRoot)
+	fmt.Printf("  Git Repo Root:   %s\n", gitRepoRoot)
 	fmt.Printf("  CORS Origins:    %s\n", corsOrigins)
-	fmt.Printf("  Session Duration:%d minutes\n", sessionDurationMin)
+	fmt.Printf("  Hard Limit:      %d minutes (SESSION_DURATION_MINUTES)\n", sessionDurationMin)
+	fmt.Printf("  Soft Limit:      5 minutes (browser close detection)\n")
 	fmt.Println()
 
 	jwtKey := make([]byte, 32)

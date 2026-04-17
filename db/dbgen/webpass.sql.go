@@ -240,3 +240,42 @@ func (q *Queries) UpsertEntry(ctx context.Context, arg UpsertEntryParams) error 
 	_, err := q.db.ExecContext(ctx, upsertEntry, arg.Fingerprint, arg.Path, arg.Content)
 	return err
 }
+
+const updateLoginTime = `-- name: UpdateLoginTime :exec
+UPDATE users
+SET login_time = CURRENT_TIMESTAMP, last_activity = CURRENT_TIMESTAMP
+WHERE fingerprint = ?
+`
+
+func (q *Queries) UpdateLoginTime(ctx context.Context, fingerprint string) error {
+	_, err := q.db.ExecContext(ctx, updateLoginTime, fingerprint)
+	return err
+}
+
+const updateLastActivity = `-- name: UpdateLastActivity :exec
+UPDATE users
+SET last_activity = CURRENT_TIMESTAMP
+WHERE fingerprint = ?
+`
+
+func (q *Queries) UpdateLastActivity(ctx context.Context, fingerprint string) error {
+	_, err := q.db.ExecContext(ctx, updateLastActivity, fingerprint)
+	return err
+}
+
+const getSessionInfo = `-- name: GetSessionInfo :one
+SELECT login_time, last_activity FROM users
+WHERE fingerprint = ?
+`
+
+type SessionInfo struct {
+	LoginTime    *time.Time `json:"login_time"`
+	LastActivity *time.Time `json:"last_activity"`
+}
+
+func (q *Queries) GetSessionInfo(ctx context.Context, fingerprint string) (SessionInfo, error) {
+	row := q.db.QueryRowContext(ctx, getSessionInfo, fingerprint)
+	var i SessionInfo
+	err := row.Scan(&i.LoginTime, &i.LastActivity)
+	return i, err
+}

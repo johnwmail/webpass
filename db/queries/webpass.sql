@@ -48,3 +48,17 @@ WHERE fingerprint = ?;
 SELECT * FROM entries
 WHERE fingerprint = ?
 ORDER BY path;
+
+-- name: UpdateLoginTime :exec
+UPDATE users
+SET login_time = CURRENT_TIMESTAMP, last_activity = CURRENT_TIMESTAMP
+WHERE fingerprint = ?;
+
+-- name: UpdateLastActivity :exec
+UPDATE users
+SET last_activity = CURRENT_TIMESTAMP
+WHERE fingerprint = ?;
+
+-- name: GetSessionInfo :one
+SELECT login_time, last_activity FROM users
+WHERE fingerprint = ?;

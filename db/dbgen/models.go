@@ -49,6 +49,8 @@ type User struct {
 	TotpSecret   *string    `json:"totp_secret"`
 	TotpEnabled  *int64     `json:"totp_enabled"`
 	Created      *time.Time `json:"created"`
+	LoginTime    *time.Time `json:"login_time"`
+	LastActivity *time.Time `json:"last_activity"`
 }
 
 type Visitor struct {
