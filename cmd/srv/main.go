@@ -76,19 +76,35 @@ func run() error {
 		listenAddr = ":" + port
 	}
 
-	// Session duration (hard limit, default 30 minutes, range: 5-480)
-	sessionDurationMin := 30 // default (hard limit)
-	if durationStr := os.Getenv("SESSION_DURATION_MINUTES"); durationStr != "" {
-		if duration, err := strconv.Atoi(durationStr); err == nil {
-			if duration >= 5 && duration <= 480 {
-				sessionDurationMin = duration
-			} else if duration < 5 {
-				fmt.Printf("WARNING: SESSION_DURATION_MINUTES=%d too low, using minimum: 5\n", duration)
+	// Hard limit (default 30 minutes, range: 5-480)
+	hardLimitMin := 30 // default
+	if hardLimitStr := os.Getenv("SESSION_HARDLIMIT_MINUTES"); hardLimitStr != "" {
+		if hardLimit, err := strconv.Atoi(hardLimitStr); err == nil {
+			if hardLimit >= 5 && hardLimit <= 480 {
+				hardLimitMin = hardLimit
+			} else if hardLimit < 5 {
+				fmt.Printf("WARNING: SESSION_HARDLIMIT_MINUTES=%d too low, using minimum: 5\n", hardLimit)
 			} else {
-				fmt.Printf("WARNING: SESSION_DURATION_MINUTES=%d too high, using maximum: 480\n", duration)
+				fmt.Printf("WARNING: SESSION_HARDLIMIT_MINUTES=%d too high, using maximum: 480\n", hardLimit)
 			}
 		} else {
-			fmt.Printf("WARNING: Invalid SESSION_DURATION_MINUTES=%s, using default: 30\n", durationStr)
+			fmt.Printf("WARNING: Invalid SESSION_HARDLIMIT_MINUTES=%s, using default: 30\n", hardLimitStr)
+		}
+	}
+
+	// Soft limit (default 5 minutes, range: 1-60)
+	softLimitMin := 5 // default
+	if softLimitStr := os.Getenv("SESSION_SOFTLIMIT_MINUTES"); softLimitStr != "" {
+		if softLimit, err := strconv.Atoi(softLimitStr); err == nil {
+			if softLimit >= 1 && softLimit <= 60 {
+				softLimitMin = softLimit
+			} else if softLimit < 1 {
+				fmt.Printf("WARNING: SESSION_SOFTLIMIT_MINUTES=%d too low, using minimum: 1\n", softLimit)
+			} else {
+				fmt.Printf("WARNING: SESSION_SOFTLIMIT_MINUTES=%d too high, using maximum: 60\n", softLimit)
+			}
+		} else {
+			fmt.Printf("WARNING: Invalid SESSION_SOFTLIMIT_MINUTES=%s, using default: 5\n", softLimitStr)
 		}
 	}
 
@@ -100,8 +116,8 @@ func run() error {
 	fmt.Printf("  Disable Frontend:%s\n", disableFrontend)
 	fmt.Printf("  Git Repo Root:   %s\n", gitRepoRoot)
 	fmt.Printf("  CORS Origins:    %s\n", corsOrigins)
-	fmt.Printf("  Hard Limit:      %d minutes (SESSION_DURATION_MINUTES)\n", sessionDurationMin)
-	fmt.Printf("  Soft Limit:      5 minutes (browser close detection)\n")
+	fmt.Printf("  Hard Limit:      %d minutes (SESSION_HARDLIMIT_MINUTES)\n", hardLimitMin)
+	fmt.Printf("  Soft Limit:      %d minutes (SESSION_SOFTLIMIT_MINUTES)\n", softLimitMin)
 	fmt.Println()
 
 	jwtKey := make([]byte, 32)
@@ -113,7 +129,7 @@ func run() error {
 		}
 	}
 
-	server, err := srv.New(dbPath, jwtKey, sessionDurationMin)
+	server, err := srv.New(dbPath, jwtKey, hardLimitMin, softLimitMin)
 	if err != nil {
 		return fmt.Errorf("create server: %w", err)
 	}

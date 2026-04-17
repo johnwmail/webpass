@@ -86,7 +86,8 @@ npm run typecheck
 | `PORT`            | HTTP listen port (default: `8080`)       |
 | `CORS_ORIGINS`    | Comma-separated allowed origins          |
 | `GIT_REPO_ROOT`   | Git repos directory (default: `/data/git-repos`) |
-| `SESSION_DURATION_MINUTES` | JWT session expiry time in minutes (default: 5, valid range: 5-480) |
+| `SESSION_HARDLIMIT_MINUTES` | JWT hard limit (max session time) in minutes (default: 30, range: 5-480) |
+| `SESSION_SOFTLIMIT_MINUTES` | JWT soft limit (browser close detection) in minutes (default: 5, range: 1-60) |
 
 ## Database
 

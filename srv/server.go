@@ -32,19 +32,19 @@ import (
 
 // Server is the WebPass API server.
 type Server struct {
-	DB              *sql.DB
-	Q               *dbgen.Queries
-	JWTKey          []byte
-	StaticDir       string // path to frontend dist/ directory (optional)
-	GitService      *GitService
-	Registration    *RegistrationService
-	RateLimiter     *RateLimiter  // rate limiter for auth endpoints
-	sessionDuration time.Duration // hard limit (max session time)
-	softLimit       time.Duration // soft limit (browser closed detection)
-	cookieAuth      bool          // whether to use httpOnly cookies instead of localStorage
-	cookieSecure    bool          // whether to set Secure flag on cookies
-	cookieDomain    string        // optional cookie domain
-	bcryptCost      int           // bcrypt cost factor for password hashing
+	DB           *sql.DB
+	Q            *dbgen.Queries
+	JWTKey       []byte
+	StaticDir    string // path to frontend dist/ directory (optional)
+	GitService   *GitService
+	Registration *RegistrationService
+	RateLimiter  *RateLimiter  // rate limiter for auth endpoints
+	hardLimit    time.Duration // hard limit (max session time)
+	softLimit    time.Duration // soft limit (browser closed detection)
+	cookieAuth   bool          // whether to use httpOnly cookies instead of localStorage
+	cookieSecure bool          // whether to set Secure flag on cookies
+	cookieDomain string        // optional cookie domain
+	bcryptCost   int           // bcrypt cost factor for password hashing
 	// Version info (set from main package)
 	Version   string
 	BuildTime string
@@ -60,7 +60,7 @@ func (s *Server) CloseDB() error {
 }
 
 // New creates a new Server, opening the database and running migrations.
-func New(dbPath string, jwtKey []byte, sessionDurationMin int) (*Server, error) {
+func New(dbPath string, jwtKey []byte, hardLimitMin int, softLimitMin int) (*Server, error) {
 	wdb, err := db.Open(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
@@ -100,10 +100,8 @@ func New(dbPath string, jwtKey []byte, sessionDurationMin int) (*Server, error) 
 		cookieDomain: cookieDomain,
 		bcryptCost:   bcryptCost,
 	}
-	s.sessionDuration = time.Duration(sessionDurationMin) * time.Minute
-
-	// Soft limit is fixed at 5 minutes (browser close detection)
-	s.softLimit = 5 * time.Minute
+	s.hardLimit = time.Duration(hardLimitMin) * time.Minute
+	s.softLimit = time.Duration(softLimitMin) * time.Minute
 
 	// Initialize Git service
 	repoRoot := os.Getenv("GIT_REPO_ROOT")
@@ -294,7 +292,7 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 					Secure:   s.cookieSecure,
 					SameSite: http.SameSiteStrictMode,
 					Domain:   s.cookieDomain,
-					MaxAge:   int(s.sessionDuration.Seconds()),
+					MaxAge:   int(s.hardLimit.Seconds()),
 				}
 				http.SetCookie(w, cookie)
 			}
@@ -383,7 +381,7 @@ func parseCORSOrigins(raw string) map[string]bool {
 func (s *Server) createToken(fingerprint string) (string, error) {
 	claims := jwt.MapClaims{
 		"fp":  fingerprint,
-		"exp": time.Now().Add(s.sessionDuration).Unix(),
+		"exp": time.Now().Add(s.hardLimit).Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(s.JWTKey)
@@ -536,7 +534,7 @@ func (s *Server) checkSessionLimits(ctx context.Context, fp string) error {
 	}
 
 	// Check hard limit: session must not exceed sessionDuration from login_time
-	hardExpiry := sessionInfo.LoginTime.Add(s.sessionDuration)
+	hardExpiry := sessionInfo.LoginTime.Add(s.hardLimit)
 	if now.After(hardExpiry) {
 		return fmt.Errorf("session expired (hard limit)")
 	}
@@ -567,7 +565,7 @@ func (s *Server) setAuthCookie(w http.ResponseWriter, token string) {
 		Secure:   s.cookieSecure,
 		SameSite: http.SameSiteStrictMode,
 		Domain:   s.cookieDomain,
-		MaxAge:   int(s.sessionDuration.Seconds()),
+		MaxAge:   int(s.hardLimit.Seconds()),
 	}
 	http.SetCookie(w, cookie)
 }

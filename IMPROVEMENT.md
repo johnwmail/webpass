@@ -43,6 +43,6 @@ Add ARIA labels to icon-only buttons and custom components.
 ### A1. Session: Refresh Tokens (IMPLEMENTED)
 Implement refresh token mechanism for sessions longer than 5 minutes.
 - [x] DONE - Implemented with DB columns login_time and last_activity:
-  - Hard limit: 30 min (configurable via SESSION_DURATION_MINUTES)
-  - Soft limit: 5 min (browser close detection)
+  - Hard limit: 30 min (configurable via SESSION_HARDLIMIT_MINUTES)
+  - Soft limit: 5 min (configurable via SESSION_SOFTLIMIT_MINUTES)
   - Auto-rotate: Updates last_activity on each API call

@@ -287,7 +287,7 @@ func newTestServer(t *testing.T) *Server {
 	t.Setenv("REGISTRATION_TOTP_SECRET", "") // Clear TOTP secret for open registration
 
 	key := []byte("test-secret-key-32-bytes-long!!!") // exactly 32 bytes
-	srv, err := New(dbPath, key, 5)                   // 5 minutes for tests
+	srv, err := New(dbPath, key, 5, 5)                // 5 minutes hard/soft limit for tests
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
