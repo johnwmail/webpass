@@ -595,12 +595,6 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
-func jsonAPIErr(w http.ResponseWriter, err APIError) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(err.StatusCode())
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Message, "code": string(err.Code)})
-}
-
 func jsonOK(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
