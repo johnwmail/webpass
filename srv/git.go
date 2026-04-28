@@ -219,7 +219,22 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 	}
 	slog.Info("[PUSH] Exported entries", "count", count)
 
-	// Step 6: Stage all files
+	// Step 6: Write .gpg-id from users table (fallback to fingerprint)
+	user, err := g.q.GetUser(ctx, fingerprint)
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+	gpgID := fingerprint
+	if user.GpgID != nil && *user.GpgID != "" {
+		gpgID = *user.GpgID
+	}
+	gpgIDPath := filepath.Join(repoDir, ".gpg-id")
+	if err := os.WriteFile(gpgIDPath, []byte(gpgID), 0600); err != nil {
+		return nil, fmt.Errorf("write .gpg-id: %w", err)
+	}
+	slog.Info("[PUSH] Wrote .gpg-id", "content", gpgID)
+
+	// Step 7: Stage all files
 	w, err := repo.Worktree()
 	if err != nil {
 		return nil, fmt.Errorf("get worktree: %w", err)
@@ -229,7 +244,7 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 	}
 	slog.Info("[PUSH] Staged all files")
 
-	// Step 7: Commit
+	// Step 8: Commit
 	commitMsg := fmt.Sprintf("Sync: %s", time.Now().Format(time.RFC3339))
 	_, err = w.Commit(commitMsg, &git.CommitOptions{
 		Author: &object.Signature{
@@ -243,7 +258,7 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 	}
 	slog.Info("[PUSH] Committed", "message", commitMsg)
 
-	// Step 8: Get remote and force push
+	// Step 9: Get remote and force push
 	remote, err := repo.Remote("origin")
 	if err != nil {
 		return nil, fmt.Errorf("get remote: %w", err)
@@ -276,7 +291,7 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 		slog.Info("[PUSH] Pushed --force", "branch", branchName)
 	}
 
-	// Step 9: Cleanup after
+	// Step 10: Cleanup after
 	if err := g.cleanupRepoDir(fingerprint); err != nil {
 		return nil, err
 	}
@@ -341,14 +356,28 @@ func (g *GitService) Pull(ctx context.Context, fingerprint, token string) (*Pull
 	}
 	slog.Info("[PULL] Cloned remote", "url", config.RepoUrl)
 
-	// Step 3: Delete all DB entries and import from clone
+	// Step 3: Preserve .gpg-id if present (update users table)
+	gpgIDPath := filepath.Join(repoDir, ".gpg-id")
+	if gpgIDData, err := os.ReadFile(gpgIDPath); err == nil {
+		gpgIDStr := string(gpgIDData)
+		if err := g.q.UpdateUserGpgID(ctx, dbgen.UpdateUserGpgIDParams{
+			GpgID:       &gpgIDStr,
+			Fingerprint: fingerprint,
+		}); err != nil {
+			slog.Warn("[PULL] Failed to store .gpg-id", "error", err)
+		} else {
+			slog.Info("[PULL] Stored .gpg-id", "content", gpgIDStr)
+		}
+	}
+
+	// Step 4: Delete all DB entries and import from clone
 	count, err := g.syncDatabase(ctx, fingerprint, repoDir)
 	if err != nil {
 		return nil, fmt.Errorf("sync database: %w", err)
 	}
 	slog.Info("[PULL] Imported entries", "count", count)
 
-	// Step 4: Cleanup after
+	// Step 5: Cleanup after
 	if err := g.cleanupRepoDir(fingerprint); err != nil {
 		return nil, err
 	}

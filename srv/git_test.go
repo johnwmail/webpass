@@ -38,6 +38,7 @@ func TestGitServiceConfigure(t *testing.T) {
 		Fingerprint:  fingerprint,
 		PasswordHash: "hash",
 		PublicKey:    "pk",
+		GpgID:        &fingerprint,
 	}); err != nil {
 		t.Fatalf("failed to create user: %v", err)
 	}
@@ -75,6 +76,7 @@ func TestGitServiceConfigureUpdate(t *testing.T) {
 		Fingerprint:  fingerprint,
 		PasswordHash: "hash",
 		PublicKey:    "pk",
+		GpgID:        &fingerprint,
 	}); err != nil {
 		t.Fatalf("failed to create user: %v", err)
 	}
@@ -152,6 +154,7 @@ func TestGitServiceGetStatus(t *testing.T) {
 		Fingerprint:  fingerprint,
 		PasswordHash: "hash",
 		PublicKey:    "pk",
+		GpgID:        &fingerprint,
 	}); err != nil {
 		t.Fatalf("failed to create user: %v", err)
 	}
@@ -226,6 +229,7 @@ func TestGitServiceLogGitSync(t *testing.T) {
 		Fingerprint:  fingerprint,
 		PasswordHash: "hash",
 		PublicKey:    "pk",
+		GpgID:        &fingerprint,
 	}); err != nil {
 		t.Fatalf("failed to create user: %v", err)
 	}
@@ -260,5 +264,49 @@ func TestGitServiceLogGitSync(t *testing.T) {
 	}
 	if logs[0].EntriesChanged == nil || *logs[0].EntriesChanged != 5 {
 		t.Errorf("expected 5 entries changed, got %v", logs[0].EntriesChanged)
+	}
+}
+
+func TestGitServiceUpdateUserGpgID(t *testing.T) {
+	s := newTestServer(t)
+	ctx := context.Background()
+
+	fingerprint := "test-fp-8"
+	gpgID := "0xDEADBEEF"
+
+	// Create user first (gpg_id defaults to fingerprint via CreateUserParams)
+	if err := s.Q.CreateUser(ctx, dbgen.CreateUserParams{
+		Fingerprint:  fingerprint,
+		PasswordHash: "hash",
+		PublicKey:    "pk",
+		GpgID:        &fingerprint,
+	}); err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+
+	// Verify initial gpg_id is the fingerprint
+	user, err := s.Q.GetUser(ctx, fingerprint)
+	if err != nil {
+		t.Fatalf("failed to get user: %v", err)
+	}
+	if user.GpgID == nil || *user.GpgID != fingerprint {
+		t.Errorf("expected initial gpg_id %s, got %v", fingerprint, user.GpgID)
+	}
+
+	// Update gpg_id via UpdateUserGpgID
+	if err := s.Q.UpdateUserGpgID(ctx, dbgen.UpdateUserGpgIDParams{
+		GpgID:       &gpgID,
+		Fingerprint: fingerprint,
+	}); err != nil {
+		t.Fatalf("failed to update gpg_id: %v", err)
+	}
+
+	// Verify gpg_id was updated in users table
+	user, err = s.Q.GetUser(ctx, fingerprint)
+	if err != nil {
+		t.Fatalf("failed to get user: %v", err)
+	}
+	if user.GpgID == nil || *user.GpgID != gpgID {
+		t.Errorf("expected gpg_id %s, got %v", gpgID, user.GpgID)
 	}
 }

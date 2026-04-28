@@ -1,6 +1,6 @@
 -- name: CreateUser :exec
-INSERT INTO users (fingerprint, password_hash, public_key)
-VALUES (?, ?, ?);
+INSERT INTO users (fingerprint, password_hash, public_key, gpg_id)
+VALUES (?, ?, ?, ?);
 
 -- name: GetUser :one
 SELECT * FROM users WHERE fingerprint = ?;
@@ -33,6 +33,11 @@ WHERE fingerprint = ? AND path = ?;
 
 -- name: DeleteUser :exec
 DELETE FROM users WHERE fingerprint = ?;
+
+-- name: UpdateUserGpgID :exec
+UPDATE users
+SET gpg_id = ?
+WHERE fingerprint = ?;
 
 -- name: UpdateUserTOTP :exec
 UPDATE users

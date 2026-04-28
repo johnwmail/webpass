@@ -2,6 +2,7 @@
  * Tests for API client functions
  */
 
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ApiClient } from './api';
 
 describe('ApiClient', () => {
@@ -40,6 +41,10 @@ describe('ApiClient', () => {
   });
 
   describe('headers method', () => {
+    beforeEach(() => {
+      vi.stubGlobal('document', { cookie: '' });
+    });
+
     it('should return content-type for JSON requests', () => {
       const headers = (client as any).headers(false);
       expect(headers['Content-Type']).toBe('application/json');

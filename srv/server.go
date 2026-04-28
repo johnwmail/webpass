@@ -678,6 +678,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		Fingerprint:  fp,
 		PasswordHash: string(hash),
 		PublicKey:    body.PublicKey,
+		GpgID:        &fp,
 	}); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint") {
 			jsonError(w, "user already exists", http.StatusConflict)
