@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [preact()],
   test: {
     globals: true,
-    environment: 'jsdom',
+    environment: 'node',
     include: ['src/**/*.test.ts'],
     exclude: ['**/node_modules/**', '**/dist/**', '**/*.crypto.test.ts'],
   },

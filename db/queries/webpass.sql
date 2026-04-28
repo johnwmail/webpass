@@ -1,6 +1,6 @@
 -- name: CreateUser :exec
-INSERT INTO users (fingerprint, password_hash, public_key)
-VALUES (?, ?, ?);
+INSERT INTO users (fingerprint, password_hash, public_key, gpg_id)
+VALUES (?, ?, ?, ?);
 
 -- name: GetUser :one
 SELECT * FROM users WHERE fingerprint = ?;
@@ -34,6 +34,11 @@ WHERE fingerprint = ? AND path = ?;
 -- name: DeleteUser :exec
 DELETE FROM users WHERE fingerprint = ?;
 
+-- name: UpdateUserGpgID :exec
+UPDATE users
+SET gpg_id = ?
+WHERE fingerprint = ?;
+
 -- name: UpdateUserTOTP :exec
 UPDATE users
 SET totp_secret = ?, totp_enabled = ?
@@ -48,3 +53,17 @@ WHERE fingerprint = ?;
 SELECT * FROM entries
 WHERE fingerprint = ?
 ORDER BY path;
+
+-- name: UpdateLoginTime :exec
+UPDATE users
+SET login_time = CURRENT_TIMESTAMP, last_activity = CURRENT_TIMESTAMP
+WHERE fingerprint = ?;
+
+-- name: UpdateLastActivity :exec
+UPDATE users
+SET last_activity = CURRENT_TIMESTAMP
+WHERE fingerprint = ?;
+
+-- name: GetSessionInfo :one
+SELECT login_time, last_activity FROM users
+WHERE fingerprint = ?;

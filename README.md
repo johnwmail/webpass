@@ -247,7 +247,8 @@ See [`.env.example`](.env.example) for all available options with detailed comme
 | `CORS_ORIGINS` | No       | Comma-separated allowed origins          |
 | `PORT`         | No       | HTTP listen port (default: `8080`)       |
 | `GIT_REPO_ROOT`| No       | Git repos directory (default: `/data/git-repos`) |
-| `SESSION_DURATION_MINUTES` | No | JWT session expiry in minutes (default: 5, range: 5-480) |
+| `SESSION_HARDLIMIT_MINUTES` | No | JWT hard limit (max session time) in minutes (default: 30, range: 5-480) |
+| `SESSION_SOFTLIMIT_MINUTES` | No | JWT soft limit (browser close detection) in minutes (default: 5, range: 1-60) |
 | `DISABLE_FRONTEND` | No   | Disable frontend (`1` or `true`)         |
 | `BCRYPT_COST`  | No       | Password hashing cost factor (default: 12, range: 10-15) |
 

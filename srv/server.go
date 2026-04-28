@@ -3,6 +3,7 @@ package srv
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -31,26 +32,35 @@ import (
 
 // Server is the WebPass API server.
 type Server struct {
-	DB              *sql.DB
-	Q               *dbgen.Queries
-	JWTKey          []byte
-	StaticDir       string // path to frontend dist/ directory (optional)
-	GitService      *GitService
-	Registration    *RegistrationService
-	RateLimiter     *RateLimiter // rate limiter for auth endpoints
-	sessionDuration time.Duration
-	cookieAuth      bool   // whether to use httpOnly cookies instead of localStorage
-	cookieSecure    bool   // whether to set Secure flag on cookies
-	cookieDomain    string // optional cookie domain
-	bcryptCost      int    // bcrypt cost factor for password hashing
+	DB           *sql.DB
+	Q            *dbgen.Queries
+	JWTKey       []byte
+	StaticDir    string // path to frontend dist/ directory (optional)
+	GitService   *GitService
+	Registration *RegistrationService
+	RateLimiter  *RateLimiter  // rate limiter for auth endpoints
+	hardLimit    time.Duration // hard limit (max session time)
+	softLimit    time.Duration // soft limit (browser closed detection)
+	cookieAuth   bool          // whether to use httpOnly cookies instead of localStorage
+	cookieSecure bool          // whether to set Secure flag on cookies
+	cookieDomain string        // optional cookie domain
+	bcryptCost   int           // bcrypt cost factor for password hashing
 	// Version info (set from main package)
 	Version   string
 	BuildTime string
 	Commit    string
 }
 
+// CloseDB closes the database connection for graceful shutdown.
+func (s *Server) CloseDB() error {
+	if s.DB != nil {
+		return s.DB.Close()
+	}
+	return nil
+}
+
 // New creates a new Server, opening the database and running migrations.
-func New(dbPath string, jwtKey []byte, sessionDurationMin int) (*Server, error) {
+func New(dbPath string, jwtKey []byte, hardLimitMin int, softLimitMin int) (*Server, error) {
 	wdb, err := db.Open(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
@@ -90,7 +100,8 @@ func New(dbPath string, jwtKey []byte, sessionDurationMin int) (*Server, error) 
 		cookieDomain: cookieDomain,
 		bcryptCost:   bcryptCost,
 	}
-	s.sessionDuration = time.Duration(sessionDurationMin) * time.Minute
+	s.hardLimit = time.Duration(hardLimitMin) * time.Minute
+	s.softLimit = time.Duration(softLimitMin) * time.Minute
 
 	// Initialize Git service
 	repoRoot := os.Getenv("GIT_REPO_ROOT")
@@ -281,7 +292,7 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 					Secure:   s.cookieSecure,
 					SameSite: http.SameSiteStrictMode,
 					Domain:   s.cookieDomain,
-					MaxAge:   int(s.sessionDuration.Seconds()),
+					MaxAge:   int(s.hardLimit.Seconds()),
 				}
 				http.SetCookie(w, cookie)
 			}
@@ -370,7 +381,7 @@ func parseCORSOrigins(raw string) map[string]bool {
 func (s *Server) createToken(fingerprint string) (string, error) {
 	claims := jwt.MapClaims{
 		"fp":  fingerprint,
-		"exp": time.Now().Add(s.sessionDuration).Unix(),
+		"exp": time.Now().Add(s.hardLimit).Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(s.JWTKey)
@@ -390,6 +401,19 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			jsonError(w, "forbidden", http.StatusForbidden)
 			return
 		}
+
+		// Check session limits (hard limit and soft limit)
+		if err := s.checkSessionLimits(r.Context(), fp); err != nil {
+			slog.Warn("session limit check failed", "fingerprint", fp, "error", err)
+			jsonError(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+
+		// Update last activity timestamp
+		if err := s.Q.UpdateLastActivity(r.Context(), fp); err != nil {
+			slog.Error("update last activity", "error", err)
+		}
+
 		next(w, r)
 	}
 }
@@ -492,6 +516,41 @@ func (s *Server) verifyToken(r *http.Request) (string, error) {
 	return fp, nil
 }
 
+// checkSessionLimits verifies the session hasn't exceeded hard or soft limits.
+// Hard limit: sessionDuration (e.g., 30 min) from login_time
+// Soft limit: softLimit (5 min) from last_activity (browser close detection)
+func (s *Server) checkSessionLimits(ctx context.Context, fp string) error {
+	sessionInfo, err := s.Q.GetSessionInfo(ctx, fp)
+	if err != nil {
+		// If user doesn't exist, don't block - let the handler decide
+		return nil
+	}
+
+	now := time.Now()
+
+	// If no login_time, this is a new session - allow access (will be set on login)
+	if sessionInfo.LoginTime == nil {
+		return nil
+	}
+
+	// Check hard limit: session must not exceed sessionDuration from login_time
+	hardExpiry := sessionInfo.LoginTime.Add(s.hardLimit)
+	if now.After(hardExpiry) {
+		return fmt.Errorf("session expired (hard limit)")
+	}
+
+	// Check soft limit: must not be away for more than softLimit from last_activity
+	// Only check if last_activity exists and is not too old
+	if sessionInfo.LastActivity != nil {
+		softExpiry := sessionInfo.LastActivity.Add(s.softLimit)
+		if now.After(softExpiry) {
+			return fmt.Errorf("session expired (please login again)")
+		}
+	}
+
+	return nil
+}
+
 // setAuthCookie sets the httpOnly authentication cookie
 func (s *Server) setAuthCookie(w http.ResponseWriter, token string) {
 	if !s.cookieAuth {
@@ -506,7 +565,7 @@ func (s *Server) setAuthCookie(w http.ResponseWriter, token string) {
 		Secure:   s.cookieSecure,
 		SameSite: http.SameSiteStrictMode,
 		Domain:   s.cookieDomain,
-		MaxAge:   int(s.sessionDuration.Seconds()),
+		MaxAge:   int(s.hardLimit.Seconds()),
 	}
 	http.SetCookie(w, cookie)
 }
@@ -613,6 +672,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		Fingerprint:  fp,
 		PasswordHash: string(hash),
 		PublicKey:    body.PublicKey,
+		GpgID:        &fp,
 	}); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint") {
 			jsonError(w, "user already exists", http.StatusConflict)
@@ -742,6 +802,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Update login_time on successful login
+	if err := s.Q.UpdateLoginTime(r.Context(), fp); err != nil {
+		slog.Error("update login time", "error", err)
+	}
+
 	token, err := s.createToken(fp)
 	if err != nil {
 		slog.Error("create token", "error", err)
@@ -785,6 +850,11 @@ func (s *Server) handleLogin2FA(w http.ResponseWriter, r *http.Request) {
 	if user.TotpSecret == nil || !totp.Validate(body.TOTPCode, *user.TotpSecret) {
 		jsonError(w, "invalid 2fa code", http.StatusUnauthorized)
 		return
+	}
+
+	// Update login_time on successful 2FA login
+	if err := s.Q.UpdateLoginTime(r.Context(), fp); err != nil {
+		slog.Error("update login time", "error", err)
 	}
 
 	token, err := s.createToken(fp)
