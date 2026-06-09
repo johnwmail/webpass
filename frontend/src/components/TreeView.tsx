@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'preact/hooks';
+import { useState, useMemo, useCallback } from 'preact/hooks';
+import { memo } from 'preact/compat';
 import type { EntryMeta, TreeNode } from '../types';
 import { Folder, FolderOpen, Key } from 'lucide-preact';
 
@@ -78,7 +79,7 @@ function filterTree(nodes: TreeNode[], query: string): TreeNode[] {
   return filter(nodes);
 }
 
-function TreeNodeView({
+const TreeNodeView = memo(function TreeNodeView({
   node,
   selectedPath,
   expandedFolders,
@@ -155,7 +156,19 @@ function TreeNodeView({
       )}
     </div>
   );
-}
+}, (prev, next) => {
+  return (
+    prev.node === next.node &&
+    prev.selectedPath === next.selectedPath &&
+    prev.depth === next.depth &&
+    prev.toggleFolder === next.toggleFolder &&
+    prev.onSelect === next.onSelect &&
+    prev.onContextMenu === next.onContextMenu &&
+    // Compare Sets by value (same items)
+    prev.expandedFolders.size === next.expandedFolders.size &&
+    [...prev.expandedFolders].every(k => next.expandedFolders.has(k))
+  );
+});
 
 export function TreeView({ entries, selectedPath, searchQuery, onSelect, onContextMenu }: Props) {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
@@ -180,14 +193,14 @@ export function TreeView({ entries, selectedPath, searchQuery, onSelect, onConte
     return expandedFolders;
   }, [searchQuery, filtered, expandedFolders]);
 
-  const toggleFolder = (path: string) => {
+  const toggleFolder = useCallback((path: string) => {
     setExpandedFolders((prev) => {
       const next = new Set(prev);
       if (next.has(path)) next.delete(path);
       else next.add(path);
       return next;
     });
-  };
+  }, []);
 
   if (filtered.length === 0) {
     return (

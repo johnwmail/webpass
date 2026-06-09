@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'preact/hooks';
+import { useState, useEffect, useCallback, useRef } from 'preact/hooks';
 import { session } from '../lib/session';
 import { TreeView } from './TreeView';
 import { EntryDetail } from './EntryDetail';
@@ -31,6 +31,15 @@ interface ContextMenu {
 export function MainApp({ onLock }: Props) {
   const [entries, setEntries] = useState<EntryMeta[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Debounce search (300ms) to reduce tree rebuilds
+  const handleSearchInput = (value: string) => {
+    setSearchQuery(value);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => setDebouncedSearch(value), 250);
+  };
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [rightPanel, setRightPanel] = useState<RightPanel>({ type: 'empty' });
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -69,13 +78,13 @@ export function MainApp({ onLock }: Props) {
     return () => window.removeEventListener('click', handler);
   }, []);
 
-  const handleSelectEntry = (path: string) => {
+  const handleSelectEntry = useCallback((path: string) => {
     setSelectedPath(path);
     setRightPanel({ type: 'detail', path });
     setSidebarOpen(false);
-  };
+  }, []);
 
-  const handleNewEntry = () => {
+  const handleNewEntry = useCallback(() => {
     let folderPrefix = '';
     if (selectedPath) {
       const parts = selectedPath.split('/');
@@ -88,9 +97,9 @@ export function MainApp({ onLock }: Props) {
     }
     setRightPanel({ type: 'new', folderPrefix });
     setSidebarOpen(false);
-  };
+  }, [selectedPath, entries]);
 
-  const handleNewFolder = () => {
+  const handleNewFolder = useCallback(() => {
     const folderName = prompt('Enter folder name:');
     if (!folderName) return;
     let prefix = '';
@@ -106,12 +115,12 @@ export function MainApp({ onLock }: Props) {
     }
     setRightPanel({ type: 'new', folderPrefix: prefix + folderName });
     setSidebarOpen(false);
-  };
+  }, [selectedPath, entries]);
 
-  const handleContextMenu = (e: MouseEvent, path: string, isFolder: boolean) => {
+  const handleContextMenu = useCallback((e: MouseEvent, path: string, isFolder: boolean) => {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, path, isFolder });
-  };
+  }, []);
 
   const handleRename = async () => {
     if (!renameTarget || !renameTo.trim() || !session.api) return;
@@ -224,7 +233,7 @@ export function MainApp({ onLock }: Props) {
                 class="input"
                 type="text"
                 value={searchQuery}
-                onInput={(e) => setSearchQuery((e.target as HTMLInputElement).value)}
+                onInput={(e) => handleSearchInput((e.target as HTMLInputElement).value)}
                 placeholder="Search entries..."
               />
             </div>
@@ -238,7 +247,7 @@ export function MainApp({ onLock }: Props) {
               <TreeView
                 entries={entries}
                 selectedPath={selectedPath}
-                searchQuery={searchQuery}
+                searchQuery={debouncedSearch}
                 onSelect={handleSelectEntry}
                 onContextMenu={handleContextMenu}
               />
