@@ -24,8 +24,6 @@ function parseEntryContent(text: string): EntryContent {
 export function EntryDetail({ path, onEdit, onDelete }: Props) {
   const [content, setContent] = useState<EntryContent | null>(null);
   const [rawContent, setRawContent] = useState<string>('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showNotes, setShowNotes] = useState(false);
   const [showPassphrasePrompt, setShowPassphrasePrompt] = useState(false);
   const [showReencryptDialog, setShowReencryptDialog] = useState(false);
   const [decrypting, setDecrypting] = useState(false);
@@ -64,7 +62,6 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
       setContent(parseEntryContent(decrypted));
     } catch (e: any) {
       if (e instanceof WrongKeyError) {
-        // Entry was encrypted with different key - show re-encrypt dialog
         setShowReencryptDialog(true);
       } else {
         setError(e.message || 'Decryption failed');
@@ -100,26 +97,37 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
     }
   };
 
+  const clearPasswordTimers = useCallback(() => {
+    if (passwordHideTimerRef.current) {
+      window.clearTimeout(passwordHideTimerRef.current);
+      passwordHideTimerRef.current = null;
+    }
+    if (passwordCountdownRef.current) {
+      window.clearInterval(passwordCountdownRef.current);
+      passwordCountdownRef.current = null;
+    }
+  }, []);
+
+  const clearNotesTimers = useCallback(() => {
+    if (notesHideTimerRef.current) {
+      window.clearTimeout(notesHideTimerRef.current);
+      notesHideTimerRef.current = null;
+    }
+    if (notesCountdownRef.current) {
+      window.clearInterval(notesCountdownRef.current);
+      notesCountdownRef.current = null;
+    }
+  }, []);
+
   const handlePasswordToggle = useCallback(() => {
     setShowPassword(prev => {
       const newValue = !prev;
-      // Clear any existing timers when manually toggling
-      if (passwordHideTimerRef.current) {
-        window.clearTimeout(passwordHideTimerRef.current);
-        passwordHideTimerRef.current = null;
-      }
-      if (passwordCountdownRef.current) {
-        window.clearInterval(passwordCountdownRef.current);
-        passwordCountdownRef.current = null;
-      }
-      // Start new timer if showing
+      clearPasswordTimers();
       if (newValue) {
         setPasswordTimeRemaining(AUTO_HIDE_SECONDS);
         passwordCountdownRef.current = window.setInterval(() => {
           setPasswordTimeRemaining(prevTime => {
-            if (prevTime <= 1) {
-              return 0;
-            }
+            if (prevTime <= 1) return 0;
             return prevTime - 1;
           });
         }, 1000);
@@ -134,28 +142,17 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
       }
       return newValue;
     });
-  }, []);
+  }, [clearPasswordTimers]);
 
   const handleNotesToggle = useCallback(() => {
     setShowNotes(prev => {
       const newValue = !prev;
-      // Clear any existing timers when manually toggling
-      if (notesHideTimerRef.current) {
-        window.clearTimeout(notesHideTimerRef.current);
-        notesHideTimerRef.current = null;
-      }
-      if (notesCountdownRef.current) {
-        window.clearInterval(notesCountdownRef.current);
-        notesCountdownRef.current = null;
-      }
-      // Start new timer if showing
+      clearNotesTimers();
       if (newValue) {
         setNotesTimeRemaining(AUTO_HIDE_SECONDS);
         notesCountdownRef.current = window.setInterval(() => {
           setNotesTimeRemaining(prevTime => {
-            if (prevTime <= 1) {
-              return 0;
-            }
+            if (prevTime <= 1) return 0;
             return prevTime - 1;
           });
         }, 1000);
@@ -170,43 +167,19 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
       }
       return newValue;
     });
-  }, []);
+  }, [clearNotesTimers]);
 
-  // Password timer effect - simplified to just handle auto-hide trigger
+  // Add missing state declarations
+  const [showPassword, setShowPassword] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
+
+  // Cleanup timers on unmount
   useEffect(() => {
-    if (!content) return;
-
-    // Timer is now managed by handlePasswordToggle
-    // This effect just cleans up on unmount
     return () => {
-      if (passwordHideTimerRef.current) {
-        window.clearTimeout(passwordHideTimerRef.current);
-        passwordHideTimerRef.current = null;
-      }
-      if (passwordCountdownRef.current) {
-        window.clearInterval(passwordCountdownRef.current);
-        passwordCountdownRef.current = null;
-      }
+      clearPasswordTimers();
+      clearNotesTimers();
     };
-  }, [content]);
-
-  // Notes timer effect - simplified to just handle auto-hide trigger
-  useEffect(() => {
-    if (!content) return;
-
-    // Timer is now managed by handleNotesToggle
-    // This effect just cleans up on unmount
-    return () => {
-      if (notesHideTimerRef.current) {
-        window.clearTimeout(notesHideTimerRef.current);
-        notesHideTimerRef.current = null;
-      }
-      if (notesCountdownRef.current) {
-        window.clearInterval(notesCountdownRef.current);
-        notesCountdownRef.current = null;
-      }
-    };
-  }, [content]);
+  }, [clearPasswordTimers, clearNotesTimers]);
 
   return (
     <div class="entry-detail">
@@ -223,11 +196,9 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
           entryPath={path}
           onReencryptComplete={() => {
             setShowReencryptDialog(false);
-            // Clear state and trigger re-decrypt with current key
             setContent(null);
             setRawContent('');
             setError('');
-            // Show passphrase prompt to decrypt with current key
             setShowPassphrasePrompt(true);
           }}
           onCancel={() => {
@@ -257,7 +228,11 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
             class="btn btn-primary"
             onClick={() => setShowPassphrasePrompt(true)}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '8px' }}><rect x="3" y="11" width="18" height="11" rx="2" /><circle cx="12" cy="16" r="1" /><path d="M7 11V7a5 5 0 0110 0v4" /></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '8px' }}>
+              <rect x="3" y="11" width="18" height="11" rx="2" />
+              <circle cx="12" cy="16" r="1" />
+              <path d="M7 11V7a5 5 0 0110 0v4" />
+            </svg>
             Decrypt
           </button>
           {error && <p class="error-msg">{error}</p>}
