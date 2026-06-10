@@ -295,6 +295,11 @@ run_protected_mode() {
     log_info "========================================="
     log_info ""
 
+    # Kill existing server to ensure fresh start with correct rate limits
+    pkill -f "webpass-server" 2>/dev/null || true
+    pkill -f "go run.*cmd/srv" 2>/dev/null || true
+    sleep 2
+
     # Set Protected Mode environment variables
     export REGISTRATION_ENABLED=true
     export REGISTRATION_TOTP_SECRET="JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
