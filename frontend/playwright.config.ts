@@ -106,6 +106,9 @@ export default defineConfig({
       // Registration mode is set by the test script for each pass
       REGISTRATION_ENABLED: process.env.REGISTRATION_ENABLED || 'true',
       REGISTRATION_TOTP_SECRET: process.env.REGISTRATION_TOTP_SECRET || '',
+      // Rate limits (set by test script, defaults for safety)
+      RATE_LIMIT_ATTEMPTS: process.env.RATE_LIMIT_ATTEMPTS || '100',
+      RATE_LIMIT_WINDOW_MINUTES: process.env.RATE_LIMIT_WINDOW_MINUTES || '1',
     },
   },
 });
