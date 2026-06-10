@@ -38,9 +38,8 @@ export default defineConfig({
       COOKIE_AUTH_ENABLED: process.env.COOKIE_AUTH_ENABLED || 'true',
       REGISTRATION_ENABLED: process.env.REGISTRATION_ENABLED || 'true',
       REGISTRATION_TOTP_SECRET: process.env.REGISTRATION_TOTP_SECRET || '',
-      // Explicitly pass rate limit vars (empty string = use Go defaults)
-      RATE_LIMIT_ATTEMPTS: process.env.RATE_LIMIT_ATTEMPTS || '',
-      RATE_LIMIT_WINDOW_MINUTES: process.env.RATE_LIMIT_WINDOW_MINUTES || '',
+      RATE_LIMIT_ATTEMPTS: process.env.RATE_LIMIT_ATTEMPTS,
+      RATE_LIMIT_WINDOW_MINUTES: process.env.RATE_LIMIT_WINDOW_MINUTES,
     },
   },
 });
