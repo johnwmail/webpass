@@ -3,7 +3,6 @@ import { encryptText, decryptMessage, decryptPrivateKey } from '../lib/crypto';
 import { session } from '../lib/session';
 import { getAccount } from '../lib/storage';
 import { Lock, Unlock, Copy, Check, Shield, User } from 'lucide-preact';
-
 interface Props {
   onClose: () => void;
 }
@@ -43,7 +42,7 @@ export function EncryptModal({ onClose }: Props) {
   };
 
   const handleDecrypt = async () => {
-    if (!needsPassphrase) {
+    if (!needsPassphrase && !session.getCachedPrivateKey()) {
       setNeedsPassphrase(true);
       return;
     }
@@ -53,9 +52,15 @@ export function EncryptModal({ onClose }: Props) {
     try {
       const fp = session.fingerprint;
       if (!fp) throw new Error('Not logged in');
-      const account = await getAccount(fp);
-      if (!account) throw new Error('Account not found');
-      const privateKey = await decryptPrivateKey(account.privateKey, passphrase);
+
+      let privateKey = session.getCachedPrivateKey();
+      if (!privateKey) {
+        const account = await getAccount(fp);
+        if (!account) throw new Error('Account not found');
+        privateKey = await decryptPrivateKey(account.privateKey, passphrase);
+        session.setCachedPrivateKey(privateKey);
+      }
+
       const result = await decryptMessage(ciphertext, privateKey);
       setDecryptedOutput(result);
       setNeedsPassphrase(false);

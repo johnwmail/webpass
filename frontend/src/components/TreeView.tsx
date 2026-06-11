@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'preact/hooks';
+import { useState, useMemo, useCallback, useRef } from 'preact/hooks';
+import { memo } from 'preact/compat';
 import type { EntryMeta, TreeNode } from '../types';
 import { Folder, FolderOpen, Key } from 'lucide-preact';
 
@@ -7,7 +8,7 @@ interface Props {
   selectedPath: string | null;
   searchQuery: string;
   onSelect: (path: string) => void;
-  onContextMenu: (e: MouseEvent, path: string, isFolder: boolean) => void;
+  onContextMenu: (e: MouseEvent | TouchEvent, path: string, isFolder: boolean) => void;
 }
 
 function buildTree(entries: EntryMeta[]): TreeNode[] {
@@ -78,7 +79,7 @@ function filterTree(nodes: TreeNode[], query: string): TreeNode[] {
   return filter(nodes);
 }
 
-function TreeNodeView({
+const TreeNodeView = memo(function TreeNodeView({
   node,
   selectedPath,
   expandedFolders,
@@ -92,11 +93,12 @@ function TreeNodeView({
   expandedFolders: Set<string>;
   toggleFolder: (path: string) => void;
   onSelect: (path: string) => void;
-  onContextMenu: (e: MouseEvent, path: string, isFolder: boolean) => void;
+  onContextMenu: (e: MouseEvent | TouchEvent, path: string, isFolder: boolean) => void;
   depth: number;
 }) {
   const isExpanded = expandedFolders.has(node.path);
   const isSelected = !node.isFolder && selectedPath === node.path;
+  const longPressTimer = useRef<number | null>(null);
 
   const handleClick = () => {
     if (node.isFolder) {
@@ -111,6 +113,28 @@ function TreeNodeView({
     onContextMenu(e, node.path, node.isFolder);
   };
 
+  // Long-press support for touch devices
+  const handleTouchStart = (e: TouchEvent) => {
+    longPressTimer.current = window.setTimeout(() => {
+      onContextMenu(e, node.path, node.isFolder);
+    }, 500);
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const handleTouchMove = () => {
+    // Cancel long-press if user starts scrolling
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
   return (
     <div class="tree-node">
       <div
@@ -118,6 +142,10 @@ function TreeNodeView({
         style={{ paddingLeft: `${12 + depth * 16}px` }}
         onClick={handleClick}
         onContextMenu={handleContext}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchMove={handleTouchMove}
+        onTouchCancel={handleTouchEnd}
       >
         {node.isFolder ? (
           <span class="toggle">
@@ -155,7 +183,19 @@ function TreeNodeView({
       )}
     </div>
   );
-}
+}, (prev, next) => {
+  return (
+    prev.node === next.node &&
+    prev.selectedPath === next.selectedPath &&
+    prev.depth === next.depth &&
+    prev.toggleFolder === next.toggleFolder &&
+    prev.onSelect === next.onSelect &&
+    prev.onContextMenu === next.onContextMenu &&
+    // Compare Sets by value (same items)
+    prev.expandedFolders.size === next.expandedFolders.size &&
+    [...prev.expandedFolders].every(k => next.expandedFolders.has(k))
+  );
+});
 
 export function TreeView({ entries, selectedPath, searchQuery, onSelect, onContextMenu }: Props) {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
@@ -180,14 +220,14 @@ export function TreeView({ entries, selectedPath, searchQuery, onSelect, onConte
     return expandedFolders;
   }, [searchQuery, filtered, expandedFolders]);
 
-  const toggleFolder = (path: string) => {
+  const toggleFolder = useCallback((path: string) => {
     setExpandedFolders((prev) => {
       const next = new Set(prev);
       if (next.has(path)) next.delete(path);
       else next.add(path);
       return next;
     });
-  };
+  }, []);
 
   if (filtered.length === 0) {
     return (

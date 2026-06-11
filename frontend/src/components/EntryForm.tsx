@@ -43,10 +43,15 @@ export function EntryForm({ editPath, folderPrefix, onSave, onCancel }: Props) {
     try {
       const fp = session.fingerprint;
       if (!fp || !session.api) throw new Error('Not logged in');
-      const account = await getAccount(fp);
-      if (!account) throw new Error('Account not found');
 
-      const privateKey = await decryptPrivateKey(account.privateKey, passphrase);
+      let privateKey = session.getCachedPrivateKey();
+      if (!privateKey) {
+        const account = await getAccount(fp);
+        if (!account) throw new Error('Account not found');
+        privateKey = await decryptPrivateKey(account.privateKey, passphrase);
+        session.setCachedPrivateKey(privateKey);
+      }
+
       const encrypted = await session.api.getEntry(editPath!);
       const decrypted = await decryptBinary(encrypted, privateKey);
       const lines = decrypted.split('\n');
@@ -157,7 +162,13 @@ export function EntryForm({ editPath, folderPrefix, onSave, onCancel }: Props) {
           <p style={{ fontSize: '14px', marginBottom: '20px' }}>Decrypt entry to edit its contents.</p>
           <button
             class="btn btn-primary"
-            onClick={() => setShowPassphrasePrompt(true)}
+            onClick={() => {
+              if (session.getCachedPrivateKey()) {
+                handleDecryptForEdit('');
+              } else {
+                setShowPassphrasePrompt(true);
+              }
+            }}
             disabled={loading}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '8px' }}><rect x="3" y="11" width="18" height="11" rx="2" /><circle cx="12" cy="16" r="1" /><path d="M7 11V7a5 5 0 0110 0v4" /></svg>

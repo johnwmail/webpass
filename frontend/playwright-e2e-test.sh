@@ -180,8 +180,19 @@ mkdir -p "$GIT_REPO_ROOT"
 # Install Playwright browsers if needed
 log_info "Ensuring Playwright browsers are installed..."
 cd "$FRONTEND_DIR"
-# Install browsers without system dependencies (sudo not available in containers)
-npx playwright install chromium
+
+# Check if browsers are already installed by running a simple test
+# This is more reliable than checking specific version numbers
+if npx playwright test --list 2>&1 | grep -q "browserType.launch"; then
+    log_info "Browsers not properly installed, installing..."
+    # Use --with-deps to install system dependencies (may fail in containers, but that's OK)
+    npx playwright install chromium || {
+        log_warn "Browser installation failed. This may be due to container restrictions."
+        log_warn "If tests fail to launch browsers, try manually installing with: npx playwright install chromium"
+    }
+else
+    log_info "Browsers appear to be installed, skipping download"
+fi
 
 # Return to root directory
 cd "$ROOT_DIR"
@@ -283,6 +294,11 @@ run_protected_mode() {
     log_info "Protected Mode (TOTP code required) - ALL TESTS"
     log_info "========================================="
     log_info ""
+
+    # Kill existing server to ensure fresh start with correct rate limits
+    pkill -f "webpass-server" 2>/dev/null || true
+    pkill -f "go run.*cmd/srv" 2>/dev/null || true
+    sleep 2
 
     # Set Protected Mode environment variables
     export REGISTRATION_ENABLED=true

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'preact/hooks';
+import { useState, useEffect, useCallback, useRef } from 'preact/hooks';
 import { session } from '../lib/session';
 import { TreeView } from './TreeView';
 import { EntryDetail } from './EntryDetail';
@@ -6,10 +6,12 @@ import { EntryForm } from './EntryForm';
 import { GeneratorModal } from './GeneratorModal';
 import { EncryptModal } from './EncryptModal';
 import { SettingsModal } from './SettingsModal';
+import { FolderNameModal } from './FolderNameModal';
+import { UnlockKeyModal } from './UnlockKeyModal';
 import { SessionTimer } from './SessionTimer';
 import { Footer } from './Footer';
 import type { EntryMeta } from '../types';
-import { Search, Plus, FolderPlus, Settings, LogOut, Lock, Sparkles, Shield } from 'lucide-preact';
+import { Search, Plus, FolderPlus, Settings, LogOut, Lock, Unlock, Sparkles, Shield, Pen } from 'lucide-preact';
 
 interface Props {
   onLock: () => void;
@@ -31,6 +33,15 @@ interface ContextMenu {
 export function MainApp({ onLock }: Props) {
   const [entries, setEntries] = useState<EntryMeta[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Debounce search (300ms) to reduce tree rebuilds
+  const handleSearchInput = (value: string) => {
+    setSearchQuery(value);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => setDebouncedSearch(value), 250);
+  };
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [rightPanel, setRightPanel] = useState<RightPanel>({ type: 'empty' });
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -40,6 +51,9 @@ export function MainApp({ onLock }: Props) {
   const [showGenerator, setShowGenerator] = useState(false);
   const [showEncrypt, setShowEncrypt] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showFolderModal, setShowFolderModal] = useState(false);
+  const [showUnlockKey, setShowUnlockKey] = useState(false);
+  const [, setKeyUnlocked] = useState(false);
 
   const [renameTarget, setRenameTarget] = useState<string | null>(null);
   const [renameTo, setRenameTo] = useState('');
@@ -69,13 +83,18 @@ export function MainApp({ onLock }: Props) {
     return () => window.removeEventListener('click', handler);
   }, []);
 
-  const handleSelectEntry = (path: string) => {
+  useEffect(() => {
+    const unsub = session.subscribe(() => setKeyUnlocked(!!session.getCachedPrivateKey()));
+    return unsub;
+  }, []);
+
+  const handleSelectEntry = useCallback((path: string) => {
     setSelectedPath(path);
     setRightPanel({ type: 'detail', path });
     setSidebarOpen(false);
-  };
+  }, []);
 
-  const handleNewEntry = () => {
+  const handleNewEntry = useCallback(() => {
     let folderPrefix = '';
     if (selectedPath) {
       const parts = selectedPath.split('/');
@@ -88,11 +107,15 @@ export function MainApp({ onLock }: Props) {
     }
     setRightPanel({ type: 'new', folderPrefix });
     setSidebarOpen(false);
-  };
+  }, [selectedPath, entries]);
 
-  const handleNewFolder = () => {
-    const folderName = prompt('Enter folder name:');
-    if (!folderName) return;
+  const handleNewFolder = useCallback(() => {
+    setShowFolderModal(true);
+    setSidebarOpen(false);
+  }, []);
+
+  const handleFolderConfirm = useCallback((folderName: string) => {
+    setShowFolderModal(false);
     let prefix = '';
     if (selectedPath) {
       const isFolder = entries.some((e) => e.path.startsWith(selectedPath + '/'));
@@ -105,13 +128,21 @@ export function MainApp({ onLock }: Props) {
       }
     }
     setRightPanel({ type: 'new', folderPrefix: prefix + folderName });
-    setSidebarOpen(false);
-  };
+  }, [selectedPath, entries]);
 
-  const handleContextMenu = (e: MouseEvent, path: string, isFolder: boolean) => {
+  const handleContextMenu = useCallback((e: MouseEvent | TouchEvent, path: string, isFolder: boolean) => {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, path, isFolder });
-  };
+    let x: number, y: number;
+    if ('clientX' in e) {
+      x = e.clientX;
+      y = e.clientY;
+    } else {
+      const touch = e.changedTouches[0];
+      x = touch.clientX;
+      y = touch.clientY;
+    }
+    setContextMenu({ x, y, path, isFolder });
+  }, []);
 
   const handleRename = async () => {
     if (!renameTarget || !renameTo.trim() || !session.api) return;
@@ -194,8 +225,20 @@ export function MainApp({ onLock }: Props) {
           </div>
         </div>
         <div class="app-header-right">
+          <button
+            class="btn btn-ghost btn-sm"
+            onClick={() => session.getCachedPrivateKey() ? session.clearPrivateKey() : setShowUnlockKey(true)}
+            title={session.getCachedPrivateKey() ? 'PGP key unlocked — click to lock' : 'PGP key locked — click to unlock'}
+            style={{ position: 'relative' }}
+          >
+            {session.getCachedPrivateKey() ? (
+              <Unlock size={16} style={{ color: '#22c55e' }} />
+            ) : (
+              <Lock size={16} style={{ color: 'var(--text-muted)' }} />
+            )}
+          </button>
           <button class="btn btn-ghost btn-sm" onClick={() => setShowEncrypt(true)} title="Encrypt/Decrypt">
-            <Lock size={16} />
+            <Pen size={16} />
           </button>
           <button class="btn btn-ghost btn-sm" onClick={() => setShowGenerator(true)} title="Password Generator">
             <Sparkles size={16} />
@@ -224,7 +267,7 @@ export function MainApp({ onLock }: Props) {
                 class="input"
                 type="text"
                 value={searchQuery}
-                onInput={(e) => setSearchQuery((e.target as HTMLInputElement).value)}
+                onInput={(e) => handleSearchInput((e.target as HTMLInputElement).value)}
                 placeholder="Search entries..."
               />
             </div>
@@ -238,7 +281,7 @@ export function MainApp({ onLock }: Props) {
               <TreeView
                 entries={entries}
                 selectedPath={selectedPath}
-                searchQuery={searchQuery}
+                searchQuery={debouncedSearch}
                 onSelect={handleSelectEntry}
                 onContextMenu={handleContextMenu}
               />
@@ -267,12 +310,18 @@ export function MainApp({ onLock }: Props) {
             </div>
           )}
           {rightPanel.type === 'detail' && (
-            <EntryDetail
-              key={rightPanel.path}
-              path={rightPanel.path}
-              onEdit={() => setRightPanel({ type: 'edit', path: rightPanel.path })}
-              onDelete={handleEntryDeleted}
-            />
+            <>
+              <button class="btn btn-ghost btn-sm mobile-back-btn" onClick={() => setRightPanel({ type: 'empty' })}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
+                Back
+              </button>
+              <EntryDetail
+                key={rightPanel.path}
+                path={rightPanel.path}
+                onEdit={() => setRightPanel({ type: 'edit', path: rightPanel.path })}
+                onDelete={handleEntryDeleted}
+              />
+            </>
           )}
           {rightPanel.type === 'new' && (
             <EntryForm
@@ -454,6 +503,18 @@ export function MainApp({ onLock }: Props) {
       )}
       {showSettings && (
         <SettingsModal onClose={() => setShowSettings(false)} onLock={onLock} onEntriesChanged={loadEntries} />
+      )}
+      {showFolderModal && (
+        <FolderNameModal
+          onCancel={() => setShowFolderModal(false)}
+          onConfirm={handleFolderConfirm}
+        />
+      )}
+      {showUnlockKey && (
+        <UnlockKeyModal
+          onClose={() => setShowUnlockKey(false)}
+          onUnlocked={() => setShowUnlockKey(false)}
+        />
       )}
     </div>
   );

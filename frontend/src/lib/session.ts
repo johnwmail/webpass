@@ -1,5 +1,6 @@
 import { ApiClient } from './api';
 import type { SessionState } from '../types';
+import type { PrivateKey } from 'openpgp';
 
 const STORAGE_KEY = 'webpass_session';
 
@@ -9,6 +10,7 @@ class Session {
   api: ApiClient | null = null;
   expiresAt: number | null = null;
   publicKey: string | null = null;
+  private _privateKey: PrivateKey | null = null;
   private _listeners: Set<() => void> = new Set();
 
   constructor() {
@@ -96,12 +98,27 @@ class Session {
     this._notify();
   }
 
+  getCachedPrivateKey(): PrivateKey | null {
+    return this._privateKey;
+  }
+
+  setCachedPrivateKey(key: PrivateKey): void {
+    this._privateKey = key;
+    this._notify();
+  }
+
+  clearPrivateKey(): void {
+    this._privateKey = null;
+    this._notify();
+  }
+
   clear() {
     this.fingerprint = null;
     this.token = null;
     this.api = null;
     this.expiresAt = null;
     this.publicKey = null;
+    this._privateKey = null;
     sessionStorage.removeItem(STORAGE_KEY);
     this._notify();
   }

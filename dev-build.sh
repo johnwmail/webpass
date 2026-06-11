@@ -31,7 +31,7 @@ echo "  Time:    $BUILD_TIME"
 if [ -n "$REMOTE" ]; then
     echo "Syncing to $REMOTE..."
     rsync -avz --delete ./ "$REMOTE" --exclude 'node_modules' --exclude '.git'
-    ssh "${REMOTE%%:*}" "cd ${REMOTE#*:} && export VERSION=$VERSION COMMIT=$COMMIT BUILD_TIME=$BUILD_TIME FRONTEND_VERSION=$VERSION FRONTEND_COMMIT=$COMMIT FRONTEND_BUILD_TIME=$BUILD_TIME && docker compose build --no-cache && docker compose down && docker compose up -d"
+    ssh "${REMOTE%%:*}" "cd ${REMOTE#*:} && export VERSION=$VERSION COMMIT=$COMMIT BUILD_TIME=$BUILD_TIME FRONTEND_VERSION=$VERSION FRONTEND_COMMIT=$COMMIT FRONTEND_BUILD_TIME=$BUILD_TIME && docker compose build --no-cache && docker compose down && docker compose up -d && sleep 5 && CODE=\$(docker logs webpass 2>&1 | grep 'REGISTRATION CODE' | tail -1 | sed -n 's/.*code=\([0-9]*\).*/\1/p') && echo '' && echo '=========================================' && echo \"  Registration Code: \$CODE\" && echo '=========================================' && echo ''"
     echo ""
     echo "✓ Deployment complete!"
     echo "  Version: $VERSION"
