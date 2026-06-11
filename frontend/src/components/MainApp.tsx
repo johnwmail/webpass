@@ -130,9 +130,18 @@ export function MainApp({ onLock }: Props) {
     setRightPanel({ type: 'new', folderPrefix: prefix + folderName });
   }, [selectedPath, entries]);
 
-  const handleContextMenu = useCallback((e: MouseEvent, path: string, isFolder: boolean) => {
+  const handleContextMenu = useCallback((e: MouseEvent | TouchEvent, path: string, isFolder: boolean) => {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, path, isFolder });
+    let x: number, y: number;
+    if ('clientX' in e) {
+      x = e.clientX;
+      y = e.clientY;
+    } else {
+      const touch = e.changedTouches[0];
+      x = touch.clientX;
+      y = touch.clientY;
+    }
+    setContextMenu({ x, y, path, isFolder });
   }, []);
 
   const handleRename = async () => {
