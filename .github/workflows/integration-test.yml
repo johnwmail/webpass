@@ -88,6 +88,7 @@ jobs:
           REGISTRATION_TOTP_SECRET: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
           REGISTRATION_TOTP_PERIOD: 3600
           REGISTRATION_TOTP_ALGO: SHA1
+          REGISTRATION_CODE_FILE: /tmp/registration_code.txt
           # Use DEFAULT rate limits for rate limit tests
           WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
           WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
@@ -108,6 +109,7 @@ jobs:
           REGISTRATION_TOTP_SECRET: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
           REGISTRATION_TOTP_PERIOD: 3600
           REGISTRATION_TOTP_ALGO: SHA1
+          REGISTRATION_CODE_FILE: /tmp/registration_code.txt
           # Relaxed rate limits for E2E tests to prevent false failures
           RATE_LIMIT_ATTEMPTS: 100
           RATE_LIMIT_WINDOW_MINUTES: 1
@@ -121,7 +123,7 @@ jobs:
         run: |
           # Kill server to force restart with new env vars
           pkill -9 -f "webpass-server" 2>/dev/null || true
-          pkill -9 -f "srv/main.go" 2>/dev/null || true
+          pkill -9 -f "go run.*cmd/srv" 2>/dev/null || true
           sleep 3
           cd frontend && npx playwright test tests/e2e/registration-open.spec.ts
         env:
@@ -133,6 +135,7 @@ jobs:
           GIT_REPO_ROOT: /tmp/git-repos
           REGISTRATION_ENABLED: true
           REGISTRATION_TOTP_SECRET: ""
+          REGISTRATION_CODE_FILE: /tmp/registration_code.txt
           # Relaxed rate limits for E2E tests to prevent false failures
           RATE_LIMIT_ATTEMPTS: 100
           RATE_LIMIT_WINDOW_MINUTES: 1
@@ -146,7 +149,7 @@ jobs:
         run: |
           # Kill server to force restart with new env vars
           pkill -9 -f "webpass-server" 2>/dev/null || true
-          pkill -9 -f "srv/main.go" 2>/dev/null || true
+          pkill -9 -f "go run.*cmd/srv" 2>/dev/null || true
           sleep 3
           cd frontend && npx playwright test tests/e2e/registration-protected.spec.ts
         env:
@@ -160,6 +163,7 @@ jobs:
           REGISTRATION_TOTP_SECRET: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
           REGISTRATION_TOTP_PERIOD: 3600
           REGISTRATION_TOTP_ALGO: SHA1
+          REGISTRATION_CODE_FILE: /tmp/registration_code.txt
           # Relaxed rate limits for E2E tests to prevent false failures
           RATE_LIMIT_ATTEMPTS: 100
           RATE_LIMIT_WINDOW_MINUTES: 1
@@ -173,7 +177,7 @@ jobs:
         run: |
           # Kill server to force restart with new env vars
           pkill -9 -f "webpass-server" 2>/dev/null || true
-          pkill -9 -f "srv/main.go" 2>/dev/null || true
+          pkill -9 -f "go run.*cmd/srv" 2>/dev/null || true
           sleep 3
           cd frontend && npx playwright test tests/e2e/registration-disabled.spec.ts
         env:
@@ -185,6 +189,7 @@ jobs:
           GIT_REPO_ROOT: /tmp/git-repos
           REGISTRATION_ENABLED: false
           REGISTRATION_TOTP_SECRET: ""
+          REGISTRATION_CODE_FILE: /tmp/registration_code.txt
           # Relaxed rate limits for E2E tests to prevent false failures
           RATE_LIMIT_ATTEMPTS: 100
           RATE_LIMIT_WINDOW_MINUTES: 1
