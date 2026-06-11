@@ -25,8 +25,8 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
 
   const [showPassphrasePrompt, setShowPassphrasePrompt] = useState(false);
   
-  const passwordVisibility = useAutoHide(15000);
-  const notesVisibility = useAutoHide(15000);
+  const passwordVisibility = useAutoHide(15);
+  const notesVisibility = useAutoHide(15);
 
   const handleDecryptClick = useCallback(() => {
     if (session.getCachedPrivateKey()) {
@@ -120,7 +120,7 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
                   {passwordVisibility.isVisible ? <EyeOff size={16} /> : <Eye size={16} />}
                   {passwordVisibility.isVisible && (
                     <span style={{ fontSize: '11px', marginLeft: '4px' }}>
-                      {Math.ceil(passwordVisibility.timeRemaining / 1000)}s
+                      {passwordVisibility.timeRemaining}s
                     </span>
                   )}
                 </button>
@@ -157,7 +157,7 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
                     {notesVisibility.isVisible ? <EyeOff size={16} /> : <Eye size={16} />}
                     {notesVisibility.isVisible && (
                       <span style={{ fontSize: '11px', marginLeft: '4px' }}>
-                        {Math.ceil(notesVisibility.timeRemaining / 1000)}s
+                        {notesVisibility.timeRemaining}s
                       </span>
                     )}
                   </button>

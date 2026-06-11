@@ -3,12 +3,8 @@ name: Integration Tests
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - '.qwen/**'
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '.qwen/**'
   workflow_dispatch:
 
 jobs:
@@ -36,7 +32,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '24'
+          node-version: '24.15.0'
 
       - name: Cache node modules
         uses: actions/cache@v5
@@ -55,21 +51,7 @@ jobs:
       - name: Build frontend
         run: cd frontend && npm run build
 
-      - name: Get Playwright browser version
-        id: playwright-version
-        run: cd frontend && echo "version=$(npx playwright --version | awk '{print $2}')" >> $GITHUB_OUTPUT
-
-      - name: Cache Playwright browsers
-        uses: actions/cache@v5
-        id: playwright-cache
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-
       - name: Install Playwright browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: cd frontend && npx playwright install --with-deps chromium
 
       # =============================================================================
@@ -88,7 +70,6 @@ jobs:
           REGISTRATION_TOTP_SECRET: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
           REGISTRATION_TOTP_PERIOD: 3600
           REGISTRATION_TOTP_ALGO: SHA1
-          REGISTRATION_CODE_FILE: /tmp/registration_code.txt
           # Use DEFAULT rate limits for rate limit tests
           WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
           WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
@@ -109,7 +90,6 @@ jobs:
           REGISTRATION_TOTP_SECRET: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
           REGISTRATION_TOTP_PERIOD: 3600
           REGISTRATION_TOTP_ALGO: SHA1
-          REGISTRATION_CODE_FILE: /tmp/registration_code.txt
           # Relaxed rate limits for E2E tests to prevent false failures
           RATE_LIMIT_ATTEMPTS: 100
           RATE_LIMIT_WINDOW_MINUTES: 1
@@ -123,7 +103,7 @@ jobs:
         run: |
           # Kill server to force restart with new env vars
           pkill -9 -f "webpass-server" 2>/dev/null || true
-          pkill -9 -f "go run.*cmd/srv" 2>/dev/null || true
+          pkill -9 -f "srv/main.go" 2>/dev/null || true
           sleep 3
           cd frontend && npx playwright test tests/e2e/registration-open.spec.ts
         env:
@@ -135,7 +115,6 @@ jobs:
           GIT_REPO_ROOT: /tmp/git-repos
           REGISTRATION_ENABLED: true
           REGISTRATION_TOTP_SECRET: ""
-          REGISTRATION_CODE_FILE: /tmp/registration_code.txt
           # Relaxed rate limits for E2E tests to prevent false failures
           RATE_LIMIT_ATTEMPTS: 100
           RATE_LIMIT_WINDOW_MINUTES: 1
@@ -149,7 +128,7 @@ jobs:
         run: |
           # Kill server to force restart with new env vars
           pkill -9 -f "webpass-server" 2>/dev/null || true
-          pkill -9 -f "go run.*cmd/srv" 2>/dev/null || true
+          pkill -9 -f "srv/main.go" 2>/dev/null || true
           sleep 3
           cd frontend && npx playwright test tests/e2e/registration-protected.spec.ts
         env:
@@ -163,7 +142,6 @@ jobs:
           REGISTRATION_TOTP_SECRET: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
           REGISTRATION_TOTP_PERIOD: 3600
           REGISTRATION_TOTP_ALGO: SHA1
-          REGISTRATION_CODE_FILE: /tmp/registration_code.txt
           # Relaxed rate limits for E2E tests to prevent false failures
           RATE_LIMIT_ATTEMPTS: 100
           RATE_LIMIT_WINDOW_MINUTES: 1
@@ -177,7 +155,7 @@ jobs:
         run: |
           # Kill server to force restart with new env vars
           pkill -9 -f "webpass-server" 2>/dev/null || true
-          pkill -9 -f "go run.*cmd/srv" 2>/dev/null || true
+          pkill -9 -f "srv/main.go" 2>/dev/null || true
           sleep 3
           cd frontend && npx playwright test tests/e2e/registration-disabled.spec.ts
         env:
@@ -189,7 +167,6 @@ jobs:
           GIT_REPO_ROOT: /tmp/git-repos
           REGISTRATION_ENABLED: false
           REGISTRATION_TOTP_SECRET: ""
-          REGISTRATION_CODE_FILE: /tmp/registration_code.txt
           # Relaxed rate limits for E2E tests to prevent false failures
           RATE_LIMIT_ATTEMPTS: 100
           RATE_LIMIT_WINDOW_MINUTES: 1
