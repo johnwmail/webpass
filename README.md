@@ -21,7 +21,7 @@ A web-based password manager with zero-knowledge architecture. All cryptography 
 - **Theme toggle** — Auto-switching light/dark themes based on time of day (8AM-10PM)
 - **Account management** — Clear local data or permanently delete account with passphrase confirmation
 - **Auto-hide sensitive content** — Password and notes auto-hide after 15 seconds with countdown timer
-- **PGP key auto-lock** — Decrypted PGP key auto-locks after 300s of inactivity
+- **PGP key auto-lock** — Decrypted PGP key auto-locks after 30s of inactivity
 - **Rate limiting** — Sliding window rate limiting on authentication endpoints (5 attempts / 15 min default)
 - **Registration protection** — TOTP-based registration codes to prevent unauthorized account creation
 
@@ -268,7 +268,7 @@ All endpoints require JWT authentication except where noted.
 - **Server stores only PGP-encrypted blobs** — Database leak reveals nothing
 - **Password validates locally first** — Wrong password fails before network call
 - **5-minute sessions** — JWT expiry enforced server-side
-- **PGP key auto-lock** — Private key automatically locked after 300s of inactivity (hardcoded in `frontend/src/lib/session.ts`)
+- **PGP key auto-lock** — Private key automatically locked after 30s of inactivity (hardcoded in `frontend/src/lib/session.ts`)
 - **CORS locked** to specific origins via `CORS_ORIGINS` env var
 - **All traffic over HTTPS** required in production
 - **Rate limiting** on authentication endpoints (sliding window, 5 attempts / 15 min default)
