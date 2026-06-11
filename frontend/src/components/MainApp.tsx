@@ -11,7 +11,7 @@ import { UnlockKeyModal } from './UnlockKeyModal';
 import { SessionTimer } from './SessionTimer';
 import { Footer } from './Footer';
 import type { EntryMeta } from '../types';
-import { Search, Plus, FolderPlus, Settings, LogOut, Lock, Unlock, Sparkles, Shield, KeyRound } from 'lucide-preact';
+import { Search, Plus, FolderPlus, Settings, LogOut, Lock, Unlock, Sparkles, Shield, Pen } from 'lucide-preact';
 
 interface Props {
   onLock: () => void;
@@ -220,14 +220,16 @@ export function MainApp({ onLock }: Props) {
             class="btn btn-ghost btn-sm"
             onClick={() => session.getCachedPrivateKey() ? session.clearPrivateKey() : setShowUnlockKey(true)}
             title={session.getCachedPrivateKey() ? 'PGP key unlocked — click to lock' : 'PGP key locked — click to unlock'}
+            style={{ position: 'relative' }}
           >
-            <KeyRound
-              size={16}
-              style={{ color: session.getCachedPrivateKey() ? 'var(--success)' : 'var(--text-muted)' }}
-            />
+            {session.getCachedPrivateKey() ? (
+              <Unlock size={16} style={{ color: '#22c55e' }} />
+            ) : (
+              <Lock size={16} style={{ color: 'var(--text-muted)' }} />
+            )}
           </button>
           <button class="btn btn-ghost btn-sm" onClick={() => setShowEncrypt(true)} title="Encrypt/Decrypt">
-            <Lock size={16} />
+            <Pen size={16} />
           </button>
           <button class="btn btn-ghost btn-sm" onClick={() => setShowGenerator(true)} title="Password Generator">
             <Sparkles size={16} />
