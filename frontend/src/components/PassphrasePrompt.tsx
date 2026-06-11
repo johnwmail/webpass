@@ -35,7 +35,7 @@ export function PassphrasePrompt({ title, message, onSubmit, onCancel }: Props) 
   }, [onCancel]);
 
   return (
-    <div class="modal-overlay" onClick={handleCancel} style="will-change: opacity;">
+    <div class="modal-overlay modal-overlay-no-blur" onClick={handleCancel} style="will-change: opacity;">
       <div class="modal modal-no-blur" onClick={(e) => e.stopPropagation()} style="will-change: transform;">
         <div class="modal-header">
           <h2>

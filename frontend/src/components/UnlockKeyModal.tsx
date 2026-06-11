@@ -48,7 +48,7 @@ export function UnlockKeyModal({ onClose, onUnlocked }: Props) {
   };
 
   return (
-    <div class="modal-overlay" onClick={onClose}>
+    <div class="modal-overlay modal-overlay-no-blur" onClick={onClose}>
       <div class="modal" style="max-width: 420px;" onClick={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <h2><KeyRound size={18} style="margin-right: 8px; vertical-align: -2px;" /> Unlock PGP Key</h2>

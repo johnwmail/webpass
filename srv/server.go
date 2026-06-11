@@ -183,18 +183,15 @@ func (s *Server) Handler() http.Handler {
 	if s.StaticDir != "" {
 		fs := http.FileServer(http.Dir(s.StaticDir))
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			// Try to serve the file directly
 			path := r.URL.Path
 			if path == "/" {
 				http.ServeFile(w, r, s.StaticDir+"/index.html")
 				return
 			}
-			// Check if file exists
 			if _, err := os.Stat(s.StaticDir + path); err == nil {
 				fs.ServeHTTP(w, r)
 				return
 			}
-			// SPA fallback: serve index.html for all other routes
 			http.ServeFile(w, r, s.StaticDir+"/index.html")
 		})
 	}

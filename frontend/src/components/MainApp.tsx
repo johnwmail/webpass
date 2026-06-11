@@ -54,6 +54,7 @@ export function MainApp({ onLock }: Props) {
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [showUnlockKey, setShowUnlockKey] = useState(false);
   const [, setKeyUnlocked] = useState(false);
+  const [keyRemaining, setKeyRemaining] = useState(0);
 
   const [renameTarget, setRenameTarget] = useState<string | null>(null);
   const [renameTo, setRenameTo] = useState('');
@@ -84,8 +85,19 @@ export function MainApp({ onLock }: Props) {
   }, []);
 
   useEffect(() => {
-    const unsub = session.subscribe(() => setKeyUnlocked(!!session.getCachedPrivateKey()));
+    const unsub = session.subscribe(() => {
+      setKeyUnlocked(session.keyRemainingSeconds() > 0);
+      setKeyRemaining(session.keyRemainingSeconds());
+    });
     return unsub;
+  }, []);
+
+  // Poll key auto-lock countdown every second while key is unlocked
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setKeyRemaining(session.keyRemainingSeconds());
+    }, 1000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleSelectEntry = useCallback((path: string) => {
@@ -227,12 +239,12 @@ export function MainApp({ onLock }: Props) {
         <div class="app-header-right">
           <button
             class="btn btn-ghost btn-sm"
-            onClick={() => session.getCachedPrivateKey() ? session.clearPrivateKey() : setShowUnlockKey(true)}
-            title={session.getCachedPrivateKey() ? 'PGP key unlocked — click to lock' : 'PGP key locked — click to unlock'}
-            style={{ position: 'relative' }}
+            onClick={() => keyRemaining > 0 ? session.clearPrivateKey() : setShowUnlockKey(true)}
+            title={keyRemaining > 0 ? `PGP key unlocked — auto-lock in ${keyRemaining}s — click to lock` : 'PGP key locked — click to unlock'}
+            style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
           >
-            {session.getCachedPrivateKey() ? (
-              <Unlock size={16} style={{ color: '#22c55e' }} />
+            {keyRemaining > 0 ? (
+              <><Unlock size={16} style={{ color: '#22c55e' }} /><span style={{ fontSize: '10px', color: '#22c55e', fontVariantNumeric: 'tabular-nums' }}>{keyRemaining}s</span></>
             ) : (
               <Lock size={16} style={{ color: 'var(--text-muted)' }} />
             )}
