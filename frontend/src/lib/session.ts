@@ -12,7 +12,7 @@ class Session {
   publicKey: string | null = null;
   private _privateKey: PrivateKey | null = null;
   private _listeners: Set<() => void> = new Set();
-  private _keyTimeoutMs: number = 300000; // default 300s
+  private _keyTimeoutMs: number = 30000; // default 30s
   private _keyTimer: ReturnType<typeof setTimeout> | null = null;
   private _keyExpiresAt: number | null = null; // epoch ms when key auto-lock fires
 
