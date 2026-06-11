@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'preact/hooks';
+import { useState, useMemo, useCallback, useRef } from 'preact/hooks';
 import { memo } from 'preact/compat';
 import type { EntryMeta, TreeNode } from '../types';
 import { Folder, FolderOpen, Key } from 'lucide-preact';
@@ -8,7 +8,7 @@ interface Props {
   selectedPath: string | null;
   searchQuery: string;
   onSelect: (path: string) => void;
-  onContextMenu: (e: MouseEvent, path: string, isFolder: boolean) => void;
+  onContextMenu: (e: MouseEvent | TouchEvent, path: string, isFolder: boolean) => void;
 }
 
 function buildTree(entries: EntryMeta[]): TreeNode[] {
@@ -93,11 +93,12 @@ const TreeNodeView = memo(function TreeNodeView({
   expandedFolders: Set<string>;
   toggleFolder: (path: string) => void;
   onSelect: (path: string) => void;
-  onContextMenu: (e: MouseEvent, path: string, isFolder: boolean) => void;
+  onContextMenu: (e: MouseEvent | TouchEvent, path: string, isFolder: boolean) => void;
   depth: number;
 }) {
   const isExpanded = expandedFolders.has(node.path);
   const isSelected = !node.isFolder && selectedPath === node.path;
+  const longPressTimer = useRef<number | null>(null);
 
   const handleClick = () => {
     if (node.isFolder) {
@@ -112,6 +113,28 @@ const TreeNodeView = memo(function TreeNodeView({
     onContextMenu(e, node.path, node.isFolder);
   };
 
+  // Long-press support for touch devices
+  const handleTouchStart = (e: TouchEvent) => {
+    longPressTimer.current = window.setTimeout(() => {
+      onContextMenu(e, node.path, node.isFolder);
+    }, 500);
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const handleTouchMove = () => {
+    // Cancel long-press if user starts scrolling
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
   return (
     <div class="tree-node">
       <div
@@ -119,6 +142,10 @@ const TreeNodeView = memo(function TreeNodeView({
         style={{ paddingLeft: `${12 + depth * 16}px` }}
         onClick={handleClick}
         onContextMenu={handleContext}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchMove={handleTouchMove}
+        onTouchCancel={handleTouchEnd}
       >
         {node.isFolder ? (
           <span class="toggle">

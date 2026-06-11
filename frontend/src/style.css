@@ -1802,6 +1802,19 @@ body {
     min-width: 40px;
   }
 
+  /* Mobile back button - shown only on mobile */
+  .mobile-back-btn {
+    display: inline-flex;
+    align-items: center;
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    font-size: 14px;
+  }
+
+  .mobile-back-btn svg {
+    margin-right: 6px;
+  }
+
   .entry-detail,
   .entry-form {
     padding: 20px;
@@ -2131,6 +2144,10 @@ body {
   }
 
   .sidebar-overlay {
+    display: none !important;
+  }
+
+  .mobile-back-btn {
     display: none !important;
   }
 }

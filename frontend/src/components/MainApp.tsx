@@ -301,12 +301,18 @@ export function MainApp({ onLock }: Props) {
             </div>
           )}
           {rightPanel.type === 'detail' && (
-            <EntryDetail
-              key={rightPanel.path}
-              path={rightPanel.path}
-              onEdit={() => setRightPanel({ type: 'edit', path: rightPanel.path })}
-              onDelete={handleEntryDeleted}
-            />
+            <>
+              <button class="btn btn-ghost btn-sm mobile-back-btn" onClick={() => setRightPanel({ type: 'empty' })}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
+                Back
+              </button>
+              <EntryDetail
+                key={rightPanel.path}
+                path={rightPanel.path}
+                onEdit={() => setRightPanel({ type: 'edit', path: rightPanel.path })}
+                onDelete={handleEntryDeleted}
+              />
+            </>
           )}
           {rightPanel.type === 'new' && (
             <EntryForm
