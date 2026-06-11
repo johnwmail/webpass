@@ -6,10 +6,12 @@ import { EntryForm } from './EntryForm';
 import { GeneratorModal } from './GeneratorModal';
 import { EncryptModal } from './EncryptModal';
 import { SettingsModal } from './SettingsModal';
+import { FolderNameModal } from './FolderNameModal';
+import { UnlockKeyModal } from './UnlockKeyModal';
 import { SessionTimer } from './SessionTimer';
 import { Footer } from './Footer';
 import type { EntryMeta } from '../types';
-import { Search, Plus, FolderPlus, Settings, LogOut, Lock, Sparkles, Shield } from 'lucide-preact';
+import { Search, Plus, FolderPlus, Settings, LogOut, Lock, Unlock, Sparkles, Shield, KeyRound } from 'lucide-preact';
 
 interface Props {
   onLock: () => void;
@@ -49,6 +51,9 @@ export function MainApp({ onLock }: Props) {
   const [showGenerator, setShowGenerator] = useState(false);
   const [showEncrypt, setShowEncrypt] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showFolderModal, setShowFolderModal] = useState(false);
+  const [showUnlockKey, setShowUnlockKey] = useState(false);
+  const [, setKeyUnlocked] = useState(false);
 
   const [renameTarget, setRenameTarget] = useState<string | null>(null);
   const [renameTo, setRenameTo] = useState('');
@@ -78,6 +83,11 @@ export function MainApp({ onLock }: Props) {
     return () => window.removeEventListener('click', handler);
   }, []);
 
+  useEffect(() => {
+    const unsub = session.subscribe(() => setKeyUnlocked(!!session.getCachedPrivateKey()));
+    return unsub;
+  }, []);
+
   const handleSelectEntry = useCallback((path: string) => {
     setSelectedPath(path);
     setRightPanel({ type: 'detail', path });
@@ -100,8 +110,12 @@ export function MainApp({ onLock }: Props) {
   }, [selectedPath, entries]);
 
   const handleNewFolder = useCallback(() => {
-    const folderName = prompt('Enter folder name:');
-    if (!folderName) return;
+    setShowFolderModal(true);
+    setSidebarOpen(false);
+  }, []);
+
+  const handleFolderConfirm = useCallback((folderName: string) => {
+    setShowFolderModal(false);
     let prefix = '';
     if (selectedPath) {
       const isFolder = entries.some((e) => e.path.startsWith(selectedPath + '/'));
@@ -114,7 +128,6 @@ export function MainApp({ onLock }: Props) {
       }
     }
     setRightPanel({ type: 'new', folderPrefix: prefix + folderName });
-    setSidebarOpen(false);
   }, [selectedPath, entries]);
 
   const handleContextMenu = useCallback((e: MouseEvent, path: string, isFolder: boolean) => {
@@ -203,6 +216,16 @@ export function MainApp({ onLock }: Props) {
           </div>
         </div>
         <div class="app-header-right">
+          <button
+            class="btn btn-ghost btn-sm"
+            onClick={() => session.getCachedPrivateKey() ? session.clearPrivateKey() : setShowUnlockKey(true)}
+            title={session.getCachedPrivateKey() ? 'PGP key unlocked — click to lock' : 'PGP key locked — click to unlock'}
+          >
+            <KeyRound
+              size={16}
+              style={{ color: session.getCachedPrivateKey() ? 'var(--success)' : 'var(--text-muted)' }}
+            />
+          </button>
           <button class="btn btn-ghost btn-sm" onClick={() => setShowEncrypt(true)} title="Encrypt/Decrypt">
             <Lock size={16} />
           </button>
@@ -463,6 +486,18 @@ export function MainApp({ onLock }: Props) {
       )}
       {showSettings && (
         <SettingsModal onClose={() => setShowSettings(false)} onLock={onLock} onEntriesChanged={loadEntries} />
+      )}
+      {showFolderModal && (
+        <FolderNameModal
+          onCancel={() => setShowFolderModal(false)}
+          onConfirm={handleFolderConfirm}
+        />
+      )}
+      {showUnlockKey && (
+        <UnlockKeyModal
+          onClose={() => setShowUnlockKey(false)}
+          onUnlocked={() => setShowUnlockKey(false)}
+        />
       )}
     </div>
   );

@@ -104,6 +104,12 @@ class Session {
 
   setCachedPrivateKey(key: PrivateKey): void {
     this._privateKey = key;
+    this._notify();
+  }
+
+  clearPrivateKey(): void {
+    this._privateKey = null;
+    this._notify();
   }
 
   clear() {
