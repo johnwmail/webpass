@@ -12,13 +12,50 @@ class Session {
   publicKey: string | null = null;
   private _privateKey: PrivateKey | null = null;
   private _listeners: Set<() => void> = new Set();
+  private _keyTimeoutMs: number = 300000; // default 300s
+  private _keyTimer: ReturnType<typeof setTimeout> | null = null;
+  private _keyExpiresAt: number | null = null; // epoch ms when key auto-lock fires
 
   constructor() {
-    // Restore session from sessionStorage on init (only non-sensitive metadata)
     this._restore();
   }
 
+  /** Override auto-lock timeout (for testing). Resets current timer if key is unlocked. */
+  setKeyTimeout(seconds: number): void {
+    this._keyTimeoutMs = seconds * 1000;
+    if (this._privateKey) {
+      this._resetKeyTimer();
+      this._notify();
+    }
+  }
+
+  /** Seconds remaining before PGP key auto-locks (0 = locked) */
+  keyRemainingSeconds(): number {
+    if (!this._privateKey || this._keyExpiresAt === null) return 0;
+    return Math.max(0, Math.round((this._keyExpiresAt - Date.now()) / 1000));
+  }
+
+  private _resetKeyTimer(): void {
+    this._clearKeyTimer();
+    if (!this._privateKey) return;
+    this._keyExpiresAt = Date.now() + this._keyTimeoutMs;
+    this._keyTimer = setTimeout(() => {
+      this._privateKey = null;
+      this._keyExpiresAt = null;
+      this._notify();
+    }, this._keyTimeoutMs);
+  }
+
+  private _clearKeyTimer(): void {
+    if (this._keyTimer !== null) {
+      clearTimeout(this._keyTimer);
+      this._keyTimer = null;
+    }
+    this._keyExpiresAt = null;
+  }
+
   private _restore() {
+    if (typeof sessionStorage === 'undefined') return;
     try {
       const stored = sessionStorage.getItem(STORAGE_KEY);
       if (stored) {
@@ -42,6 +79,7 @@ class Session {
   }
 
   private _persist() {
+    if (typeof sessionStorage === 'undefined') return;
     try {
       const state = this.getState();
       // Only store non-sensitive metadata (fingerprint, publicKey, apiUrl)
@@ -99,16 +137,20 @@ class Session {
   }
 
   getCachedPrivateKey(): PrivateKey | null {
+    // Reset timer on activity — key is being used
+    if (this._privateKey) this._resetKeyTimer();
     return this._privateKey;
   }
 
   setCachedPrivateKey(key: PrivateKey): void {
     this._privateKey = key;
+    this._resetKeyTimer();
     this._notify();
   }
 
   clearPrivateKey(): void {
     this._privateKey = null;
+    this._clearKeyTimer();
     this._notify();
   }
 
@@ -119,7 +161,10 @@ class Session {
     this.expiresAt = null;
     this.publicKey = null;
     this._privateKey = null;
-    sessionStorage.removeItem(STORAGE_KEY);
+    this._clearKeyTimer();
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem(STORAGE_KEY);
+    }
     this._notify();
   }
 
@@ -144,3 +189,4 @@ class Session {
 }
 
 export const session = new Session();
+export { Session };

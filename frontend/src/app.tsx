@@ -4,6 +4,11 @@ import { Setup } from './components/Setup';
 import { MainApp } from './components/MainApp';
 import { session } from './lib/session';
 
+// Expose session for E2E tests (e.g. to override auto-lock timeout)
+if (typeof window !== 'undefined') {
+  (window as any).__webpass = { session };
+}
+
 type Route = 'welcome' | 'setup' | 'main';
 
 export function App() {
