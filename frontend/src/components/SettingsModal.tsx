@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'preact/hooks';
 import { session } from '../lib/session';
 import { getAccount, deleteAccount as deleteAccountFromDB, saveAccount, aesDecrypt, aesEncrypt } from '../lib/storage';
-import { decryptPAT } from '../lib/crypto';
+import { decryptPAT, decryptPrivateKey } from '../lib/crypto';
 import QRCode from 'qrcode';
 import { GitSync } from './GitSync';
 import { ImportDialog } from './ImportDialog';
@@ -333,11 +333,12 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
     setDeleteLoading(true);
     setError('');
     try {
-      // Verify passphrase by attempting to get account
+      // Verify PGP passphrase by attempting to decrypt private key
       const account = await getAccount(fp);
       if (!account) {
         throw new Error('Account not found');
       }
+      await decryptPrivateKey(account.privateKey, deletePassphrase);
       // Delete from IndexedDB
       await deleteAccountFromDB(fp);
       setSuccess('Local data cleared');
@@ -361,11 +362,12 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
     setDeleteLoading(true);
     setError('');
     try {
-      // Verify passphrase by attempting to get account
+      // Verify PGP passphrase by attempting to decrypt private key
       const account = await getAccount(fp);
       if (!account) {
         throw new Error('Account not found');
       }
+      await decryptPrivateKey(account.privateKey, deletePassphrase);
       // Call backend to delete account
       if (session.api) {
         await session.api.deleteAccount();
