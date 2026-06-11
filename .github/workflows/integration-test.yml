@@ -56,7 +56,9 @@ jobs:
         run: cd frontend && npm run build
 
       - name: Install Playwright browsers
-        run: cd frontend && npx playwright install --with-deps chromium
+        uses: playwright-community/playwright-github-action@v2
+        with:
+          browsers: chromium
 
       # =============================================================================
       # Phase 0: Rate limit tests with DEFAULT limits (5 attempts / 15 min)
