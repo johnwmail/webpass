@@ -3,12 +3,8 @@ name: Integration Tests
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - '.qwen/**'
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '.qwen/**'
   workflow_dispatch:
 
 jobs:
@@ -36,7 +32,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '24'
+          node-version: '24.15.0'
 
       - name: Cache node modules
         uses: actions/cache@v5
