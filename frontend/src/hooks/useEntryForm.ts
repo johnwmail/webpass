@@ -49,10 +49,15 @@ export function useEntryForm(
     try {
       const fp = session.fingerprint;
       if (!fp || !session.api) throw new Error('Not logged in');
-      const account = await getAccount(fp);
-      if (!account) throw new Error('Account not found');
 
-      const privateKey = await decryptPrivateKey(account.privateKey, passphrase);
+      let privateKey = session.getCachedPrivateKey();
+      if (!privateKey) {
+        const account = await getAccount(fp);
+        if (!account) throw new Error('Account not found');
+        privateKey = await decryptPrivateKey(account.privateKey, passphrase);
+        session.setCachedPrivateKey(privateKey);
+      }
+
       const encrypted = await session.api.getEntry(editPath);
       const decrypted = await decryptBinary(encrypted, privateKey);
       const lines = decrypted.split('\n');

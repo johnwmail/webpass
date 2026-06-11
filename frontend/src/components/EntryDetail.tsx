@@ -3,6 +3,7 @@ import { useEntry } from '../hooks/useEntry';
 import { PassphrasePrompt } from './PassphrasePrompt';
 import { ReencryptDialog } from './ReencryptDialog';
 import { OTPDisplay } from './OTPDisplay';
+import { session } from '../lib/session';
 import { Lock, Eye, EyeOff, Copy, Check, Edit2, Trash2 } from 'lucide-preact';
 import { useAutoHide } from '../hooks/useAutoHide';
 
@@ -28,8 +29,12 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
   const notesVisibility = useAutoHide(15000);
 
   const handleDecryptClick = useCallback(() => {
-    setShowPassphrasePrompt(true);
-  }, []);
+    if (session.getCachedPrivateKey()) {
+      handleDecrypt('');
+    } else {
+      setShowPassphrasePrompt(true);
+    }
+  }, [handleDecrypt]);
 
   const handlePassphraseSubmit = useCallback(async (passphrase: string) => {
     setShowPassphrasePrompt(false);

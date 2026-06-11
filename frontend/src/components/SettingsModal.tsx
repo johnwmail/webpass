@@ -168,16 +168,17 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
       const config = await session.api.getGitConfig();
       if (!config.encrypted_pat) return null;
       
-      // Get account to decrypt PAT
-      const account = await getAccount(fp);
-      if (!account) return null;
+      let decryptedKey = session.getCachedPrivateKey();
+      if (!decryptedKey) {
+        const account = await getAccount(fp);
+        if (!account) return null;
+        
+        const openpgp = await import('openpgp');
+        const privateKey = await openpgp.readPrivateKey({ armoredKey: account.privateKey });
+        decryptedKey = await openpgp.decryptKey({ privateKey, passphrase });
+        session.setCachedPrivateKey(decryptedKey);
+      }
       
-      // Decrypt private key
-      const openpgp = await import('openpgp');
-      const privateKey = await openpgp.readPrivateKey({ armoredKey: account.privateKey });
-      const decryptedKey = await openpgp.decryptKey({ privateKey, passphrase });
-      
-      // Decrypt PAT
       const decryptedPAT = await decryptPAT(config.encrypted_pat, decryptedKey);
       return decryptedPAT;
     } catch (e: any) {
