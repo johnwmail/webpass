@@ -303,8 +303,12 @@ export function MainApp({ onLock }: Props) {
           </div>
           <div class="sidebar-tree">
             {loading ? (
-              <div class="loading">
-                <span class="spinner" /> Loading...
+              <div style="padding: 12px;">
+                <div class="skeleton skeleton-text" style="width: 60%" />
+                <div class="skeleton skeleton-text" style="width: 45%" />
+                <div class="skeleton skeleton-text" style="width: 70%" />
+                <div class="skeleton skeleton-text" style="width: 50%" />
+                <div class="skeleton skeleton-text" style="width: 65%" />
               </div>
             ) : loadError ? (
               <div class="sidebar-load-error">
