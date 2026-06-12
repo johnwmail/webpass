@@ -4,6 +4,8 @@ export class ApiClient {
   baseUrl: string;
   token: string | null = null; // Kept for backward compatibility, not used for auth
   fingerprint: string = '';
+  /** Set to true once the session is fully activated (user logged in). */
+  authenticated = false;
   private csrfToken: string | null = null;
   private _sessionExpiredDispatched = false;
 
@@ -62,20 +64,17 @@ export class ApiClient {
 
   /**
    * Wrap a fetch call to handle 401 session expiry.
-   * On 401, clears the session and dispatches a 'session-expired' event
-   * so the app redirects to login.
-   * Note: `session` is imported lazily to avoid circular dependency with session.ts.
+   * When this.authenticated is true, a 401 response dispatches
+   * a 'session-expired' event so the app redirects to login.
+   * Login/2FA failures also return 401 but authenticated is false,
+   * so they are handled by the caller without dispatching expiry.
    */
   private async guardedFetch(url: string, init: RequestInit): Promise<Response> {
     const res = await fetch(url, init);
     if (res.status === 401) {
-      const { session } = await import('./session');
-      // Only treat 401 as session expiry when the user was already logged in.
-      // Login/2FA failures also return 401 and must be handled by the caller.
-      if (session.isActive()) {
+      if (this.authenticated) {
         if (!this._sessionExpiredDispatched) {
           this._sessionExpiredDispatched = true;
-          session.clear();
           window.dispatchEvent(new CustomEvent('session-expired'));
         }
         throw new Error('Session expired');
