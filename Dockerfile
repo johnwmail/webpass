@@ -36,7 +36,12 @@ RUN sed -i "s|content=\"vdev\"|content=\"$FRONTEND_VERSION\"|g" /app/frontend/di
     && sed -i "s|name=\"build-time\" content=\"unknown\"|name=\"build-time\" content=\"$FRONTEND_BUILD_TIME\"|g" /app/frontend/dist/index.html \
     && sed -i "s|name=\"build-commit\" content=\"unknown\"|name=\"build-commit\" content=\"$FRONTEND_COMMIT\"|g" /app/frontend/dist/index.html \
     && sed -i "s|index-\\([^.]*\\)\\.js|index-\\1.js?v=$FRONTEND_BUILD_TIME|g" /app/frontend/dist/index.html \
-    && sed -i "s|index-\\([^.]*\\)\\.css|index-\\1.css?v=$FRONTEND_BUILD_TIME|g" /app/frontend/dist/index.html || true
+    && sed -i "s|index-\\([^.]*\\)\\.css|index-\\1.css?v=$FRONTEND_BUILD_TIME|g" /app/frontend/dist/index.html \
+    && OPENPGP_FILE=$(ls /app/frontend/dist/assets/openpgp*.js 2>/dev/null | head -1 | xargs basename) \
+    && [ -n "$OPENPGP_FILE" ] \
+    && grep -q "modulepreload.*$OPENPGP_FILE" /app/frontend/dist/index.html \
+    || sed -i "s|</head>|<link rel=\"modulepreload\" crossorigin href=\"/assets/$OPENPGP_FILE\"></head>|" /app/frontend/dist/index.html \
+    || true
 
 
 # ============================================

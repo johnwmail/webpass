@@ -1742,6 +1742,16 @@ body {
   border-radius: 50%;
 }
 
+.route-view {
+  animation: routeFadeIn 200ms ease;
+  will-change: opacity, transform;
+}
+
+@keyframes routeFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .route-loading {
   min-height: 100vh;
   display: flex;

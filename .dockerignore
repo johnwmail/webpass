@@ -11,7 +11,8 @@ docs/
 frontend/node_modules
 frontend/*.ts
 frontend/*.tsx
-frontend/vite.config.ts
+# frontend/vite.config.ts was previously excluded to prevent manualChunks
+# from separating route chunks. Now using static imports, so config is needed.
 frontend/wrangler.toml
 
 # Go source (built in container)

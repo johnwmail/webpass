@@ -1,39 +1,21 @@
 import { useState, useEffect, useCallback } from 'preact/hooks';
-import { createElement } from 'preact';
-import type { ComponentType } from 'preact';
 import { session } from './lib/session';
-import './diag';
+import { Welcome } from './components/Welcome';
+import { Setup } from './components/Setup';
+import { MainApp } from './components/MainApp';
 
 // Expose session for E2E tests (e.g. to override auto-lock timeout)
 if (typeof window !== 'undefined') {
   (window as any).__webpass = { session };
 }
 
-function RouteFallback() {
-  return (
-    <div class="route-loading">
-      <span class="spinner" /> Loading...
-    </div>
-  );
-}
-
 type Route = 'welcome' | 'setup' | 'main';
-type Comp = ComponentType<any> | null;
 
 export function App() {
   const [route, setRoute] = useState<Route>(
     session.isActive() ? 'main' : 'welcome'
   );
-  const [Welcome, setWelcome] = useState<Comp>(null);
-  const [Setup, setSetup] = useState<Comp>(null);
-  const [Main, setMain] = useState<Comp>(null);
   const [, setTick] = useState(0);
-
-  useEffect(() => {
-    import('./components/Welcome').then((m) => setWelcome(() => m.Welcome));
-    import('./components/Setup').then((m) => setSetup(() => m.Setup));
-    import('./components/MainApp').then((m) => setMain(() => m.MainApp));
-  }, []);
 
   useEffect(() => {
     return session.subscribe(() => setTick((t) => t + 1));
@@ -58,19 +40,12 @@ export function App() {
   }, [goToWelcome]);
 
   if (route === 'setup') {
-    if (!Setup) return <RouteFallback />;
-    return createElement(Setup, {
-      onComplete: goToWelcome,
-      onCancel: goToWelcome,
-      onAuthenticated: goToMain,
-    });
+    return <div class="route-view"><Setup onComplete={goToWelcome} onCancel={goToWelcome} onAuthenticated={goToMain} /></div>;
   }
 
   if (route === 'main' && session.isActive()) {
-    if (!Main) return <RouteFallback />;
-    return createElement(Main, { onLock: goToWelcome });
+    return <div class="route-view"><MainApp onLock={goToWelcome} /></div>;
   }
 
-  if (!Welcome) return <RouteFallback />;
-  return createElement(Welcome, { onSetup: goToSetup, onLogin: goToMain });
+  return <div class="route-view"><Welcome onSetup={goToSetup} onLogin={goToMain} /></div>;
 }

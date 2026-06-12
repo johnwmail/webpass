@@ -161,9 +161,10 @@ export function Welcome({ onSetup, onLogin }: Props) {
             )}
 
             {loadingAccounts ? (
-              <div class="loading">
-                <span class="spinner" />
-                Loading accounts...
+              <div class="field">
+                <div class="skeleton skeleton-title" style="width: 40%" />
+                <div class="skeleton skeleton-text" style="width: 100%" />
+                <div class="skeleton skeleton-text" style="width: 85%" />
               </div>
             ) : accounts.length === 0 ? (
               <div style="text-align: center; padding: 24px 0; color: var(--text-muted);">
