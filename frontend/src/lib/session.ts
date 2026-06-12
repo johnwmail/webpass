@@ -66,6 +66,7 @@ class Session {
           this.publicKey = state.publicKey;
           this.api = new ApiClient(state.apiUrl);
           this.api.fingerprint = state.fingerprint;
+          this.api.authenticated = true;
           // Restore expiry so timer survives page refreshes
           this.expiresAt = state.expiresAt ?? null;
           // Token will be read from cookie by the browser automatically
@@ -129,6 +130,7 @@ class Session {
     this.api = new ApiClient(opts.apiUrl);
     this.api.fingerprint = opts.fingerprint;
     this.api.token = opts.token; // Set token on API client for Authorization header
+    this.api.authenticated = true;
     // Parse expiry from JWT token so the timer can show countdown
     this.expiresAt = this._parseJwtExpiry(opts.token);
     // Token is now in httpOnly cookie - don't store it in sessionStorage
