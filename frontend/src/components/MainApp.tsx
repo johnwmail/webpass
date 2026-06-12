@@ -30,6 +30,15 @@ interface ContextMenu {
   isFolder: boolean;
 }
 
+function MobileBackButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button class="btn btn-ghost btn-sm mobile-back-btn" onClick={onClick}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
+      Back
+    </button>
+  );
+}
+
 export function MainApp({ onLock }: Props) {
   const [entries, setEntries] = useState<EntryMeta[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -46,6 +55,7 @@ export function MainApp({ onLock }: Props) {
   const [rightPanel, setRightPanel] = useState<RightPanel>({ type: 'empty' });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
 
   const [showGenerator, setShowGenerator] = useState(false);
@@ -62,14 +72,17 @@ export function MainApp({ onLock }: Props) {
 
   const [deleteConfirmPath, setDeleteConfirmPath] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
-  const loadEntries = useCallback(async () => {
+  const loadEntries = useCallback(async (retry = false) => {
     if (!session.api) return;
+    if (retry) setLoading(true);
+    setLoadError(null);
     try {
       const list = await session.api.listEntries();
       setEntries(list);
-    } catch {
-      // ignore
+    } catch (e: any) {
+      setLoadError(e?.message || 'Failed to load entries');
     }
     setLoading(false);
   }, []);
@@ -183,12 +196,14 @@ export function MainApp({ onLock }: Props) {
   };
 
   const handleDeleteEntry = async (path: string) => {
+    setDeleteError('');
     setDeleteConfirmPath(path);
   };
 
   const confirmDeleteEntry = async () => {
     if (!deleteConfirmPath || !session.api) return;
     setDeleteLoading(true);
+    setDeleteError('');
     try {
       await session.api.deleteEntry(deleteConfirmPath);
       if (selectedPath === deleteConfirmPath) {
@@ -198,7 +213,9 @@ export function MainApp({ onLock }: Props) {
       setDeleteConfirmPath(null);
       await loadEntries();
     } catch (e: any) {
-      // Ignore error
+      setDeleteError(e?.message || 'Failed to delete entry');
+      setDeleteLoading(false);
+      return;
     }
     setDeleteLoading(false);
   };
@@ -289,6 +306,11 @@ export function MainApp({ onLock }: Props) {
               <div class="loading">
                 <span class="spinner" /> Loading...
               </div>
+            ) : loadError ? (
+              <div class="sidebar-load-error">
+                <p class="error-msg">{loadError}</p>
+                <button class="btn btn-sm" onClick={() => loadEntries(true)}>Retry</button>
+              </div>
             ) : (
               <TreeView
                 entries={entries}
@@ -323,10 +345,7 @@ export function MainApp({ onLock }: Props) {
           )}
           {rightPanel.type === 'detail' && (
             <>
-              <button class="btn btn-ghost btn-sm mobile-back-btn" onClick={() => setRightPanel({ type: 'empty' })}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
-                Back
-              </button>
+              <MobileBackButton onClick={() => setRightPanel({ type: 'empty' })} />
               <EntryDetail
                 key={rightPanel.path}
                 path={rightPanel.path}
@@ -336,21 +355,27 @@ export function MainApp({ onLock }: Props) {
             </>
           )}
           {rightPanel.type === 'new' && (
-            <EntryForm
-              editPath={null}
-              folderPrefix={rightPanel.folderPrefix}
-              onSave={handleEntrySaved}
-              onCancel={() => setRightPanel({ type: 'empty' })}
-            />
+            <>
+              <MobileBackButton onClick={() => setRightPanel({ type: 'empty' })} />
+              <EntryForm
+                editPath={null}
+                folderPrefix={rightPanel.folderPrefix}
+                onSave={handleEntrySaved}
+                onCancel={() => setRightPanel({ type: 'empty' })}
+              />
+            </>
           )}
           {rightPanel.type === 'edit' && (
-            <EntryForm
-              key={rightPanel.path}
-              editPath={rightPanel.path}
-              folderPrefix=""
-              onSave={handleEntrySaved}
-              onCancel={() => setRightPanel({ type: 'detail', path: rightPanel.path })}
-            />
+            <>
+              <MobileBackButton onClick={() => setRightPanel({ type: 'detail', path: rightPanel.path })} />
+              <EntryForm
+                key={rightPanel.path}
+                editPath={rightPanel.path}
+                folderPrefix=""
+                onSave={handleEntrySaved}
+                onCancel={() => setRightPanel({ type: 'detail', path: rightPanel.path })}
+              />
+            </>
           )}
         </main>
       </div>
@@ -460,15 +485,16 @@ export function MainApp({ onLock }: Props) {
 
       {/* Delete confirmation dialog */}
       {deleteConfirmPath && (
-        <div class="modal-overlay" onClick={() => setDeleteConfirmPath(null)}>
+        <div class="modal-overlay" onClick={() => { setDeleteConfirmPath(null); setDeleteError(''); }}>
           <div class="modal" style="max-width: 400px;" onClick={(e) => e.stopPropagation()}>
             <div class="modal-header">
               <h2>🗑️ Delete Entry</h2>
-              <button class="btn btn-ghost btn-icon" onClick={() => setDeleteConfirmPath(null)}>
+              <button class="btn btn-ghost btn-icon" onClick={() => { setDeleteConfirmPath(null); setDeleteError(''); }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
               </button>
             </div>
             <div class="modal-body">
+              {deleteError && <p class="error-msg">{deleteError}</p>}
               <p style="margin-bottom: 16px; font-size: 14px; color: var(--text-muted);">
                 Are you sure you want to delete this entry?
               </p>
@@ -489,7 +515,7 @@ export function MainApp({ onLock }: Props) {
             <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 12px;">
               <button
                 class="btn btn-ghost"
-                onClick={() => setDeleteConfirmPath(null)}
+                onClick={() => { setDeleteConfirmPath(null); setDeleteError(''); }}
                 disabled={deleteLoading}
               >
                 Cancel

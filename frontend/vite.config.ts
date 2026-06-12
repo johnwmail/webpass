@@ -18,6 +18,26 @@ export default defineConfig(({ mode }) => {
       esbuild: {
         drop: [], // Don't drop console or debugger
       },
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules/openpgp')) {
+              return 'openpgp';
+            }
+            if (id.includes('node_modules/qrcode')) {
+              return 'qrcode';
+            }
+            if (
+              id.includes('node_modules/preact') ||
+              id.includes('node_modules/lucide-preact') ||
+              id.includes('node_modules/otpauth') ||
+              id.includes('node_modules/fflate')
+            ) {
+              return 'vendor';
+            }
+          },
+        },
+      },
     },
     server: {
       port: 3000,
