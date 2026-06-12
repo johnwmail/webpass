@@ -21,13 +21,6 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           manualChunks(id) {
-            if (
-              id.includes('/src/lib/session') ||
-              id.includes('/src/lib/api') ||
-              id.includes('/src/lib/storage')
-            ) {
-              return 'core';
-            }
             if (id.includes('node_modules/openpgp')) {
               return 'openpgp';
             }
