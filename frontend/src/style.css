@@ -1742,6 +1742,27 @@ body {
   border-radius: 50%;
 }
 
+.route-loading {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-muted);
+}
+
+.sidebar-load-error {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 16px;
+}
+
+.sidebar-load-error .error-msg {
+  margin-top: 0;
+}
+
 /* ==========================================================================
    Mobile Responsive
    ========================================================================== */

@@ -69,17 +69,21 @@ export class ApiClient {
   private async guardedFetch(url: string, init: RequestInit): Promise<Response> {
     const res = await fetch(url, init);
     if (res.status === 401) {
-      // Only dispatch once per session to avoid cascading redirects
-      if (!this._sessionExpiredDispatched) {
-        this._sessionExpiredDispatched = true;
-        const { session } = await import('./session');
-        session.clear();
-        window.dispatchEvent(new CustomEvent('session-expired'));
+      const { session } = await import('./session');
+      // Only treat 401 as session expiry when the user was already logged in.
+      // Login/2FA failures also return 401 and must be handled by the caller.
+      if (session.isActive()) {
+        if (!this._sessionExpiredDispatched) {
+          this._sessionExpiredDispatched = true;
+          session.clear();
+          window.dispatchEvent(new CustomEvent('session-expired'));
+        }
+        throw new Error('Session expired');
       }
-      throw new Error('Session expired');
+    } else {
+      // Reset the flag on successful authenticated request
+      this._sessionExpiredDispatched = false;
     }
-    // Reset the flag on successful authenticated request
-    this._sessionExpiredDispatched = false;
     return res;
   }
 

@@ -24,7 +24,6 @@
     "openpgp": "^6.3.0",
     "otpauth": "^9.3.2",
     "preact": "^10.25.4",
-    "preact-router": "^4.1.2",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {

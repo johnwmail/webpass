@@ -1,4 +1,15 @@
-import * as openpgp from 'openpgp';
+import type { PrivateKey } from 'openpgp';
+
+export type { PrivateKey };
+
+let openpgpLoad: Promise<typeof import('openpgp')> | null = null;
+
+async function getOpenPGP() {
+  if (!openpgpLoad) {
+    openpgpLoad = import('openpgp');
+  }
+  return openpgpLoad;
+}
 
 /** Generate new ECC Curve25519 keypair with passphrase */
 export async function generateKeyPair(passphrase: string): Promise<{
@@ -6,6 +17,7 @@ export async function generateKeyPair(passphrase: string): Promise<{
   privateKey: string;
   fingerprint: string;
 }> {
+  const openpgp = await getOpenPGP();
   const { privateKey, publicKey } = await openpgp.generateKey({
     type: 'ecc',
     curve: 'curve25519Legacy',  // openpgp v6 renamed curve25519 to curve25519Legacy
@@ -22,6 +34,7 @@ export async function generateKeyPair(passphrase: string): Promise<{
 
 /** Read fingerprint from armored public key */
 export async function getFingerprint(armoredPublicKey: string): Promise<string> {
+  const openpgp = await getOpenPGP();
   const key = await openpgp.readKey({ armoredKey: armoredPublicKey });
   return key.getFingerprint().toUpperCase();
 }
@@ -30,8 +43,9 @@ export async function getFingerprint(armoredPublicKey: string): Promise<string> 
 export async function decryptPrivateKey(
   keyData: string | Uint8Array,
   passphrase: string
-): Promise<openpgp.PrivateKey> {
-  let privateKey: openpgp.PrivateKey;
+): Promise<PrivateKey> {
+  const openpgp = await getOpenPGP();
+  let privateKey: PrivateKey;
 
   // Auto-detect format: armored text or binary
   if (typeof keyData === 'string') {
@@ -58,8 +72,9 @@ export async function decryptPrivateKey(
 export async function importPrivateKey(
   keyData: string | Uint8Array,
   passphrase: string
-): Promise<openpgp.PrivateKey> {
-  let privateKey: openpgp.PrivateKey;
+): Promise<PrivateKey> {
+  const openpgp = await getOpenPGP();
+  let privateKey: PrivateKey;
 
   // Auto-detect format: armored text or binary
   if (typeof keyData === 'string') {
@@ -101,6 +116,7 @@ export async function encryptText(
   text: string,
   publicKeyArmored: string
 ): Promise<string> {
+  const openpgp = await getOpenPGP();
   const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
   const message = await openpgp.createMessage({ text });
   const encrypted = await openpgp.encrypt({
@@ -114,8 +130,9 @@ export async function encryptText(
 /** Decrypt armored PGP message with decrypted private key */
 export async function decryptMessage(
   encrypted: string | Uint8Array,
-  privateKey: openpgp.PrivateKey
+  privateKey: PrivateKey
 ): Promise<string> {
+  const openpgp = await getOpenPGP();
   if (typeof encrypted === 'string') {
     const message = await openpgp.readMessage({ armoredMessage: encrypted });
     const { data } = await openpgp.decrypt({
@@ -139,6 +156,7 @@ export async function encryptBinary(
   text: string,
   publicKeyArmored: string
 ): Promise<Uint8Array> {
+  const openpgp = await getOpenPGP();
   const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
   const message = await openpgp.createMessage({ text });
   const encrypted = await openpgp.encrypt({
@@ -163,8 +181,9 @@ export class WrongKeyError extends Error {
 /** Decrypt binary PGP message */
 export async function decryptBinary(
   encrypted: Uint8Array,
-  privateKey: openpgp.PrivateKey
+  privateKey: PrivateKey
 ): Promise<string> {
+  const openpgp = await getOpenPGP();
   try {
     const message = await openpgp.readMessage({ binaryMessage: encrypted });
     const { data } = await openpgp.decrypt({
@@ -299,7 +318,7 @@ export async function encryptPAT(
  */
 export async function decryptPAT(
   encryptedBlob: string,
-  privateKey: openpgp.PrivateKey
+  privateKey: PrivateKey
 ): Promise<string> {
   return await decryptMessage(encryptedBlob, privateKey);
 }
