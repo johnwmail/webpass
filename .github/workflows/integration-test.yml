@@ -60,7 +60,7 @@ jobs:
       - name: Phase 0 - Rate Limit Tests (Default Limits)
         run: cd frontend && npx playwright test tests/e2e/ratelimit.spec.ts
         env:
-          TEST_BASE_URL: http://localhost:8080
+          TEST_BASE_URL: http://localhost:18080
           JWT_SECRET: "test-secret-key-32-bytes-long!!!"
           DB_PATH: /tmp/webpass-test-ratelimit.db
           STATIC_DIR: frontend/dist
@@ -80,7 +80,7 @@ jobs:
       - name: Phase 1 - All Tests (Protected Mode, No Registration)
         run: cd frontend && npx playwright test --grep-invert "Registration|Rate Limiting"
         env:
-          TEST_BASE_URL: http://localhost:8080
+          TEST_BASE_URL: http://localhost:18080
           JWT_SECRET: "test-secret-key-32-bytes-long!!!"
           DB_PATH: /tmp/webpass-test-protected.db
           STATIC_DIR: frontend/dist
@@ -107,7 +107,7 @@ jobs:
           sleep 3
           cd frontend && npx playwright test tests/e2e/registration-open.spec.ts
         env:
-          TEST_BASE_URL: http://localhost:8080
+          TEST_BASE_URL: http://localhost:18080
           JWT_SECRET: "test-secret-key-32-bytes-long!!!"
           DB_PATH: /tmp/webpass-test-open.db
           STATIC_DIR: frontend/dist
@@ -132,7 +132,7 @@ jobs:
           sleep 3
           cd frontend && npx playwright test tests/e2e/registration-protected.spec.ts
         env:
-          TEST_BASE_URL: http://localhost:8080
+          TEST_BASE_URL: http://localhost:18080
           JWT_SECRET: "test-secret-key-32-bytes-long!!!"
           DB_PATH: /tmp/webpass-test-protected2.db
           STATIC_DIR: frontend/dist
@@ -159,7 +159,7 @@ jobs:
           sleep 3
           cd frontend && npx playwright test tests/e2e/registration-disabled.spec.ts
         env:
-          TEST_BASE_URL: http://localhost:8080
+          TEST_BASE_URL: http://localhost:18080
           JWT_SECRET: "test-secret-key-32-bytes-long!!!"
           DB_PATH: /tmp/webpass-test-disabled.db
           STATIC_DIR: frontend/dist
