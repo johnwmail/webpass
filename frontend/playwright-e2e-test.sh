@@ -104,22 +104,6 @@ trap cleanup EXIT INT TERM HUP
 
 cd "$ROOT_DIR"
 
-# Kill any existing webpass server on port 8080/8000 to avoid conflicts
-log_info "Checking for existing servers..."
-for port in 8080 8000; do
-    pid=$(lsof -ti:$port 2>/dev/null || true)
-    if [ -n "$pid" ]; then
-        log_warn "Killing process on port $port (PID: $pid)"
-        kill -9 $pid 2>/dev/null || true
-        sleep 1
-    fi
-done
-# Kill specific server binaries (not using -f pattern to avoid killing ourselves)
-kill -9 $(pgrep -x "webpass-server" 2>/dev/null) 2>/dev/null || true
-kill -9 $(pgrep -x "webpass" 2>/dev/null) 2>/dev/null || true
-sleep 1
-log_info "Port cleanup complete"
-
 # Check if Go is available
 if ! command -v go &> /dev/null; then
     log_error "Go is not installed. Please install Go 1.26+"

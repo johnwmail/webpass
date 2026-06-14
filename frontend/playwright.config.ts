@@ -12,7 +12,7 @@ export default defineConfig({
     ['list'],
   ],
   use: {
-    baseURL: process.env.TEST_BASE_URL || 'http://localhost:8080',
+    baseURL: process.env.TEST_BASE_URL || 'http://localhost:18080',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -26,10 +26,11 @@ export default defineConfig({
   ],
   webServer: process.env.TEST_SKIP_WEBSERVER === 'true' ? undefined : {
     command: 'go run ../cmd/srv',
-    url: 'http://localhost:8080',
+    url: 'http://localhost:18080',
     timeout: 120 * 1000,
     reuseExistingServer: true,
     env: {
+      PORT: '18080',
       JWT_SECRET: process.env.JWT_SECRET || 'test-secret-key-32-bytes-long!!!',
       DB_PATH: process.env.DB_PATH || ':memory:',
       DISABLE_FRONTEND: 'false',
