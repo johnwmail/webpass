@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'preact/hooks';
+import { useState, useCallback, useEffect } from 'preact/hooks';
 import { useEntry } from '../hooks/useEntry';
 import { PassphrasePrompt } from './PassphrasePrompt';
 import { ReencryptDialog } from './ReencryptDialog';
@@ -27,6 +27,12 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
   
   const passwordVisibility = useAutoHide(15);
   const notesVisibility = useAutoHide(15);
+
+  useEffect(() => {
+    if (!state.content && !state.decrypting && session.getCachedPrivateKey()) {
+      handleDecrypt('');
+    }
+  }, [path]);
 
   const handleDecryptClick = useCallback(() => {
     if (session.getCachedPrivateKey()) {
