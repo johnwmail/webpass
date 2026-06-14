@@ -1160,8 +1160,11 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 			if err := os.RemoveAll(repoPath); err != nil {
 				slog.Error("delete git repo", "error", err)
 			}
+			slog.Info("Permanently Delete Account: git repo removed from disk", "fingerprint", fp)
 		}
 	}
+
+	slog.Info("Permanently Delete Account: user and entries removed from database", "fingerprint", fp)
 
 	w.WriteHeader(http.StatusNoContent)
 }
