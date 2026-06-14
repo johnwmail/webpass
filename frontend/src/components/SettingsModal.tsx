@@ -341,6 +341,7 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
       await decryptPrivateKey(account.privateKey, deletePassphrase);
       // Delete from IndexedDB
       await deleteAccountFromDB(fp);
+      console.info('Clear Local Data: account removed from IndexedDB and sessionStorage', 'fingerprint', fp, 'label', account.label || '(unnamed)');
       setSuccess('Local data cleared');
       setShowDeletePrompt(null);
       setDeletePassphrase('');
@@ -374,6 +375,7 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
       }
       // Delete from IndexedDB
       await deleteAccountFromDB(fp);
+      console.info('Permanently Delete Account: server DB + IndexedDB + sessionStorage cleared', 'fingerprint', fp, 'label', account.label || '(unnamed)');
       setSuccess('Account permanently deleted');
       setShowDeletePrompt(null);
       setDeletePassphrase('');
