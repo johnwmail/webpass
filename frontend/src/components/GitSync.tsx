@@ -79,14 +79,8 @@ export function GitSync({ onClose, onSuccess }: Props) {
 
   const fp = session.fingerprint || '';
 
-  const detectAuthType = (url: string): string => {
-    if (url.startsWith('git@') || url.startsWith('ssh://')) return 'ssh';
-    return 'https';
-  };
-
   const handleUrlChange = (url: string) => {
     setRepoUrl(url);
-    setAuthType(detectAuthType(url));
   };
 
   const formatTime = (iso?: string) => {
@@ -102,7 +96,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
       setStatus({...s});
       if (s.configured && s.repo_url) {
         setRepoUrl(s.repo_url);
-        setAuthType(s.auth_type || detectAuthType(s.repo_url));
+        setAuthType(s.auth_type || 'https');
       }
 
       // Fetch encrypted credentials from config endpoint
@@ -488,26 +482,40 @@ export function GitSync({ onClose, onSuccess }: Props) {
               <h3>Configure Git Sync</h3>
               <p class="help-text" style="margin-bottom: 16px;">
                 Sync your password store to a private Git repository.
-                Auth method is auto-detected from the URL.
               </p>
 
               <div class="input-group" style="flex-direction: column; gap: 12px;">
+                {/* Auth type tabs */}
+                <div style="display: flex; gap: 0; margin-bottom: 8px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border);">
+                  <button
+                    class={authType === 'https' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+                    onClick={() => setAuthType('https')}
+                    style={{ borderRadius: 0, flex: 1 }}
+                    data-testid="git-auth-https-tab"
+                  >
+                    🔐 HTTPS
+                  </button>
+                  <button
+                    class={authType === 'ssh' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+                    onClick={() => setAuthType('ssh')}
+                    style={{ borderRadius: 0, flex: 1 }}
+                    data-testid="git-auth-ssh-tab"
+                  >
+                    🔑 SSH
+                  </button>
+                </div>
+
                 <div>
                   <label class="label-text">Repository URL</label>
                   <input
                     class="input"
                     type="url"
-                    placeholder="https://github.com/user/private-repo.git"
+                    placeholder={authType === 'https' ? 'https://github.com/user/private-repo.git' : 'git@github.com:user/private-repo.git'}
                     value={repoUrl}
                     onInput={(e) => handleUrlChange((e.target as HTMLInputElement).value)}
                     style="width: 100%; margin-top: 4px;"
                     data-testid="git-repo-url"
                   />
-                  {authType === 'ssh' && (
-                    <p class="help-text" style="font-size: 11px; margin-top: 2px;">
-                      SSH URL detected — providing SSH key below
-                    </p>
-                  )}
                 </div>
 
                 {authType === 'https' ? (
@@ -648,6 +656,25 @@ export function GitSync({ onClose, onSuccess }: Props) {
               <div class="settings-section">
                 <h3>Update Configuration</h3>
                 <div class="input-group" style="flex-direction: column; gap: 12px;">
+                  {/* Auth type tabs */}
+                  <div style="display: flex; gap: 0; margin-bottom: 8px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border);">
+                    <button
+                      class={authType === 'https' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+                      onClick={() => setAuthType('https')}
+                      style={{ borderRadius: 0, flex: 1 }}
+                      data-testid="git-auth-https-tab-update"
+                    >
+                      🔐 HTTPS
+                    </button>
+                    <button
+                      class={authType === 'ssh' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+                      onClick={() => setAuthType('ssh')}
+                      style={{ borderRadius: 0, flex: 1 }}
+                      data-testid="git-auth-ssh-tab-update"
+                    >
+                      🔑 SSH
+                    </button>
+                  </div>
                   <div>
                     <label class="label-text">Repository URL</label>
                     <input
