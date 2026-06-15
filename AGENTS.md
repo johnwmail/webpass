@@ -83,7 +83,7 @@ npm run typecheck
 | `DB_PATH`         | SQLite path (default: `/data/db/db.sqlite3`) |
 | `STATIC_DIR`      | Frontend dist dir (default: `frontend/dist`) |
 | `DISABLE_FRONTEND`| Disable frontend serving (`1`/`true` to disable, even if `STATIC_DIR` exists) |
-| `PORT`            | HTTP listen port (default: `8080`)       |
+| `PORT`            | HTTP listen port (default: `8080`; Playwright E2E tests use `18080`) |
 | `CORS_ORIGINS`    | Comma-separated allowed origins          |
 | `GIT_REPO_ROOT`   | Git repos directory (default: `/data/git-repos`) |
 | `SESSION_HARDLIMIT_MINUTES` | JWT hard limit (max session time) in minutes (default: 30, range: 5-480) |
@@ -190,7 +190,7 @@ General:
 
 ## E2E Testing (Playwright)
 
-Run browser-based integration tests:
+Run browser-based integration tests (server runs on **port 18080**, configured in `playwright.config.ts`):
 
 ```bash
 # Install dependencies (one-time)
@@ -198,7 +198,7 @@ cd frontend
 npm install -D @playwright/test
 npx playwright install chromium
 
-# Run all tests
+# Run all tests (server starts automatically on port 18080)
 npx playwright test
 
 # Run with UI (interactive)
