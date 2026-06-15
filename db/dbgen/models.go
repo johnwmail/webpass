@@ -18,12 +18,21 @@ type Entry struct {
 }
 
 type GitConfig struct {
-	Fingerprint  string    `json:"fingerprint"`
-	RepoUrl      string    `json:"repo_url"`
-	EncryptedPat string    `json:"encrypted_pat"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	Branch       string    `json:"branch"`
+	Fingerprint     string    `json:"fingerprint"`
+	RepoUrl         string    `json:"repo_url"`
+	EncryptedPat    string    `json:"encrypted_pat"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	Branch          string    `json:"branch"`
+	AuthType        string    `json:"auth_type"`
+	EncryptedSshKey string    `json:"encrypted_ssh_key"`
+}
+
+type GitKnownHost struct {
+	Fingerprint        string    `json:"fingerprint"`
+	Hostname           string    `json:"hostname"`
+	HostKeyFingerprint string    `json:"host_key_fingerprint"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 type GitSyncLog struct {

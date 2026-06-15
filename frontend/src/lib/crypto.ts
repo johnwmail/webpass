@@ -322,3 +322,27 @@ export async function decryptPAT(
 ): Promise<string> {
   return await decryptMessage(encryptedBlob, privateKey);
 }
+
+/**
+ * Encrypt SSH private key (+ optional passphrase) with PGP public key.
+ * Packs key and passphrase into a JSON blob before encryption.
+ */
+export async function encryptSSHKey(
+  keyPem: string,
+  passphrase: string,
+  publicKeyArmored: string
+): Promise<string> {
+  const blob = JSON.stringify({ key: keyPem, passphrase });
+  return await encryptText(blob, publicKeyArmored);
+}
+
+/**
+ * Decrypt SSH private key (+ optional passphrase) with PGP private key.
+ */
+export async function decryptSSHKey(
+  encryptedBlob: string,
+  privateKey: PrivateKey
+): Promise<{ key: string; passphrase: string }> {
+  const decrypted = await decryptMessage(encryptedBlob, privateKey);
+  return JSON.parse(decrypted);
+}
