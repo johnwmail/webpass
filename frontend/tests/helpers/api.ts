@@ -4,7 +4,7 @@
  * Uses a simple cookie jar to persist cookies between requests.
  */
 
-const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:8080';
+const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:18080';
 
 export interface TestUser {
   fingerprint: string;

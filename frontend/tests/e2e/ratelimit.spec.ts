@@ -24,7 +24,7 @@ test.describe('Rate Limiting', () => {
     const user = await generateTestUser();
     testUser = user;
 
-    const baseURL = process.env.TEST_BASE_URL || 'http://localhost:8080';
+    const baseURL = process.env.TEST_BASE_URL || 'http://localhost:18080';
 
     // Make 5 failed login attempts
     for (let i = 0; i < 5; i++) {
@@ -46,7 +46,7 @@ test.describe('Rate Limiting', () => {
   });
 
   test('should rate limit registration attempts via API', async ({ request }) => {
-    const baseURL = process.env.TEST_BASE_URL || 'http://localhost:8080';
+    const baseURL = process.env.TEST_BASE_URL || 'http://localhost:18080';
 
     // Make 5 registration attempts
     for (let i = 0; i < 5; i++) {
@@ -86,7 +86,7 @@ test.describe('Rate Limiting', () => {
   test('should show user-friendly error message when rate limited', async ({ request }) => {
     const user = await generateTestUser();
     testUser = user;
-    const baseURL = process.env.TEST_BASE_URL || 'http://localhost:8080';
+    const baseURL = process.env.TEST_BASE_URL || 'http://localhost:18080';
 
     // Exhaust the rate limit
     for (let i = 0; i < 5; i++) {
