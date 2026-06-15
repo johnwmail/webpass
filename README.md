@@ -57,7 +57,7 @@ A web-based password manager with zero-knowledge architecture. All cryptography 
 | Backend  | Go 1.26 + SQLite (pure-Go, no CGO)     |
 | Git      | go-git (pure Go, no Git CLI needed)    |
 | Auth     | bcrypt + JWT (5-min) + TOTP (2FA)      |
-| Testing  | Playwright (77 E2E tests) + Vitest     |
+| Testing  | Playwright (81 E2E tests) + Vitest     |
 | Deploy   | Docker (single container)               |
 
 ## 🚀 Quick Start
@@ -147,7 +147,7 @@ cd frontend && npm test
 
 ### E2E Tests (Playwright)
 
-77 browser-based integration tests across 5 phases:
+81 browser-based integration tests across 5 phases:
 
 ```bash
 # Run comprehensive test suite
@@ -168,7 +168,7 @@ npx playwright show-report
 
 **Test Coverage:**
 - Phase 1: Rate limit tests (3 tests)
-- Phase 2: All tests in Protected mode (58 tests)
+- Phase 2: All tests in Protected mode (62 tests)
 - Phase 3: Registration tests in Open mode (6 tests)
 - Phase 4: Registration tests in Protected mode (8 tests)
 - Phase 5: Registration tests in Disabled mode (2 tests)
@@ -410,7 +410,7 @@ npm run dev
 
 - Backend: `go test ./...` must pass
 - Frontend unit: `npm test` must pass
-- E2E tests: `./frontend/playwright-e2e-test.sh` must pass (77 tests)
+- E2E tests: `./frontend/playwright-e2e-test.sh` must pass (81 tests)
 - Type check: `npm run typecheck` must pass
 
 ### Code Standards
