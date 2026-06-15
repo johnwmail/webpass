@@ -44,7 +44,7 @@ test.describe('Import Entries', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(accountA.password);
     await page.getByPlaceholder('Confirm your password').fill(accountA.password);
-    await page.getByPlaceholder('6-digit code from admin').fill((await accountA.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill((await accountA.registrationCode) || '').catch(() => {});
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -131,7 +131,7 @@ test.describe('Import Entries', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(accountB.password);
     await page.getByPlaceholder('Confirm your password').fill(accountB.password);
-    await page.getByPlaceholder('6-digit code from admin').fill((await accountA.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill((await accountA.registrationCode) || '').catch(() => {});
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 

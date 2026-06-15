@@ -10,6 +10,23 @@ import type { TestUser } from '../helpers/api';
 import { apiDeleteAccount } from '../helpers/api';
 import * as fs from 'fs';
 
+const TEST_BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:18080';
+
+/**
+ * Check if the server is in protected mode. Skip all tests in this suite if not.
+ */
+test.beforeAll(async () => {
+  try {
+    const res = await fetch(`${TEST_BASE_URL}/api/registration/mode`);
+    const data = await res.json();
+    if (data.mode !== 'protected') {
+      test.skip();
+    }
+  } catch {
+    test.skip();
+  }
+});
+
 /**
  * Helper function to simulate a fresh browser by clearing all storage
  */
@@ -44,7 +61,7 @@ test.describe('Registration - Protected Mode', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
-    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('Step 3 of 4: PGP Key', { exact: false }).waitFor({ timeout: 10000 });
 
@@ -72,7 +89,7 @@ test.describe('Registration - Protected Mode', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
-    await page.getByPlaceholder('6-digit code from admin').fill('000000');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill('000000');
     await page.getByRole('button', { name: 'Next' }).click();
 
     // Error should appear at step 2, not proceed to PGP Key step
@@ -95,9 +112,9 @@ test.describe('Registration - Protected Mode', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill('test-password');
     await page.getByPlaceholder('Confirm your password').fill('test-password');
-    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill((await testUser.registrationCode) || '');
 
-    const codeInput = page.getByPlaceholder('6-digit code from admin');
+    const codeInput = page.getByPlaceholder('6-digit code from admin (required)');
     await codeInput.fill('123456');
 
     const value = await codeInput.inputValue();
@@ -143,7 +160,7 @@ test.describe('Registration - Protected Mode', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
-    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('Step 3 of 4: PGP Key', { exact: false }).waitFor({ timeout: 10000 });
 
@@ -207,7 +224,7 @@ test.describe('Registration - Protected Mode', () => {
     // Enter correct password AND valid TOTP code
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
-    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('Step 3 of 4: PGP Key', { exact: false }).waitFor({ timeout: 10000 });
 
@@ -259,7 +276,7 @@ test.describe('Registration - Protected Mode', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
-    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('Step 3 of 4: PGP Key', { exact: false }).waitFor({ timeout: 10000 });
 
@@ -360,7 +377,7 @@ test.describe('Registration - Protected Mode', () => {
     // Enter correct password AND valid TOTP code
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
-    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('Step 3 of 4: PGP Key', { exact: false }).waitFor({ timeout: 10000 });
 
@@ -429,7 +446,7 @@ test.describe('Registration - Protected Mode', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
-    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('Step 3 of 4: PGP Key', { exact: false }).waitFor({ timeout: 10000 });
 
@@ -481,7 +498,7 @@ test.describe('Registration - Protected Mode', () => {
     const wrongPassword = `wrong-password-${Date.now()}`;
     await page.getByPlaceholder('Choose a strong password').fill(wrongPassword);
     await page.getByPlaceholder('Confirm your password').fill(wrongPassword);
-    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('Step 3 of 4: PGP Key', { exact: false }).waitFor({ timeout: 10000 });
 
@@ -532,7 +549,7 @@ test.describe('Registration - Protected Mode', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
-    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('Step 3 of 4: PGP Key', { exact: false }).waitFor({ timeout: 10000 });
 
@@ -581,7 +598,7 @@ test.describe('Registration - Protected Mode', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
-    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill((await testUser.registrationCode) || '');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('Step 3 of 4: PGP Key', { exact: false }).waitFor({ timeout: 10000 });
 

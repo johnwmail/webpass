@@ -78,7 +78,7 @@ test.describe('Registration - Open Mode', () => {
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
     
     // Verify TOTP/registration code field is NOT visible in Open Mode
-    await expect(page.getByPlaceholder('6-digit code from admin')).not.toBeVisible();
+    await expect(page.getByPlaceholder('6-digit code from admin (required)')).not.toBeVisible();
     
     // Registration proceeds without TOTP field
     await page.getByRole('button', { name: 'Next' }).click();
