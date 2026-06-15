@@ -125,12 +125,6 @@ cp .env.example .env
 docker compose up -d
 ```
 
-### Kubernetes
-
-```bash
-kubectl apply -f k8s/deployment.yaml
-```
-
 ### Security Hardening
 
 The container runs with:
@@ -386,7 +380,6 @@ Preference saved to localStorage and persists across sessions.
 │   ├── src/
 │   ├── index.html
 │   └── package.json
-── k8s/                # Kubernetes manifests
 ── Dockerfile
 ├── docker-compose.yml
 └── .github/            # GitHub Actions workflows

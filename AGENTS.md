@@ -26,7 +26,6 @@ WebPass is a zero-knowledge password manager with:
 │   ├── src/            # Preact components + logic
 │   ├── index.html
 │   └── package.json
-├── k8s/                # Kubernetes manifests
 └── GITSYNC.md          # Git sync feature documentation
 ```
 
@@ -165,7 +164,6 @@ See [GITSYNC.md](GITSYNC.md) for full documentation.
 
 See [DEPLOY.md](DEPLOY.md) for:
 - Docker / docker-compose
-- Kubernetes
 
 ## Testing Checklist
 
