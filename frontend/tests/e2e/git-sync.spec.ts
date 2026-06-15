@@ -70,6 +70,9 @@ async function openGitSync(page: any) {
   await page.getByRole('button', { name: /Configure Git Sync/i }).click();
   // Wait for Git Sync modal content to appear
   await page.getByText('Repository URL').waitFor({ timeout: 10000 });
+  // Ensure HTTPS tab is selected (the auth type tab bar is now present)
+  await page.getByTestId('git-auth-https-tab').click();
+  await page.waitForTimeout(200);
 }
 
 test.describe('Git Sync - Configuration', () => {
@@ -259,14 +262,41 @@ test.describe('Git Sync - Basic UI', () => {
     }
   });
 
-  test('git sync button opens configuration modal', async ({ page }) => {
+  test('git sync button opens configuration modal with tabs', async ({ page }) => {
     await openGitSync(page);
 
     // Configuration form should be visible
     await expect(page.getByText('Configure Git Sync')).toBeVisible();
+    await expect(page.getByTestId('git-auth-https-tab')).toBeVisible();
+    await expect(page.getByTestId('git-auth-ssh-tab')).toBeVisible();
     await expect(page.getByPlaceholder('https://github.com/user/private-repo.git')).toBeVisible();
     await expect(page.getByPlaceholder('ghp_...')).toBeVisible();
     await expect(page.getByRole('button', { name: /Configure/i })).toBeVisible();
+  });
+
+  test('git sync tab switching shows correct auth fields', async ({ page }) => {
+    await openGitSync(page);
+
+    // Default tab is HTTPS — PAT field visible, SSH fields hidden
+    await expect(page.getByTestId('git-auth-https-tab')).toBeVisible();
+    await expect(page.getByPlaceholder('ghp_...')).toBeVisible();
+    await expect(page.getByPlaceholder('-----BEGIN OPENSSH PRIVATE KEY-----')).not.toBeVisible();
+
+    // Switch to SSH tab — SSH key field visible, PAT field hidden
+    await page.getByTestId('git-auth-ssh-tab').click();
+    await page.waitForTimeout(300);
+    await expect(page.getByPlaceholder('-----BEGIN OPENSSH PRIVATE KEY-----')).toBeVisible();
+    await expect(page.getByPlaceholder('ghp_...')).not.toBeVisible();
+
+    // URL placeholder adapts
+    await expect(page.getByPlaceholder('git@github.com:user/private-repo.git')).toBeVisible();
+
+    // Switch back to HTTPS tab
+    await page.getByTestId('git-auth-https-tab').click();
+    await page.waitForTimeout(300);
+    await expect(page.getByPlaceholder('ghp_...')).toBeVisible();
+    await expect(page.getByPlaceholder('-----BEGIN OPENSSH PRIVATE KEY-----')).not.toBeVisible();
+    await expect(page.getByPlaceholder('https://github.com/user/private-repo.git')).toBeVisible();
   });
 });
 

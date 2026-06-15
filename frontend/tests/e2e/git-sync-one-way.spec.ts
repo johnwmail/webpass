@@ -130,6 +130,12 @@ async function openGitSync(page: any) {
   
   // Wait for Git Sync modal content to appear
   await page.getByText('Repository URL').waitFor({ timeout: 10000 });
+  // Ensure HTTPS tab is selected (the auth type tab bar is now present)
+  const httpsTab = page.getByTestId('git-auth-https-tab');
+  if (await httpsTab.isVisible().catch(() => false)) {
+    await httpsTab.click();
+    await page.waitForTimeout(200);
+  }
 }
 
 /**
@@ -137,6 +143,9 @@ async function openGitSync(page: any) {
  */
 async function configureGit(page: any, repoUrl: string, pat: string) {
   await openGitSync(page);
+  // Ensure HTTPS tab is selected
+  await page.getByTestId('git-auth-https-tab').click();
+  await page.waitForTimeout(200);
   await page.getByPlaceholder('https://github.com/user/private-repo.git').fill(repoUrl);
   await page.getByPlaceholder('ghp_...').fill(pat);
   await page.getByRole('button', { name: /Configure/i }).click();
