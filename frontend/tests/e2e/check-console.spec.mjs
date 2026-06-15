@@ -13,8 +13,7 @@ test('check console errors', async ({ page }) => {
     console.log(err.stack?.split('\n').slice(0, 6).join('\n'));
     errors.push({ type: 'pageerror', message: err.message, stack: err.stack?.split('\n').slice(0, 6).join('\n') });
   });
-  // Override baseURL to target production
-  await page.goto('https://webpass.exe.xyz', { waitUntil: 'networkidle', timeout: 30000 });
+  await page.goto('/', { waitUntil: 'networkidle', timeout: 30000 });
   await page.waitForTimeout(5000);
   console.log(`\n=== TOTAL ERRORS: ${errors.length} ===`);
   if (errors.length > 0) {

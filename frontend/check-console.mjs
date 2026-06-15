@@ -11,6 +11,6 @@ page.on('pageerror', err => {
   console.log(`[PAGE ERROR] ${err.message}`);
   console.log(err.stack?.split('\n').slice(0, 6).join('\n'));
 });
-await page.goto('https://webpass.exe.xyz', { waitUntil: 'networkidle', timeout: 30000 });
+await page.goto('http://localhost:18080', { waitUntil: 'networkidle', timeout: 30000 });
 await new Promise(r => setTimeout(r, 5000));
 await browser.close();
