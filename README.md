@@ -41,7 +41,7 @@ A web-based password manager with zero-knowledge architecture. All cryptography 
 │  + Rate limiting                    │
 │  + Git sync (go-git)                │
 └─────────────────────────────────────┘
-               │ HTTPS + PAT
+               │ HTTPS (PAT) / SSH (key)
 ┌──────────────▼──────────────────────┐
 │  Remote Git Repo (optional)         │
 │  └── *.gpg (encrypted blobs)        │
@@ -337,8 +337,10 @@ One-way overwrite sync with fresh clone/export:
 - **Push**: Local → Remote (export local DB, force-push to remote)
 - **No merge conflicts** — Last write wins
 - **Fresh operations** — Local git repo is temporary, cleaned before/after each operation
-- **PGP-encrypted PAT** — Encrypted with user's PGP public key
 - **Per-user configuration** — Each user has their own repo URL
+- **Two authentication methods**:
+  - **HTTPS** — PGP-encrypted Personal Access Token
+  - **SSH** — PGP-encrypted SSH private key with TOFU host key verification
 
 ### Git Repository Structure
 
