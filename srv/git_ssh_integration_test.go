@@ -466,7 +466,7 @@ func handleSSHGitConnection(t *testing.T, nConn net.Conn, config *ssh.ServerConf
 					}
 
 					// Reply success - command started
-					req.Reply(true, nil)
+					_ = req.Reply(true, nil)
 
 					// Wait for command to complete
 					if err := cmd.Wait(); err != nil {
