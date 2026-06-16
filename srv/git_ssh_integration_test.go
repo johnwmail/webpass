@@ -380,7 +380,7 @@ func startSSHGitServer(t *testing.T, hostKey ssh.Signer, repoDir string) int {
 	if err != nil {
 		t.Fatalf("SSH listen: %v", err)
 	}
-	t.Cleanup(func() { listener.Close() })
+	t.Cleanup(func() { _ = listener.Close() })
 
 	port := listener.Addr().(*net.TCPAddr).Port
 
@@ -408,13 +408,13 @@ func handleSSHGitConnection(t *testing.T, nConn net.Conn, config *ssh.ServerConf
 	if err != nil {
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	go ssh.DiscardRequests(reqs)
 
 	for newChannel := range chans {
 		if newChannel.ChannelType() != "session" {
-			newChannel.Reject(ssh.UnknownChannelType, "unknown channel type")
+			_ = newChannel.Reject(ssh.UnknownChannelType, "unknown channel type")
 			continue
 		}
 
@@ -425,13 +425,13 @@ func handleSSHGitConnection(t *testing.T, nConn net.Conn, config *ssh.ServerConf
 
 		// Handle requests for this session channel
 		go func() {
-			defer channel.Close()
+			defer func() { _ = channel.Close() }()
 			for req := range requests {
 				if req.Type == "exec" {
 					var payload struct{ Command string }
 					if err := ssh.Unmarshal(req.Payload, &payload); err != nil {
 						t.Logf("SSH exec unmarshal error: %v", err)
-						req.Reply(false, nil)
+						_ = req.Reply(false, nil)
 						continue
 					}
 
@@ -441,7 +441,7 @@ func handleSSHGitConnection(t *testing.T, nConn net.Conn, config *ssh.ServerConf
 					parts := strings.Fields(payload.Command)
 					if len(parts) != 2 {
 						t.Logf("invalid command: %q", payload.Command)
-						req.Reply(false, nil)
+						_ = req.Reply(false, nil)
 						continue
 					}
 
@@ -461,7 +461,7 @@ func handleSSHGitConnection(t *testing.T, nConn net.Conn, config *ssh.ServerConf
 
 					if err := cmd.Start(); err != nil {
 						t.Logf("git command start error: %v", err)
-						req.Reply(false, nil)
+						_ = req.Reply(false, nil)
 						return
 					}
 
