@@ -19,8 +19,22 @@ func (q *Queries) DeleteGitConfig(ctx context.Context, fingerprint string) error
 	return err
 }
 
+const deleteKnownHost = `-- name: DeleteKnownHost :exec
+DELETE FROM git_known_hosts WHERE fingerprint = ? AND hostname = ?
+`
+
+type DeleteKnownHostParams struct {
+	Fingerprint string `json:"fingerprint"`
+	Hostname    string `json:"hostname"`
+}
+
+func (q *Queries) DeleteKnownHost(ctx context.Context, arg DeleteKnownHostParams) error {
+	_, err := q.db.ExecContext(ctx, deleteKnownHost, arg.Fingerprint, arg.Hostname)
+	return err
+}
+
 const getGitConfig = `-- name: GetGitConfig :one
-SELECT fingerprint, repo_url, encrypted_pat, created_at, updated_at, branch FROM git_config WHERE fingerprint = ?
+SELECT fingerprint, repo_url, encrypted_pat, created_at, updated_at, branch, auth_type, encrypted_ssh_key FROM git_config WHERE fingerprint = ?
 `
 
 func (q *Queries) GetGitConfig(ctx context.Context, fingerprint string) (GitConfig, error) {
@@ -33,6 +47,8 @@ func (q *Queries) GetGitConfig(ctx context.Context, fingerprint string) (GitConf
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Branch,
+		&i.AuthType,
+		&i.EncryptedSshKey,
 	)
 	return i, err
 }
@@ -42,7 +58,9 @@ SELECT
     gc.fingerprint,
     gc.repo_url,
     gc.branch,
+    gc.auth_type,
     gc.encrypted_pat,
+    gc.encrypted_ssh_key,
     gc.created_at as config_created_at,
     (SELECT COUNT(*) FROM git_sync_log WHERE fingerprint = gc.fingerprint AND status = 'success') as success_count,
     (SELECT COUNT(*) FROM git_sync_log WHERE fingerprint = gc.fingerprint AND status = 'failed') as failed_count
@@ -54,7 +72,9 @@ type GetGitSyncStatusRow struct {
 	Fingerprint     string    `json:"fingerprint"`
 	RepoUrl         string    `json:"repo_url"`
 	Branch          string    `json:"branch"`
+	AuthType        string    `json:"auth_type"`
 	EncryptedPat    string    `json:"encrypted_pat"`
+	EncryptedSshKey string    `json:"encrypted_ssh_key"`
 	ConfigCreatedAt time.Time `json:"config_created_at"`
 	SuccessCount    int64     `json:"success_count"`
 	FailedCount     int64     `json:"failed_count"`
@@ -67,10 +87,33 @@ func (q *Queries) GetGitSyncStatus(ctx context.Context, fingerprint string) (Get
 		&i.Fingerprint,
 		&i.RepoUrl,
 		&i.Branch,
+		&i.AuthType,
 		&i.EncryptedPat,
+		&i.EncryptedSshKey,
 		&i.ConfigCreatedAt,
 		&i.SuccessCount,
 		&i.FailedCount,
+	)
+	return i, err
+}
+
+const getKnownHost = `-- name: GetKnownHost :one
+SELECT fingerprint, hostname, host_key_fingerprint, created_at FROM git_known_hosts WHERE fingerprint = ? AND hostname = ?
+`
+
+type GetKnownHostParams struct {
+	Fingerprint string `json:"fingerprint"`
+	Hostname    string `json:"hostname"`
+}
+
+func (q *Queries) GetKnownHost(ctx context.Context, arg GetKnownHostParams) (GitKnownHost, error) {
+	row := q.db.QueryRowContext(ctx, getKnownHost, arg.Fingerprint, arg.Hostname)
+	var i GitKnownHost
+	err := row.Scan(
+		&i.Fingerprint,
+		&i.Hostname,
+		&i.HostKeyFingerprint,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -98,6 +141,38 @@ func (q *Queries) ListGitSyncLog(ctx context.Context, fingerprint string) ([]Git
 			&i.Status,
 			&i.Message,
 			&i.EntriesChanged,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listKnownHosts = `-- name: ListKnownHosts :many
+SELECT fingerprint, hostname, host_key_fingerprint, created_at FROM git_known_hosts WHERE fingerprint = ? ORDER BY hostname
+`
+
+func (q *Queries) ListKnownHosts(ctx context.Context, fingerprint string) ([]GitKnownHost, error) {
+	rows, err := q.db.QueryContext(ctx, listKnownHosts, fingerprint)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GitKnownHost{}
+	for rows.Next() {
+		var i GitKnownHost
+		if err := rows.Scan(
+			&i.Fingerprint,
+			&i.Hostname,
+			&i.HostKeyFingerprint,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -154,20 +229,24 @@ func (q *Queries) UpdateGitEncryptedPat(ctx context.Context, arg UpdateGitEncryp
 }
 
 const upsertGitConfig = `-- name: UpsertGitConfig :exec
-INSERT INTO git_config (fingerprint, repo_url, branch, encrypted_pat, updated_at)
-VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+INSERT INTO git_config (fingerprint, repo_url, branch, encrypted_pat, encrypted_ssh_key, auth_type, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 ON CONFLICT (fingerprint) DO UPDATE
 SET repo_url = excluded.repo_url,
     branch = excluded.branch,
     encrypted_pat = excluded.encrypted_pat,
+    encrypted_ssh_key = excluded.encrypted_ssh_key,
+    auth_type = excluded.auth_type,
     updated_at = CURRENT_TIMESTAMP
 `
 
 type UpsertGitConfigParams struct {
-	Fingerprint  string `json:"fingerprint"`
-	RepoUrl      string `json:"repo_url"`
-	Branch       string `json:"branch"`
-	EncryptedPat string `json:"encrypted_pat"`
+	Fingerprint     string `json:"fingerprint"`
+	RepoUrl         string `json:"repo_url"`
+	Branch          string `json:"branch"`
+	EncryptedPat    string `json:"encrypted_pat"`
+	EncryptedSshKey string `json:"encrypted_ssh_key"`
+	AuthType        string `json:"auth_type"`
 }
 
 func (q *Queries) UpsertGitConfig(ctx context.Context, arg UpsertGitConfigParams) error {
@@ -176,6 +255,27 @@ func (q *Queries) UpsertGitConfig(ctx context.Context, arg UpsertGitConfigParams
 		arg.RepoUrl,
 		arg.Branch,
 		arg.EncryptedPat,
+		arg.EncryptedSshKey,
+		arg.AuthType,
 	)
+	return err
+}
+
+const upsertKnownHost = `-- name: UpsertKnownHost :exec
+INSERT INTO git_known_hosts (fingerprint, hostname, host_key_fingerprint)
+VALUES (?, ?, ?)
+ON CONFLICT (fingerprint, hostname) DO UPDATE
+SET host_key_fingerprint = excluded.host_key_fingerprint,
+    created_at = CURRENT_TIMESTAMP
+`
+
+type UpsertKnownHostParams struct {
+	Fingerprint        string `json:"fingerprint"`
+	Hostname           string `json:"hostname"`
+	HostKeyFingerprint string `json:"host_key_fingerprint"`
+}
+
+func (q *Queries) UpsertKnownHost(ctx context.Context, arg UpsertKnownHostParams) error {
+	_, err := q.db.ExecContext(ctx, upsertKnownHost, arg.Fingerprint, arg.Hostname, arg.HostKeyFingerprint)
 	return err
 }

@@ -28,7 +28,7 @@ export default defineConfig({
     command: 'go run ../cmd/srv',
     url: 'http://localhost:18080',
     timeout: 120 * 1000,
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     env: {
       PORT: '18080',
       JWT_SECRET: process.env.JWT_SECRET || 'test-secret-key-32-bytes-long!!!',

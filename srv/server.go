@@ -159,6 +159,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/{fingerprint}/git/pull", s.requireAuth(s.handleGitPull))
 	mux.HandleFunc("POST /api/{fingerprint}/git/toggle-sync", s.requireAuth(s.handleGitToggleSync))
 	mux.HandleFunc("GET /api/{fingerprint}/git/log", s.requireAuth(s.handleGitLog))
+	// SSH known hosts routes
+	mux.HandleFunc("POST /api/{fingerprint}/git/trust-hostkey", s.requireAuth(s.handleTrustHostKey))
+	mux.HandleFunc("GET /api/{fingerprint}/git/trusted-hosts", s.requireAuth(s.handleListTrustedHosts))
+	mux.HandleFunc("DELETE /api/{fingerprint}/git/trusted-hosts/{host}", s.requireAuth(s.handleDeleteTrustedHost))
 	// Wildcard entry routes — {path...} captures the rest
 	mux.HandleFunc("GET /api/{fingerprint}/entries/{path...}", s.requireAuth(s.handleGetEntry))
 	mux.HandleFunc("PUT /api/{fingerprint}/entries/{path...}", s.requireAuth(s.handlePutEntry))
@@ -1526,11 +1530,14 @@ func (s *Server) handleGitGetConfig(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			jsonOK(w, map[string]interface{}{
-				"configured":        false,
-				"repo_url":          "",
-				"branch":            "HEAD",
-				"encrypted_pat":     "",
-				"has_encrypted_pat": false,
+				"configured":            false,
+				"repo_url":              "",
+				"branch":                "HEAD",
+				"auth_type":             "https",
+				"encrypted_pat":         "",
+				"has_encrypted_pat":     false,
+				"encrypted_ssh_key":     "",
+				"has_encrypted_ssh_key": false,
 			})
 			return
 		}
@@ -1540,11 +1547,14 @@ func (s *Server) handleGitGetConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonOK(w, map[string]interface{}{
-		"configured":        true,
-		"repo_url":          config.RepoUrl,
-		"branch":            config.Branch,
-		"encrypted_pat":     config.EncryptedPat,
-		"has_encrypted_pat": config.EncryptedPat != "",
+		"configured":            true,
+		"repo_url":              config.RepoUrl,
+		"branch":                config.Branch,
+		"auth_type":             config.AuthType,
+		"encrypted_pat":         config.EncryptedPat,
+		"has_encrypted_pat":     config.EncryptedPat != "",
+		"encrypted_ssh_key":     config.EncryptedSshKey,
+		"has_encrypted_ssh_key": config.EncryptedSshKey != "",
 	})
 }
 
@@ -1553,9 +1563,11 @@ func (s *Server) handleGitConfig(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
 
 	var body struct {
-		RepoURL      string `json:"repo_url"`
-		EncryptedPAT string `json:"encrypted_pat"`
-		Branch       string `json:"branch"`
+		RepoURL         string `json:"repo_url"`
+		EncryptedPAT    string `json:"encrypted_pat"`
+		EncryptedSSHKey string `json:"encrypted_ssh_key"`
+		AuthType        string `json:"auth_type"`
+		Branch          string `json:"branch"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, "invalid json", http.StatusBadRequest)
@@ -1567,19 +1579,29 @@ func (s *Server) handleGitConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Auto-detect auth type from URL if not specified
+	authType := body.AuthType
+	if authType == "" {
+		if strings.HasPrefix(body.RepoURL, "git@") || strings.HasPrefix(body.RepoURL, "ssh://") {
+			authType = "ssh"
+		} else {
+			authType = "https"
+		}
+	}
+
 	// Default branch to HEAD if not specified
 	branch := body.Branch
 	if branch == "" {
 		branch = "HEAD"
 	}
 
-	if err := s.GitService.Configure(r.Context(), fp, body.RepoURL, body.EncryptedPAT, branch); err != nil {
+	if err := s.GitService.Configure(r.Context(), fp, body.RepoURL, body.EncryptedPAT, body.EncryptedSSHKey, authType, branch); err != nil {
 		slog.Error("GIT CONFIG: failed", "fingerprint", fp, "error", err)
 		jsonError(w, "config failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	slog.Info("GIT CONFIG: successfully configured", "fingerprint", fp, "repo", body.RepoURL, "branch", branch)
+	slog.Info("GIT CONFIG: successfully configured", "fingerprint", fp, "repo", body.RepoURL, "branch", branch, "auth", authType)
 	jsonOK(w, map[string]string{"status": "configured"})
 }
 
@@ -1627,6 +1649,28 @@ func (s *Server) handleGitPush(w http.ResponseWriter, r *http.Request) {
 	result, err := s.GitService.Push(r.Context(), fp, token)
 	if err != nil {
 		slog.Error("git push", "error", err)
+		// Check for structured host key errors
+		var hkErr *HostKeyUnknownError
+		if errors.As(err, &hkErr) {
+			jsonOK(w, map[string]interface{}{
+				"status":      "host_key_unknown",
+				"host":        hkErr.Host,
+				"port":        hkErr.Port,
+				"fingerprint": hkErr.Fingerprint,
+			})
+			return
+		}
+		var hkcErr *HostKeyChangedError
+		if errors.As(err, &hkcErr) {
+			jsonOK(w, map[string]interface{}{
+				"status":          "host_key_changed",
+				"host":            hkcErr.Host,
+				"port":            hkcErr.Port,
+				"old_fingerprint": hkcErr.OldFingerprint,
+				"new_fingerprint": hkcErr.NewFingerprint,
+			})
+			return
+		}
 		jsonError(w, "push failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1657,6 +1701,28 @@ func (s *Server) handleGitPull(w http.ResponseWriter, r *http.Request) {
 	result, err := s.GitService.Pull(r.Context(), fp, token)
 	if err != nil {
 		slog.Error("git pull", "error", err)
+		// Check for structured host key errors
+		var hkErr *HostKeyUnknownError
+		if errors.As(err, &hkErr) {
+			jsonOK(w, map[string]interface{}{
+				"status":      "host_key_unknown",
+				"host":        hkErr.Host,
+				"port":        hkErr.Port,
+				"fingerprint": hkErr.Fingerprint,
+			})
+			return
+		}
+		var hkcErr *HostKeyChangedError
+		if errors.As(err, &hkcErr) {
+			jsonOK(w, map[string]interface{}{
+				"status":          "host_key_changed",
+				"host":            hkcErr.Host,
+				"port":            hkcErr.Port,
+				"old_fingerprint": hkcErr.OldFingerprint,
+				"new_fingerprint": hkcErr.NewFingerprint,
+			})
+			return
+		}
 		jsonError(w, "pull failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1711,4 +1777,78 @@ func (s *Server) handleGitLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonOK(w, map[string]any{"logs": entries})
+}
+
+// ---------------------------------------------------------------------------
+// SSH Known Hosts Handlers
+// ---------------------------------------------------------------------------
+
+// POST /api/{fingerprint}/git/trust-hostkey — trust a host key (TOFU)
+func (s *Server) handleTrustHostKey(w http.ResponseWriter, r *http.Request) {
+	fp := r.PathValue("fingerprint")
+
+	var body struct {
+		Host        string `json:"host"`
+		Fingerprint string `json:"fingerprint"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	if body.Host == "" || body.Fingerprint == "" {
+		jsonError(w, "host and fingerprint required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.GitService.TrustHostKey(r.Context(), fp, body.Host, body.Fingerprint); err != nil {
+		slog.Error("trust host key", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	jsonOK(w, map[string]string{"status": "trusted"})
+}
+
+// GET /api/{fingerprint}/git/trusted-hosts — list trusted hosts
+func (s *Server) handleListTrustedHosts(w http.ResponseWriter, r *http.Request) {
+	fp := r.PathValue("fingerprint")
+
+	hosts, err := s.GitService.GetTrustedHosts(r.Context(), fp)
+	if err != nil {
+		slog.Error("list trusted hosts", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	type hostEntry struct {
+		Hostname           string    `json:"hostname"`
+		HostKeyFingerprint string    `json:"host_key_fingerprint"`
+		CreatedAt          time.Time `json:"created_at"`
+	}
+
+	entries := make([]hostEntry, len(hosts))
+	for i, h := range hosts {
+		entries[i] = hostEntry{
+			Hostname:           h.Hostname,
+			HostKeyFingerprint: h.HostKeyFingerprint,
+			CreatedAt:          h.CreatedAt,
+		}
+	}
+
+	jsonOK(w, map[string]interface{}{"hosts": entries})
+}
+
+// DELETE /api/{fingerprint}/git/trusted-hosts/{host} — remove a trusted host
+func (s *Server) handleDeleteTrustedHost(w http.ResponseWriter, r *http.Request) {
+	fp := r.PathValue("fingerprint")
+	host := r.PathValue("host")
+
+	if err := s.GitService.DeleteTrustedHost(r.Context(), fp, host); err != nil {
+		slog.Error("delete trusted host", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	jsonOK(w, map[string]string{"status": "deleted"})
 }

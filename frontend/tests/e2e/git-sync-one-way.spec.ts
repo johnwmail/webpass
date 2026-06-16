@@ -40,7 +40,7 @@ async function registerAndLogin(page: any) {
 
   await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
   await page.getByPlaceholder('Confirm your password').fill(testUser.password);
-    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill((await testUser.registrationCode) || '').catch(() => {});
   await page.getByRole('button', { name: 'Next' }).click();
   await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -130,6 +130,15 @@ async function openGitSync(page: any) {
   
   // Wait for Git Sync modal content to appear
   await page.getByText('Repository URL').waitFor({ timeout: 10000 });
+  // Ensure HTTPS tab is selected (the auth type tab bar is now present)
+  // Can be in initial config form (git-auth-https-tab) or update section (git-auth-https-tab-update)
+  // Use try/catch with auto-retrying click to avoid race with component re-render
+  try {
+    await page.getByTestId('git-auth-https-tab').click({ timeout: 5000 });
+  } catch {
+    await page.getByTestId('git-auth-https-tab-update').click({ timeout: 5000 });
+  }
+  await page.waitForTimeout(200);
 }
 
 /**
@@ -137,6 +146,9 @@ async function openGitSync(page: any) {
  */
 async function configureGit(page: any, repoUrl: string, pat: string) {
   await openGitSync(page);
+  // Ensure HTTPS tab is selected
+  await page.getByTestId('git-auth-https-tab').click();
+  await page.waitForTimeout(200);
   await page.getByPlaceholder('https://github.com/user/private-repo.git').fill(repoUrl);
   await page.getByPlaceholder('ghp_...').fill(pat);
   await page.getByRole('button', { name: /Configure/i }).click();

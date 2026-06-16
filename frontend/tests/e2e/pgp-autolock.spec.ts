@@ -25,7 +25,7 @@ test.describe('PGP Key Auto-Lock', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
-    const regCodeField = page.getByPlaceholder('6-digit code from admin');
+    const regCodeField = page.getByPlaceholder('6-digit code from admin (required)');
     if (await regCodeField.isVisible().catch(() => false)) {
       await regCodeField.fill((await testUser.registrationCode) || '');
     }

@@ -93,9 +93,6 @@ cleanup() {
     # Remove any core dumps or temp files
     rm -f "$ROOT_DIR/core" 2>/dev/null || true
 
-    # Kill any leftover server on port 18080
-    kill_port_18080
-
     log_info "Cleanup complete"
 
     # Preserve the original exit code
@@ -106,10 +103,6 @@ cleanup() {
 trap cleanup EXIT INT TERM HUP
 
 # Kill any process listening on port 18080 (Playwright test port)
-kill_port_18080() {
-    lsof -ti :18080 | xargs kill -9 2>/dev/null || true
-    sleep 1
-}
 
 cd "$ROOT_DIR"
 
@@ -288,8 +281,6 @@ run_protected_mode() {
     log_info "========================================="
     log_info ""
 
-    # Kill existing server to ensure fresh start with correct rate limits
-    kill_port_18080
 
     # Set Protected Mode environment variables
     export REGISTRATION_ENABLED=true
@@ -448,8 +439,6 @@ run_all_tests() {
 
     # Phase 2: All other tests EXCEPT registration in Protected mode (relaxed rate limits)
     if [ $total_exit -eq 0 ]; then
-        # Kill server to force restart with new env vars
-        kill_port_18080
 
         export REGISTRATION_ENABLED=true
         export REGISTRATION_TOTP_SECRET="JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
@@ -468,8 +457,6 @@ run_all_tests() {
 
     # Phase 3: Registration tests in Open mode
     if [ $total_exit -eq 0 ]; then
-        # Kill server to force restart with new env vars
-        kill_port_18080
 
         export REGISTRATION_ENABLED=true
         export REGISTRATION_TOTP_SECRET=""
@@ -485,8 +472,6 @@ run_all_tests() {
 
     # Phase 4: Registration tests in Protected mode
     if [ $total_exit -eq 0 ]; then
-        # Kill server to force restart with new env vars
-        kill_port_18080
 
         export REGISTRATION_ENABLED=true
         export REGISTRATION_TOTP_SECRET="JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
@@ -502,8 +487,6 @@ run_all_tests() {
 
     # Phase 5: Registration tests in Disabled mode
     if [ $total_exit -eq 0 ]; then
-        # Kill server to force restart with new env vars
-        kill_port_18080
 
         export REGISTRATION_ENABLED=false
         export REGISTRATION_TOTP_SECRET=""

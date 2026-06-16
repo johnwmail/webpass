@@ -41,7 +41,7 @@ A web-based password manager with zero-knowledge architecture. All cryptography 
 │  + Rate limiting                    │
 │  + Git sync (go-git)                │
 └─────────────────────────────────────┘
-               │ HTTPS + PAT
+               │ HTTPS (PAT) / SSH (key)
 ┌──────────────▼──────────────────────┐
 │  Remote Git Repo (optional)         │
 │  └── *.gpg (encrypted blobs)        │
@@ -124,6 +124,18 @@ cp .env.example .env
 # Start
 docker compose up -d
 ```
+
+### Database Migrations & Upgrades
+
+Migrations are applied automatically on startup via embedded SQL files in `db/migrations/`.
+They are numbered (`NNN-name.sql`) and tracked in a `migrations` table — each runs exactly once.
+
+**Forward upgrade ✅** — Fully supported. All migrations only add columns/tables,
+never remove or rename. Upgrading from older versions (e.g. `v0.4.6`) to latest is safe.
+
+**Rollback ❌** — Not supported. Because sqlc generates `SELECT *` queries, the old
+binary will fail to scan rows if new columns were added. To downgrade, restore both
+the binary and the database from backup.
 
 ### Security Hardening
 
@@ -325,8 +337,10 @@ One-way overwrite sync with fresh clone/export:
 - **Push**: Local → Remote (export local DB, force-push to remote)
 - **No merge conflicts** — Last write wins
 - **Fresh operations** — Local git repo is temporary, cleaned before/after each operation
-- **PGP-encrypted PAT** — Encrypted with user's PGP public key
 - **Per-user configuration** — Each user has their own repo URL
+- **Two authentication methods**:
+  - **HTTPS** — PGP-encrypted Personal Access Token
+  - **SSH** — PGP-encrypted SSH private key with TOFU host key verification
 
 ### Git Repository Structure
 

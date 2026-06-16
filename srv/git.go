@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,9 +16,40 @@ import (
 	"github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/go-git/go-git/v5/plumbing/transport"
+	httptransport "github.com/go-git/go-git/v5/plumbing/transport/http"
+	gossh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	"golang.org/x/crypto/ssh"
+
 	"srv.exe.dev/db/dbgen"
 )
+
+// ---------------------------------------------------------------------------
+// Error types for SSH host key verification
+// ---------------------------------------------------------------------------
+
+// HostKeyUnknownError is returned when the host key is not yet trusted.
+type HostKeyUnknownError struct {
+	Host        string
+	Port        int
+	Fingerprint string
+}
+
+func (e *HostKeyUnknownError) Error() string {
+	return fmt.Sprintf("host key unknown: %s fingerprint %s", e.Host, e.Fingerprint)
+}
+
+// HostKeyChangedError is returned when the host key has changed since last trust.
+type HostKeyChangedError struct {
+	Host           string
+	Port           int
+	OldFingerprint string
+	NewFingerprint string
+}
+
+func (e *HostKeyChangedError) Error() string {
+	return fmt.Sprintf("host key changed for %s: was %s, now %s", e.Host, e.OldFingerprint, e.NewFingerprint)
+}
 
 // GitService handles git operations for password store sync
 type GitService struct {
@@ -36,12 +68,14 @@ type SessionToken struct {
 
 // SyncStatus represents the current sync status
 type SyncStatus struct {
-	Configured      bool   `json:"configured"`
-	RepoURL         string `json:"repo_url,omitempty"`
-	Branch          string `json:"branch,omitempty"`
-	HasEncryptedPat bool   `json:"has_encrypted_pat"`
-	SuccessCount    int64  `json:"success_count"`
-	FailedCount     int64  `json:"failed_count"`
+	Configured         bool   `json:"configured"`
+	RepoURL            string `json:"repo_url,omitempty"`
+	Branch             string `json:"branch,omitempty"`
+	AuthType           string `json:"auth_type,omitempty"`
+	HasEncryptedPat    bool   `json:"has_encrypted_pat"`
+	HasEncryptedSSHKey bool   `json:"has_encrypted_ssh_key"`
+	SuccessCount       int64  `json:"success_count"`
+	FailedCount        int64  `json:"failed_count"`
 }
 
 // PullResult represents the result of a pull operation
@@ -66,21 +100,23 @@ func NewGitService(dbPath string, q *dbgen.Queries, repoRoot string) *GitService
 // Configuration
 // ---------------------------------------------------------------------------
 
-// Configure sets up git sync for a user with encrypted PAT
-func (g *GitService) Configure(ctx context.Context, fingerprint, repoURL, encryptedPAT, branch string) error {
+// Configure sets up git sync for a user
+func (g *GitService) Configure(ctx context.Context, fingerprint, repoURL, encryptedPAT, encryptedSSHKey, authType, branch string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
 	if err := g.q.UpsertGitConfig(ctx, dbgen.UpsertGitConfigParams{
-		Fingerprint:  fingerprint,
-		RepoUrl:      repoURL,
-		Branch:       branch,
-		EncryptedPat: encryptedPAT,
+		Fingerprint:     fingerprint,
+		RepoUrl:         repoURL,
+		Branch:          branch,
+		EncryptedPat:    encryptedPAT,
+		EncryptedSshKey: encryptedSSHKey,
+		AuthType:        authType,
 	}); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
 
-	slog.Info("git sync configured", "fingerprint", fingerprint, "repo", repoURL, "branch", branch)
+	slog.Info("git sync configured", "fingerprint", fingerprint, "repo", repoURL, "branch", branch, "auth", authType)
 	return nil
 }
 
@@ -116,13 +152,109 @@ func (g *GitService) GetStatus(ctx context.Context, fingerprint string) (*SyncSt
 	}
 
 	return &SyncStatus{
-		Configured:      true,
-		RepoURL:         row.RepoUrl,
-		Branch:          row.Branch,
-		HasEncryptedPat: row.EncryptedPat != "",
-		SuccessCount:    row.SuccessCount,
-		FailedCount:     row.FailedCount,
+		Configured:         true,
+		RepoURL:            row.RepoUrl,
+		Branch:             row.Branch,
+		AuthType:           row.AuthType,
+		HasEncryptedPat:    row.EncryptedPat != "",
+		HasEncryptedSSHKey: row.EncryptedSshKey != "",
+		SuccessCount:       row.SuccessCount,
+		FailedCount:        row.FailedCount,
 	}, nil
+}
+
+// ---------------------------------------------------------------------------
+// Known Hosts Management
+// ---------------------------------------------------------------------------
+
+// TrustHostKey stores a trusted host key fingerprint
+func (g *GitService) TrustHostKey(ctx context.Context, fingerprint, hostname, hostKeyFingerprint string) error {
+	// Strip port if present for storage
+	host, _, err := net.SplitHostPort(hostname)
+	if err != nil {
+		host = hostname
+	}
+	return g.q.UpsertKnownHost(ctx, dbgen.UpsertKnownHostParams{
+		Fingerprint:        fingerprint,
+		Hostname:           host,
+		HostKeyFingerprint: hostKeyFingerprint,
+	})
+}
+
+// GetTrustedHosts lists all trusted hosts for a user
+func (g *GitService) GetTrustedHosts(ctx context.Context, fingerprint string) ([]dbgen.GitKnownHost, error) {
+	return g.q.ListKnownHosts(ctx, fingerprint)
+}
+
+// DeleteTrustedHost removes a trusted host
+func (g *GitService) DeleteTrustedHost(ctx context.Context, fingerprint, hostname string) error {
+	return g.q.DeleteKnownHost(ctx, dbgen.DeleteKnownHostParams{
+		Fingerprint: fingerprint,
+		Hostname:    hostname,
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Auth Method Factory
+// ---------------------------------------------------------------------------
+
+// authFor creates the appropriate transport.AuthMethod based on auth type
+func (g *GitService) authFor(ctx context.Context, fingerprint, token, authType string) (transport.AuthMethod, error) {
+	switch authType {
+	case "ssh":
+		// token is the PEM-encoded SSH private key (decrypted by browser)
+		// Default user is "git" (standard for GitHub/GitLab/Gitea)
+		publicKeys, err := gossh.NewPublicKeys("git", []byte(token), "")
+		if err != nil {
+			return nil, fmt.Errorf("ssh auth: %w", err)
+		}
+		// Set up TOFU host key callback
+		publicKeys.HostKeyCallback = g.knownHostsCallback(ctx, fingerprint)
+		return publicKeys, nil
+	default:
+		return &httptransport.BasicAuth{
+			Username: "token",
+			Password: token,
+		}, nil
+	}
+}
+
+// knownHostsCallback returns an ssh.HostKeyCallback that checks the DB for known hosts.
+func (g *GitService) knownHostsCallback(ctx context.Context, fingerprint string) ssh.HostKeyCallback {
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		fp := ssh.FingerprintSHA256(key)
+
+		host, _, err := net.SplitHostPort(hostname)
+		if err != nil {
+			host = hostname
+		}
+
+		known, err := g.q.GetKnownHost(ctx, dbgen.GetKnownHostParams{
+			Fingerprint: fingerprint,
+			Hostname:    host,
+		})
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return &HostKeyUnknownError{
+					Host:        host,
+					Port:        22,
+					Fingerprint: fp,
+				}
+			}
+			return fmt.Errorf("lookup known host: %w", err)
+		}
+
+		if known.HostKeyFingerprint != fp {
+			return &HostKeyChangedError{
+				Host:           host,
+				Port:           22,
+				OldFingerprint: known.HostKeyFingerprint,
+				NewFingerprint: fp,
+			}
+		}
+
+		return nil
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +276,6 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	// Get config
 	config, err := g.q.GetGitConfig(ctx, fingerprint)
 	if err != nil {
 		return nil, fmt.Errorf("get config: %w", err)
@@ -153,33 +284,28 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 		return nil, errors.New("git token required")
 	}
 
+	auth, err := g.authFor(ctx, fingerprint, token, config.AuthType)
+	if err != nil {
+		return nil, fmt.Errorf("auth setup: %w", err)
+	}
+
 	repoDir := g.repoDir(fingerprint)
 
-	// Step 1: Cleanup before
 	slog.Info("[PUSH] Starting git push", "fingerprint", fingerprint)
 	if err := g.cleanupRepoDir(fingerprint); err != nil {
 		return nil, err
 	}
 
-	// Step 2: Create fresh directory
 	if err := os.MkdirAll(repoDir, 0700); err != nil {
 		return nil, fmt.Errorf("create dir: %w", err)
 	}
-	slog.Info("[PUSH] Created fresh directory", "dir", repoDir)
 
-	// Step 3: Clone remote repo first (to get history for force push)
-	auth := &http.BasicAuth{
-		Username: "token",
-		Password: token,
-	}
 	slog.Info("[PUSH] Cloning remote to get history", "url", config.RepoUrl)
 	repo, cloneErr := git.PlainClone(repoDir, false, &git.CloneOptions{
-		URL:      config.RepoUrl,
-		Auth:     auth,
-		Progress: nil,
+		URL:  config.RepoUrl,
+		Auth: auth,
 	})
 	if cloneErr != nil {
-		// If clone fails (empty remote), init fresh repo
 		slog.Info("[PUSH] Remote empty, initializing fresh repo", "error", cloneErr)
 		repo, err = git.PlainInit(repoDir, false)
 		if err != nil {
@@ -194,9 +320,6 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 		}
 	} else {
 		slog.Info("[PUSH] Cloned remote successfully")
-
-		// Step 4: Remove all files except .git (prepare for overwrite)
-		slog.Info("[PUSH] Removing all files except .git")
 		entries, err := os.ReadDir(repoDir)
 		if err != nil {
 			return nil, fmt.Errorf("read dir: %w", err)
@@ -209,17 +332,13 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 				return nil, fmt.Errorf("remove file %s: %w", entry.Name(), err)
 			}
 		}
-		slog.Info("[PUSH] Cleaned working directory")
 	}
 
-	// Step 5: Export all entries from DB (overwrites remote content)
 	count, err := g.exportPasswordStore(ctx, fingerprint, repoDir)
 	if err != nil {
 		return nil, fmt.Errorf("export entries: %w", err)
 	}
-	slog.Info("[PUSH] Exported entries", "count", count)
 
-	// Step 6: Write .gpg-id from users table (fallback to fingerprint)
 	user, err := g.q.GetUser(ctx, fingerprint)
 	if err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
@@ -232,9 +351,7 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 	if err := os.WriteFile(gpgIDPath, []byte(gpgID), 0600); err != nil {
 		return nil, fmt.Errorf("write .gpg-id: %w", err)
 	}
-	slog.Info("[PUSH] Wrote .gpg-id", "content", gpgID)
 
-	// Step 7: Stage all files
 	w, err := repo.Worktree()
 	if err != nil {
 		return nil, fmt.Errorf("get worktree: %w", err)
@@ -242,9 +359,7 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 	if err := w.AddWithOptions(&git.AddOptions{All: true}); err != nil {
 		return nil, fmt.Errorf("git add: %w", err)
 	}
-	slog.Info("[PUSH] Staged all files")
 
-	// Step 8: Commit
 	commitMsg := fmt.Sprintf("Sync: %s", time.Now().Format(time.RFC3339))
 	_, err = w.Commit(commitMsg, &git.CommitOptions{
 		Author: &object.Signature{
@@ -256,23 +371,18 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 	if err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
-	slog.Info("[PUSH] Committed", "message", commitMsg)
 
-	// Step 9: Get remote and force push
 	remote, err := repo.Remote("origin")
 	if err != nil {
 		return nil, fmt.Errorf("get remote: %w", err)
 	}
 
-	// Get current branch name from the cloned repo
 	headRef, err := repo.Head()
 	if err != nil {
 		return nil, fmt.Errorf("get HEAD ref: %w", err)
 	}
 	branchName := headRef.Name().Short()
-	slog.Info("[PUSH] Detected branch", "branch", branchName)
 
-	// Force push current branch to remote
 	refSpec := gitconfig.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/heads/%s", branchName, branchName))
 	pushErr := remote.Push(&git.PushOptions{
 		RemoteName: "origin",
@@ -280,7 +390,6 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 		RefSpecs:   []gitconfig.RefSpec{refSpec},
 		Force:      true,
 	})
-
 	if pushErr != nil {
 		if pushErr == git.NoErrAlreadyUpToDate {
 			slog.Info("[PUSH] Already up-to-date")
@@ -291,12 +400,10 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 		slog.Info("[PUSH] Pushed --force", "branch", branchName)
 	}
 
-	// Step 10: Cleanup after
 	if err := g.cleanupRepoDir(fingerprint); err != nil {
 		return nil, err
 	}
 
-	// Log success
 	entriesChanged := int64(count)
 	if err := g.q.LogGitSync(ctx, dbgen.LogGitSyncParams{
 		Fingerprint:    fingerprint,
@@ -308,7 +415,6 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 		slog.Warn("log git sync failed", "error", err)
 	}
 
-	slog.Info("[PUSH] Finished", "fingerprint", fingerprint, "entries", count)
 	return &PullResult{
 		Status:         "success",
 		Operation:      "push",
@@ -322,7 +428,6 @@ func (g *GitService) Pull(ctx context.Context, fingerprint, token string) (*Pull
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	// Get config
 	config, err := g.q.GetGitConfig(ctx, fingerprint)
 	if err != nil {
 		return nil, fmt.Errorf("get config: %w", err)
@@ -331,22 +436,18 @@ func (g *GitService) Pull(ctx context.Context, fingerprint, token string) (*Pull
 		return nil, errors.New("git token required")
 	}
 
+	auth, err := g.authFor(ctx, fingerprint, token, config.AuthType)
+	if err != nil {
+		return nil, fmt.Errorf("auth setup: %w", err)
+	}
+
 	repoDir := g.repoDir(fingerprint)
 
-	// Step 1: Cleanup before
 	slog.Info("[PULL] Starting git pull", "fingerprint", fingerprint)
 	if err := g.cleanupRepoDir(fingerprint); err != nil {
 		return nil, err
 	}
 
-	// Step 2: Clone remote
-	auth := &http.BasicAuth{
-		Username: "token",
-		Password: token,
-	}
-	if err := os.MkdirAll(filepath.Dir(repoDir), 0700); err != nil {
-		return nil, fmt.Errorf("create dir: %w", err)
-	}
 	_, err = git.PlainClone(repoDir, false, &git.CloneOptions{
 		URL:  config.RepoUrl,
 		Auth: auth,
@@ -354,9 +455,7 @@ func (g *GitService) Pull(ctx context.Context, fingerprint, token string) (*Pull
 	if err != nil {
 		return nil, fmt.Errorf("git clone: %w", err)
 	}
-	slog.Info("[PULL] Cloned remote", "url", config.RepoUrl)
 
-	// Step 3: Preserve .gpg-id if present (update users table)
 	gpgIDPath := filepath.Join(repoDir, ".gpg-id")
 	if gpgIDData, err := os.ReadFile(gpgIDPath); err == nil {
 		gpgIDStr := string(gpgIDData)
@@ -365,24 +464,18 @@ func (g *GitService) Pull(ctx context.Context, fingerprint, token string) (*Pull
 			Fingerprint: fingerprint,
 		}); err != nil {
 			slog.Warn("[PULL] Failed to store .gpg-id", "error", err)
-		} else {
-			slog.Info("[PULL] Stored .gpg-id", "content", gpgIDStr)
 		}
 	}
 
-	// Step 4: Delete all DB entries and import from clone
 	count, err := g.syncDatabase(ctx, fingerprint, repoDir)
 	if err != nil {
 		return nil, fmt.Errorf("sync database: %w", err)
 	}
-	slog.Info("[PULL] Imported entries", "count", count)
 
-	// Step 5: Cleanup after
 	if err := g.cleanupRepoDir(fingerprint); err != nil {
 		return nil, err
 	}
 
-	// Log success
 	entriesChanged := int64(count)
 	msg := fmt.Sprintf("synced %d entries from remote", count)
 	if err := g.q.LogGitSync(ctx, dbgen.LogGitSyncParams{
@@ -395,7 +488,6 @@ func (g *GitService) Pull(ctx context.Context, fingerprint, token string) (*Pull
 		slog.Warn("log git sync failed", "error", err)
 	}
 
-	slog.Info("[PULL] Finished", "fingerprint", fingerprint, "entries", count)
 	return &PullResult{
 		Status:         "success",
 		Operation:      "pull",
@@ -406,7 +498,6 @@ func (g *GitService) Pull(ctx context.Context, fingerprint, token string) (*Pull
 
 // syncDatabase deletes all DB entries and imports from git repo
 func (g *GitService) syncDatabase(ctx context.Context, fingerprint, repoDir string) (int, error) {
-	// Delete all existing entries first
 	entries, err := g.q.ListEntries(ctx, fingerprint)
 	if err != nil {
 		return 0, fmt.Errorf("list entries: %w", err)
@@ -419,11 +510,8 @@ func (g *GitService) syncDatabase(ctx context.Context, fingerprint, repoDir stri
 		}); err != nil {
 			return 0, fmt.Errorf("delete entry %s: %w", entry.Path, err)
 		}
-		slog.Info("[PULL] Deleted entry from DB", "path", entry.Path)
 	}
-	slog.Info("[PULL] Deleted all entries", "count", len(entries))
 
-	// Walk repo directory and import .gpg files
 	count := 0
 	if _, err := os.Stat(repoDir); os.IsNotExist(err) {
 		return 0, nil
@@ -433,47 +521,32 @@ func (g *GitService) syncDatabase(ctx context.Context, fingerprint, repoDir stri
 		if err != nil {
 			return err
 		}
-
-		// Skip directories
 		if info.IsDir() {
-			// Skip .git directory
 			if info.Name() == ".git" {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-
-		// Only process .gpg files
 		if !strings.HasSuffix(path, ".gpg") {
 			return nil
 		}
-
-		// Get relative path
 		relPath, err := filepath.Rel(repoDir, path)
 		if err != nil {
 			return err
 		}
-
 		entryPath := strings.TrimSuffix(relPath, ".gpg")
 		entryPath = filepath.ToSlash(entryPath)
-
-		// Read content
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-
-		// Upsert to database
 		if err := g.q.UpsertEntry(ctx, dbgen.UpsertEntryParams{
 			Fingerprint: fingerprint,
 			Path:        entryPath,
 			Content:     content,
 		}); err != nil {
-			slog.Error("upsert entry", "path", entryPath, "error", err)
 			return err
 		}
-
-		slog.Info("[PULL] Imported entry", "path", entryPath)
 		count++
 		return nil
 	})
@@ -481,36 +554,26 @@ func (g *GitService) syncDatabase(ctx context.Context, fingerprint, repoDir stri
 	if err != nil {
 		return 0, err
 	}
-
 	return count, nil
 }
 
 // exportPasswordStore exports all DB entries to .gpg files
 func (g *GitService) exportPasswordStore(ctx context.Context, fingerprint, repoDir string) (int, error) {
-	// Get all entries
 	entries, err := g.q.ListEntriesContent(ctx, fingerprint)
 	if err != nil {
 		return 0, fmt.Errorf("list entries: %w", err)
 	}
 
-	// Write each entry to .gpg file
 	for _, entry := range entries {
 		entryPath := filepath.Join(repoDir, entry.Path+".gpg")
-
-		// Create parent directory
 		entryDir := filepath.Dir(entryPath)
 		if err := os.MkdirAll(entryDir, 0700); err != nil {
 			return 0, fmt.Errorf("create dir: %w", err)
 		}
-
-		// Write encrypted content
 		if err := os.WriteFile(entryPath, entry.Content, 0600); err != nil {
 			return 0, fmt.Errorf("write entry %s: %w", entry.Path, err)
 		}
-
-		slog.Info("[PUSH] Exported entry", "path", entry.Path)
 	}
-
 	return len(entries), nil
 }
 

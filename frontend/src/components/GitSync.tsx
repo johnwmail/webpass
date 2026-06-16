@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { session } from '../lib/session';
 import { getPublicKey, getDecryptedPrivateKey } from '../lib/storage';
-import { encryptPAT, decryptPAT, decryptPrivateKey } from '../lib/crypto';
+import { encryptPAT, decryptPAT, encryptSSHKey, decryptSSHKey, decryptPrivateKey } from '../lib/crypto';
 
 interface GitStatus {
   configured: boolean;
   repo_url?: string;
+  auth_type?: string;
   has_encrypted_pat?: boolean;
+  has_encrypted_ssh_key?: boolean;
   success_count: number;
   failed_count: number;
 }
@@ -20,11 +22,10 @@ interface GitLogEntry {
   created_at: string;
 }
 
-interface PullResult {
-  status: string;
-  operation: string;
-  entries_changed?: number;
-  message: string;
+interface TrustedHost {
+  hostname: string;
+  host_key_fingerprint: string;
+  created_at: string;
 }
 
 interface Props {
@@ -43,8 +44,12 @@ export function GitSync({ onClose, onSuccess }: Props) {
 
   // Config form
   const [repoUrl, setRepoUrl] = useState('');
+  const [authType, setAuthType] = useState('https');
   const [pat, setPat] = useState('');
+  const [sshKey, setSshKey] = useState('');
+  const [sshPassphrase, setSshPassphrase] = useState('');
   const [encryptedPat, setEncryptedPat] = useState('');
+  const [encryptedSshKey, setEncryptedSshKey] = useState('');
   const [configuring, setConfiguring] = useState(false);
 
   // Passphrase prompt for PGP key decryption
@@ -52,11 +57,31 @@ export function GitSync({ onClose, onSuccess }: Props) {
   const [passphraseForPat, setPassphraseForPat] = useState('');
   const [pendingAction, setPendingAction] = useState<'configure' | 'push' | 'pull' | null>(null);
 
+  // SSH TOFU prompt
+  const [showHostKeyPrompt, setShowHostKeyPrompt] = useState(false);
+  const [hostKeyInfo, setHostKeyInfo] = useState<{
+    host: string;
+    fingerprint: string;
+    old_fingerprint?: string;
+    isChanged: boolean;
+  } | null>(null);
+  // Pending push/pull token to retry after trusting host
+  const pendingTokenRef = useRef<string>('');
+
+  // Trusted hosts management
+  const [showTrustedHosts, setShowTrustedHosts] = useState(false);
+  const [trustedHosts, setTrustedHosts] = useState<TrustedHost[]>([]);
+  const [loadingHosts, setLoadingHosts] = useState(false);
+
   // Use a ref to store the current passphrase value for the resolver
   const passphraseRef = useRef<string>('');
   const resolverRef = useRef<((pwd: string | null) => void) | null>(null);
 
   const fp = session.fingerprint || '';
+
+  const handleUrlChange = (url: string) => {
+    setRepoUrl(url);
+  };
 
   const formatTime = (iso?: string) => {
     if (!iso) return 'Never';
@@ -68,16 +93,17 @@ export function GitSync({ onClose, onSuccess }: Props) {
     if (!session.api) return;
     try {
       const s = await session.api.getGitStatus();
-      // Create a new object to ensure Preact detects the change
       setStatus({...s});
       if (s.configured && s.repo_url) {
         setRepoUrl(s.repo_url);
+        setAuthType(s.auth_type || 'https');
       }
 
-      // Fetch encrypted_pat from config endpoint
+      // Fetch encrypted credentials from config endpoint
       const config = await session.api.getGitConfig();
-      if (config.configured && config.encrypted_pat) {
-        setEncryptedPat(config.encrypted_pat);
+      if (config.configured) {
+        if (config.encrypted_pat) setEncryptedPat(config.encrypted_pat);
+        if (config.encrypted_ssh_key) setEncryptedSshKey(config.encrypted_ssh_key);
       }
     } catch (e: any) {
       setError(e.message || 'Failed to load status');
@@ -94,6 +120,18 @@ export function GitSync({ onClose, onSuccess }: Props) {
     }
   };
 
+  const loadTrustedHosts = async () => {
+    if (!session.api) return;
+    setLoadingHosts(true);
+    try {
+      const result = await session.api.getTrustedHosts();
+      setTrustedHosts(result.hosts || []);
+    } catch (e: any) {
+      setError(e.message || 'Failed to load trusted hosts');
+    }
+    setLoadingHosts(false);
+  };
+
   useEffect(() => {
     loadStatus();
   }, []);
@@ -105,15 +143,52 @@ export function GitSync({ onClose, onSuccess }: Props) {
     passphraseRef.current = '';
     setShowPassphrasePrompt(true);
 
-    // Return a promise that resolves when user clicks OK or Cancel
     return new Promise((resolve) => {
       resolverRef.current = resolve;
     });
   };
 
+  // Auto-retry push/pull after trusting a host
+  const retryAfterTrust = async (action: 'push' | 'pull', token: string) => {
+    setShowHostKeyPrompt(false);
+    setHostKeyInfo(null);
+    setLoading(true);
+    try {
+      let result: any;
+      if (action === 'push') {
+        result = await session.api!.gitPush(token);
+      } else {
+        result = await session.api!.gitPull(token);
+      }
+      if (result.status === 'success') {
+        setSuccess(result.message || `${action} completed`);
+        setTimeout(() => setSuccess(''), 3000);
+        loadStatus();
+        onSuccess?.();
+      } else if (result.status === 'host_key_unknown' || result.status === 'host_key_changed') {
+        // Should not happen after trusting, but handle gracefully
+        setError(`Host key issue: ${result.status}`);
+      } else {
+        setError(result.message || `${action} returned unexpected status`);
+      }
+    } catch (e: any) {
+      setError(e.message || `${action} failed`);
+    }
+    setLoading(false);
+    pendingTokenRef.current = '';
+  };
+
   const handleConfigure = async () => {
-    if (!repoUrl || !pat) {
-      setError('Repository URL and PAT are required');
+    if (!repoUrl) {
+      setError('Repository URL is required');
+      return;
+    }
+    if (authType === 'https' && !pat) {
+      setError('PAT is required for HTTPS');
+      return;
+    }
+    if (authType === 'ssh' && !sshKey) {
+      setError('SSH private key is required');
       return;
     }
 
@@ -123,36 +198,40 @@ export function GitSync({ onClose, onSuccess }: Props) {
     try {
       if (!session.api) throw new Error('Not logged in');
 
-      // Get public key for PGP encryption
       const publicKey = await getPublicKey(fp);
       if (!publicKey) throw new Error('Public key not found');
 
-      // Encrypt PAT with PGP public key
-      const encryptedPat = await encryptPAT(pat, publicKey);
+      let encryptedPatData = '';
+      let encryptedSshKeyData = '';
 
-      // Configure server (branch always HEAD for auto-detect)
-      await session.api.configureGit(repoUrl, encryptedPat);
+      if (authType === 'https') {
+        encryptedPatData = await encryptPAT(pat, publicKey);
+      } else {
+        // Encrypt SSH key (+ optional passphrase) into one blob
+        encryptedSshKeyData = await encryptSSHKey(sshKey, sshPassphrase, publicKey);
+      }
 
-      // Directly update status to show configured state
+      // Configure server (auto-detect auth type from URL too)
+      await session.api.configureGit(repoUrl, encryptedPatData, authType, encryptedSshKeyData);
+
       setStatus({
         configured: true,
         repo_url: repoUrl,
-        has_encrypted_pat: true,
+        auth_type: authType,
+        has_encrypted_pat: authType === 'https',
+        has_encrypted_ssh_key: authType === 'ssh',
         success_count: 0,
-        failed_count: 0
+        failed_count: 0,
       });
-      setEncryptedPat(encryptedPat);
+      if (encryptedPatData) setEncryptedPat(encryptedPatData);
+      if (encryptedSshKeyData) setEncryptedSshKey(encryptedSshKeyData);
 
       setSuccess('Git sync configured successfully');
       setTimeout(() => setSuccess(''), 3000);
-      setPat(''); // Clear PAT after config
-
-      // Force a re-render
+      setPat('');
+      setSshKey('');
+      setSshPassphrase('');
       forceUpdate(n => n + 1);
-
-      // Don't call onSuccess() after config - we want to keep the modal open
-      // to show the status view. onSuccess is only for push/pull operations.
-      // onSuccess?.();
     } catch (e: any) {
       console.error('[GitSync] configureGit error:', e);
       setError(e.message || 'Configuration failed');
@@ -170,44 +249,82 @@ export function GitSync({ onClose, onSuccess }: Props) {
       if (!status?.configured) throw new Error('Git sync not configured');
 
       const passphrase = await promptForPassphrase('push');
-
       if (!passphrase) {
         setError('Passphrase required to decrypt private key');
         setLoading(false);
         return;
       }
 
-      // Get encrypted PAT from server
-      if (!encryptedPat) {
-        setError('PAT not configured. Please reconfigure Git sync.');
-        setLoading(false);
-        return;
-      }
-
-      // Get armored private key from storage
       const armoredPrivateKey = await getDecryptedPrivateKey(fp, passphrase);
       if (!armoredPrivateKey) {
         setError('Failed to get private key. Check passphrase.');
         setLoading(false);
         return;
       }
-
-      // Decrypt the private key with the passphrase
       const privateKey = await decryptPrivateKey(armoredPrivateKey, passphrase);
 
-      // Decrypt PAT with PGP private key
-      const patToUse = await decryptPAT(encryptedPat, privateKey);
-      if (!patToUse) {
-        setError('Failed to decrypt PAT. Check passphrase.');
+      let token = '';
+
+      if (authType === 'ssh') {
+        if (!encryptedSshKey) {
+          setError('SSH key not configured. Please reconfigure Git sync.');
+          setLoading(false);
+          return;
+        }
+        // Decrypt SSH key + passphrase
+        const sshData = await decryptSSHKey(encryptedSshKey, privateKey);
+        if (!sshData.key) {
+          setError('Failed to decrypt SSH key. Check passphrase.');
+          setLoading(false);
+          return;
+        }
+        token = sshData.key; // PEM key content
+        // Note: sshData.passphrase is the SSH key's own passphrase (if any)
+        // go-git can handle passphrase-protected keys via the NewPublicKeys function
+      } else {
+        if (!encryptedPat) {
+          setError('PAT not configured. Please reconfigure Git sync.');
+          setLoading(false);
+          return;
+        }
+        token = await decryptPAT(encryptedPat, privateKey);
+        if (!token) {
+          setError('Failed to decrypt PAT. Check passphrase.');
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Set session token
+      await session.api.setGitSession(token);
+      pendingTokenRef.current = token;
+
+      // Push
+      const result = await session.api.gitPush(token);
+
+      // Handle host key TOFU
+      if (result.status === 'host_key_unknown') {
+        setHostKeyInfo({
+          host: result.host!,
+          fingerprint: result.fingerprint!,
+          isChanged: false,
+        });
+        setShowHostKeyPrompt(true);
+        setLoading(false);
+        return;
+      }
+      if (result.status === 'host_key_changed') {
+        setHostKeyInfo({
+          host: result.host!,
+          fingerprint: result.new_fingerprint!,
+          old_fingerprint: result.old_fingerprint!,
+          isChanged: true,
+        });
+        setShowHostKeyPrompt(true);
         setLoading(false);
         return;
       }
 
-      // Set session token
-      await session.api.setGitSession(patToUse);
-
-      // Push
-      const result = await session.api.gitPush(patToUse);
       setSuccess(result.message || 'Pushed to remote');
       setTimeout(() => setSuccess(''), 3000);
       loadStatus();
@@ -227,7 +344,6 @@ export function GitSync({ onClose, onSuccess }: Props) {
       if (!session.api) throw new Error('Not logged in');
       if (!status?.configured) throw new Error('Git sync not configured');
 
-      // Get passphrase to decrypt private key
       const passphrase = await promptForPassphrase('pull');
       if (!passphrase) {
         setError('Passphrase required to decrypt private key');
@@ -235,37 +351,71 @@ export function GitSync({ onClose, onSuccess }: Props) {
         return;
       }
 
-      // Get encrypted PAT from server
-      if (!encryptedPat) {
-        setError('PAT not configured. Please reconfigure Git sync.');
-        setLoading(false);
-        return;
-      }
-
-      // Get armored private key from storage
       const armoredPrivateKey = await getDecryptedPrivateKey(fp, passphrase);
       if (!armoredPrivateKey) {
         setError('Failed to get private key. Check passphrase.');
         setLoading(false);
         return;
       }
-
-      // Decrypt the private key with the passphrase
       const privateKey = await decryptPrivateKey(armoredPrivateKey, passphrase);
 
-      // Decrypt PAT with PGP private key
-      const patToUse = await decryptPAT(encryptedPat, privateKey);
-      if (!patToUse) {
-        setError('Failed to decrypt PAT. Check passphrase.');
+      let token = '';
+
+      if (authType === 'ssh') {
+        if (!encryptedSshKey) {
+          setError('SSH key not configured. Please reconfigure Git sync.');
+          setLoading(false);
+          return;
+        }
+        const sshData = await decryptSSHKey(encryptedSshKey, privateKey);
+        if (!sshData.key) {
+          setError('Failed to decrypt SSH key. Check passphrase.');
+          setLoading(false);
+          return;
+        }
+        token = sshData.key;
+      } else {
+        if (!encryptedPat) {
+          setError('PAT not configured. Please reconfigure Git sync.');
+          setLoading(false);
+          return;
+        }
+        token = await decryptPAT(encryptedPat, privateKey);
+        if (!token) {
+          setError('Failed to decrypt PAT. Check passphrase.');
+          setLoading(false);
+          return;
+        }
+      }
+
+      await session.api.setGitSession(token);
+      pendingTokenRef.current = token;
+
+      const result = await session.api.gitPull(token);
+
+      // Handle host key TOFU
+      if (result.status === 'host_key_unknown') {
+        setHostKeyInfo({
+          host: result.host!,
+          fingerprint: result.fingerprint!,
+          isChanged: false,
+        });
+        setShowHostKeyPrompt(true);
+        setLoading(false);
+        return;
+      }
+      if (result.status === 'host_key_changed') {
+        setHostKeyInfo({
+          host: result.host!,
+          fingerprint: result.new_fingerprint!,
+          old_fingerprint: result.old_fingerprint!,
+          isChanged: true,
+        });
+        setShowHostKeyPrompt(true);
         setLoading(false);
         return;
       }
 
-      // Set session token
-      await session.api.setGitSession(patToUse);
-
-      // Pull
-      const result: PullResult = await session.api.gitPull(patToUse);
       setSuccess(result.message || 'Pulled from remote');
       setTimeout(() => setSuccess(''), 3000);
       loadStatus();
@@ -277,9 +427,42 @@ export function GitSync({ onClose, onSuccess }: Props) {
     setShowPassphrasePrompt(false);
   };
 
+  const handleTrustHost = async () => {
+    if (!hostKeyInfo || !session.api) return;
+    try {
+      await session.api.trustHostKey(hostKeyInfo.host, hostKeyInfo.fingerprint);
+      // Auto-retry the pending operation
+      const action = pendingAction || 'push';
+      const token = pendingTokenRef.current;
+      if (token) {
+        await retryAfterTrust(action as 'push' | 'pull', token);
+      }
+    } catch (e: any) {
+      setError(e.message || 'Failed to trust host key');
+    }
+    setShowHostKeyPrompt(false);
+    setHostKeyInfo(null);
+    pendingTokenRef.current = '';
+  };
+
   const handleViewLogs = async () => {
     setShowLogs(true);
     await loadLogs();
+  };
+
+  const handleViewTrustedHosts = async () => {
+    setShowTrustedHosts(true);
+    await loadTrustedHosts();
+  };
+
+  const handleDeleteTrustedHost = async (host: string) => {
+    if (!session.api) return;
+    try {
+      await session.api.deleteTrustedHost(host);
+      setTrustedHosts(prev => prev.filter(h => h.hostname !== host));
+    } catch (e: any) {
+      setError(e.message || 'Failed to delete trusted host');
+    }
   };
 
   return (
@@ -299,50 +482,107 @@ export function GitSync({ onClose, onSuccess }: Props) {
               <h3>Configure Git Sync</h3>
               <p class="help-text" style="margin-bottom: 16px;">
                 Sync your password store to a private Git repository.
-                Your PAT will be encrypted with your PGP public key and stored securely.
               </p>
 
               <div class="input-group" style="flex-direction: column; gap: 12px;">
+                {/* Auth type tabs */}
+                <div style="display: flex; gap: 0; margin-bottom: 8px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border);">
+                  <button
+                    class={authType === 'https' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+                    onClick={() => setAuthType('https')}
+                    style={{ borderRadius: 0, flex: 1 }}
+                    data-testid="git-auth-https-tab"
+                  >
+                    🔐 HTTPS
+                  </button>
+                  <button
+                    class={authType === 'ssh' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+                    onClick={() => setAuthType('ssh')}
+                    style={{ borderRadius: 0, flex: 1 }}
+                    data-testid="git-auth-ssh-tab"
+                  >
+                    🔑 SSH
+                  </button>
+                </div>
+
                 <div>
-                  <label class="label-text">Repository URL (HTTPS)</label>
+                  <label class="label-text">Repository URL</label>
                   <input
                     class="input"
                     type="url"
-                    placeholder="https://github.com/user/private-repo.git"
+                    placeholder={authType === 'https' ? 'https://github.com/user/private-repo.git' : 'git@github.com:user/private-repo.git'}
                     value={repoUrl}
-                    onInput={(e) => setRepoUrl((e.target as HTMLInputElement).value)}
+                    onInput={(e) => handleUrlChange((e.target as HTMLInputElement).value)}
                     style="width: 100%; margin-top: 4px;"
                     data-testid="git-repo-url"
                   />
                 </div>
-                <div>
-                  <label class="label-text">Personal Access Token (PAT)</label>
-                  <input
-                    class="input"
-                    type="password"
-                    placeholder="ghp_..."
-                    value={pat}
-                    onInput={(e) => setPat((e.target as HTMLInputElement).value)}
-                    style="width: 100%; margin-top: 4px;"
-                    autocomplete="one-time-code"
-                    name="git-pat-token"
-                    data-lpignore="true"
-                    data-bwignore="true"
-                    data-1p-ignore="true"
-                    data-testid="git-pat"
-                  />
-                  <p class="help-text" style="font-size: 11px; margin-top: 4px;">
-                    PAT will be encrypted with your PGP public key.
-                    Server stores the encrypted blob but cannot decrypt it.
-                  </p>
-                </div>
+
+                {authType === 'https' ? (
+                  <div>
+                    <label class="label-text">Personal Access Token (PAT)</label>
+                    <input
+                      class="input"
+                      type="password"
+                      placeholder="ghp_..."
+                      value={pat}
+                      onInput={(e) => setPat((e.target as HTMLInputElement).value)}
+                      style="width: 100%; margin-top: 4px;"
+                      autocomplete="one-time-code"
+                      name="git-pat-token"
+                      data-lpignore="true"
+                      data-bwignore="true"
+                      data-1p-ignore="true"
+                      data-testid="git-pat"
+                    />
+                    <p class="help-text" style="font-size: 11px; margin-top: 4px;">
+                      PAT is encrypted with your PGP public key.
+                      Server stores the encrypted blob but cannot decrypt it.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label class="label-text">SSH Private Key</label>
+                      <textarea
+                        class="input"
+                        placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                        value={sshKey}
+                        onInput={(e) => setSshKey((e.target as HTMLTextAreaElement).value)}
+                        style="width: 100%; margin-top: 4px; font-family: monospace; font-size: 11px; min-height: 80px;"
+                        rows={4}
+                        data-testid="git-ssh-key"
+                      />
+                    </div>
+                    <div>
+                      <label class="label-text">Key Passphrase (optional)</label>
+                      <input
+                        class="input"
+                        type="password"
+                        placeholder="Leave blank if key has no passphrase"
+                        value={sshPassphrase}
+                        onInput={(e) => setSshPassphrase((e.target as HTMLInputElement).value)}
+                        style="width: 100%; margin-top: 4px;"
+                        autocomplete="one-time-code"
+                        name="git-ssh-passphrase"
+                        data-lpignore="true"
+                        data-bwignore="true"
+                        data-1p-ignore="true"
+                      />
+                      <p class="help-text" style="font-size: 11px; margin-top: 4px;">
+                        The key and passphrase are encrypted together with your PGP key.
+                        Server never sees the plaintext.
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
 
               <div class="settings-buttons" style="margin-top: 16px;">
                 <button
                   class="btn btn-primary"
                   onClick={handleConfigure}
-                  disabled={configuring || !repoUrl || !pat}
+                  disabled={configuring || !repoUrl || (authType === 'https' && !pat) || (authType === 'ssh' && !sshKey)}
                   data-testid="git-configure-btn"
                 >
                   {configuring ? <><span class="spinner" /> Configuring...</> : '✓ Configure'}
@@ -361,6 +601,12 @@ export function GitSync({ onClose, onSuccess }: Props) {
                   </span>
                 </div>
                 <div class="settings-row">
+                  <span class="label-text">Auth</span>
+                  <span class="value-text">
+                    {authType === 'ssh' ? '🔑 SSH Key' : '🔐 PAT (HTTPS)'}
+                  </span>
+                </div>
+                <div class="settings-row">
                   <span class="label-text">Sync History</span>
                   <span class="value-text">
                     ✅ {status.success_count} / ❌ {status.failed_count}
@@ -371,7 +617,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
               <div class="settings-section">
                 <h3>Actions</h3>
                 <p class="help-text" style="margin-bottom: 12px;">
-                  Manual push/pull only. You will be prompted for your PGP passphrase to decrypt the PAT.
+                  Manual push/pull only. You will be prompted for your PGP passphrase.
                 </p>
                 <div class="settings-buttons">
                   <button
@@ -397,38 +643,91 @@ export function GitSync({ onClose, onSuccess }: Props) {
                   >
                     📋 View Logs
                   </button>
+                  <button
+                    class="btn btn-sm"
+                    onClick={handleViewTrustedHosts}
+                    data-testid="git-trusted-hosts-btn"
+                  >
+                    🔑 Trusted Hosts
+                  </button>
                 </div>
               </div>
 
               <div class="settings-section">
                 <h3>Update Configuration</h3>
                 <div class="input-group" style="flex-direction: column; gap: 12px;">
+                  {/* Auth type tabs */}
+                  <div style="display: flex; gap: 0; margin-bottom: 8px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border);">
+                    <button
+                      class={authType === 'https' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+                      onClick={() => setAuthType('https')}
+                      style={{ borderRadius: 0, flex: 1 }}
+                      data-testid="git-auth-https-tab-update"
+                    >
+                      🔐 HTTPS
+                    </button>
+                    <button
+                      class={authType === 'ssh' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+                      onClick={() => setAuthType('ssh')}
+                      style={{ borderRadius: 0, flex: 1 }}
+                      data-testid="git-auth-ssh-tab-update"
+                    >
+                      🔑 SSH
+                    </button>
+                  </div>
                   <div>
                     <label class="label-text">Repository URL</label>
                     <input
                       class="input"
                       type="url"
                       value={repoUrl}
-                      onInput={(e) => setRepoUrl((e.target as HTMLInputElement).value)}
+                      onInput={(e) => handleUrlChange((e.target as HTMLInputElement).value)}
                       style="width: 100%; margin-top: 4px;"
                     />
                   </div>
-                  <div>
-                    <label class="label-text">New PAT (leave blank to keep current)</label>
-                    <input
-                      class="input"
-                      type="password"
-                      placeholder="ghp_..."
-                      value={pat}
-                      onInput={(e) => setPat((e.target as HTMLInputElement).value)}
-                      style="width: 100%; margin-top: 4px;"
-                      autocomplete="one-time-code"
-                      name="git-pat-update"
-                      data-lpignore="true"
-                      data-bwignore="true"
-                      data-1p-ignore="true"
-                    />
-                  </div>
+                  {authType === 'https' ? (
+                    <div>
+                      <label class="label-text">New PAT (leave blank to keep current)</label>
+                      <input
+                        class="input"
+                        type="password"
+                        placeholder="ghp_..."
+                        value={pat}
+                        onInput={(e) => setPat((e.target as HTMLInputElement).value)}
+                        style="width: 100%; margin-top: 4px;"
+                        autocomplete="one-time-code"
+                        name="git-pat-update"
+                        data-lpignore="true"
+                        data-bwignore="true"
+                        data-1p-ignore="true"
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label class="label-text">New SSH Key (leave blank to keep current)</label>
+                        <textarea
+                          class="input"
+                          placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                          value={sshKey}
+                          onInput={(e) => setSshKey((e.target as HTMLTextAreaElement).value)}
+                          style="width: 100%; margin-top: 4px; font-family: monospace; font-size: 11px; min-height: 60px;"
+                          rows={3}
+                        />
+                      </div>
+                      <div>
+                        <label class="label-text">Key Passphrase (if new key has one)</label>
+                        <input
+                          class="input"
+                          type="password"
+                          placeholder="Leave blank if no passphrase"
+                          value={sshPassphrase}
+                          onInput={(e) => setSshPassphrase((e.target as HTMLInputElement).value)}
+                          style="width: 100%; margin-top: 4px;"
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
                 <div class="settings-buttons" style="margin-top: 12px;">
                   <button
@@ -443,7 +742,7 @@ export function GitSync({ onClose, onSuccess }: Props) {
             </>
           )}
 
-          {/* Passphrase Prompt Modal */}
+          {/* PGP Passphrase Prompt */}
           {showPassphrasePrompt && (
             <div class="modal-overlay">
               <div class="modal" style="max-width: 400px;">
@@ -452,7 +751,8 @@ export function GitSync({ onClose, onSuccess }: Props) {
                 </div>
                 <div class="modal-body">
                   <p class="help-text" style="margin-bottom: 16px;">
-                    Enter your PGP passphrase to {pendingAction === 'configure' ? 'encrypt' : 'decrypt'} the PAT.
+                    Enter your PGP passphrase to {pendingAction === 'configure' ? 'encrypt' : 'decrypt'} the
+                    {authType === 'ssh' ? ' SSH key' : ' PAT'}.
                   </p>
                   <input
                     class="input"
@@ -510,6 +810,68 @@ export function GitSync({ onClose, onSuccess }: Props) {
             </div>
           )}
 
+          {/* SSH Host Key TOFU Prompt */}
+          {showHostKeyPrompt && hostKeyInfo && (
+            <div class="modal-overlay">
+              <div class="modal" style="max-width: 450px;">
+                <div class="modal-header">
+                  <h2>{hostKeyInfo.isChanged ? '⚠️ Host Key Changed' : '🔐 First Time Connecting'}</h2>
+                </div>
+                <div class="modal-body">
+                  {hostKeyInfo.isChanged ? (
+                    <>
+                      <p class="help-text" style="margin-bottom: 12px; color: #e74c3c; font-weight: bold;">
+                        ⚠️ The host key for <strong>{hostKeyInfo.host}</strong> has changed!
+                      </p>
+                      <p class="help-text" style="margin-bottom: 12px;">
+                        This could mean a <strong>man-in-the-middle attack</strong>.
+                        Only trust if you know the host key was legitimately rotated.
+                      </p>
+                      <div style="background: #f8f9fa; padding: 10px; border-radius: 6px; margin-bottom: 12px; font-family: monospace; font-size: 12px;">
+                        <div><strong>Host:</strong> {hostKeyInfo.host}</div>
+                        <div><strong>Old fingerprint:</strong> {hostKeyInfo.old_fingerprint}</div>
+                        <div><strong>New fingerprint:</strong> {hostKeyInfo.fingerprint}</div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p class="help-text" style="margin-bottom: 12px;">
+                        First time connecting to <strong>{hostKeyInfo.host}</strong>.
+                      </p>
+                      <div style="background: #f8f9fa; padding: 10px; border-radius: 6px; margin-bottom: 12px; font-family: monospace; font-size: 12px;">
+                        <div><strong>Host:</strong> {hostKeyInfo.host}</div>
+                        <div><strong>Fingerprint:</strong> {hostKeyInfo.fingerprint}</div>
+                      </div>
+                      <p class="help-text" style="margin-bottom: 12px;">
+                        Verify this fingerprint with your git provider's documentation.
+                      </p>
+                    </>
+                  )}
+                  <div class="settings-buttons">
+                    <button
+                      class="btn btn-ghost"
+                      onClick={() => {
+                        setShowHostKeyPrompt(false);
+                        setHostKeyInfo(null);
+                        pendingTokenRef.current = '';
+                      }}
+                      data-testid="git-hostkey-cancel"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      class="btn btn-primary"
+                      onClick={handleTrustHost}
+                      data-testid="git-hostkey-trust"
+                    >
+                      {hostKeyInfo.isChanged ? 'Trust New Key' : '🔒 Trust This Host'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Logs Modal */}
           {showLogs && (
             <div class="modal-overlay" onClick={() => setShowLogs(false)}>
@@ -537,6 +899,48 @@ export function GitSync({ onClose, onSuccess }: Props) {
                           {log.entries_changed > 0 && (
                             <div class="log-changed">{log.entries_changed} entries</div>
                           )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Trusted Hosts Modal */}
+          {showTrustedHosts && (
+            <div class="modal-overlay" onClick={() => setShowTrustedHosts(false)}>
+              <div class="modal" style="max-width: 500px;" onClick={(e) => e.stopPropagation()}>
+                <div class="modal-header">
+                  <h2>🔑 Trusted SSH Hosts</h2>
+                  <button class="btn btn-ghost btn-icon" onClick={() => setShowTrustedHosts(false)}>✕</button>
+                </div>
+                <div class="modal-body" style="max-height: 400px; overflow-y: auto;">
+                  {loadingHosts ? (
+                    <p class="help-text">Loading...</p>
+                  ) : trustedHosts.length === 0 ? (
+                    <p class="help-text">No trusted hosts yet. They will appear after the first SSH push/pull.</p>
+                  ) : (
+                    <div class="log-list">
+                      {trustedHosts.map((h) => (
+                        <div key={h.hostname} class="log-entry log-success">
+                          <div class="log-header">
+                            <span class="log-operation">{h.hostname}</span>
+                            <span class="log-time">{new Date(h.created_at).toLocaleString()}</span>
+                          </div>
+                          <div class="log-message" style="font-family: monospace; font-size: 11px;">
+                            {h.host_key_fingerprint}
+                          </div>
+                          <div style="margin-top: 4px;">
+                            <button
+                              class="btn btn-sm btn-ghost"
+                              onClick={() => handleDeleteTrustedHost(h.hostname)}
+                              style="color: #e74c3c; font-size: 11px; padding: 2px 8px;"
+                            >
+                              🗑️ Remove
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>

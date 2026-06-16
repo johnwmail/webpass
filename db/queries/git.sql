@@ -1,10 +1,12 @@
 -- name: UpsertGitConfig :exec
-INSERT INTO git_config (fingerprint, repo_url, branch, encrypted_pat, updated_at)
-VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+INSERT INTO git_config (fingerprint, repo_url, branch, encrypted_pat, encrypted_ssh_key, auth_type, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 ON CONFLICT (fingerprint) DO UPDATE
 SET repo_url = excluded.repo_url,
     branch = excluded.branch,
     encrypted_pat = excluded.encrypted_pat,
+    encrypted_ssh_key = excluded.encrypted_ssh_key,
+    auth_type = excluded.auth_type,
     updated_at = CURRENT_TIMESTAMP;
 
 -- name: GetGitConfig :one
@@ -33,9 +35,27 @@ SELECT
     gc.fingerprint,
     gc.repo_url,
     gc.branch,
+    gc.auth_type,
     gc.encrypted_pat,
+    gc.encrypted_ssh_key,
     gc.created_at as config_created_at,
     (SELECT COUNT(*) FROM git_sync_log WHERE fingerprint = gc.fingerprint AND status = 'success') as success_count,
     (SELECT COUNT(*) FROM git_sync_log WHERE fingerprint = gc.fingerprint AND status = 'failed') as failed_count
 FROM git_config gc
 WHERE gc.fingerprint = ?;
+
+-- name: UpsertKnownHost :exec
+INSERT INTO git_known_hosts (fingerprint, hostname, host_key_fingerprint)
+VALUES (?, ?, ?)
+ON CONFLICT (fingerprint, hostname) DO UPDATE
+SET host_key_fingerprint = excluded.host_key_fingerprint,
+    created_at = CURRENT_TIMESTAMP;
+
+-- name: GetKnownHost :one
+SELECT * FROM git_known_hosts WHERE fingerprint = ? AND hostname = ?;
+
+-- name: DeleteKnownHost :exec
+DELETE FROM git_known_hosts WHERE fingerprint = ? AND hostname = ?;
+
+-- name: ListKnownHosts :many
+SELECT * FROM git_known_hosts WHERE fingerprint = ? ORDER BY hostname;

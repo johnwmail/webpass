@@ -444,7 +444,9 @@ export class ApiClient {
   async getGitStatus(): Promise<{
     configured: boolean;
     repo_url?: string;
+    auth_type?: string;
     has_encrypted_pat?: boolean;
+    has_encrypted_ssh_key?: boolean;
     success_count: number;
     failed_count: number;
   }> {
@@ -463,8 +465,11 @@ export class ApiClient {
   async getGitConfig(): Promise<{
     configured: boolean;
     repo_url: string;
+    auth_type: string;
     encrypted_pat: string;
     has_encrypted_pat: boolean;
+    encrypted_ssh_key: string;
+    has_encrypted_ssh_key: boolean;
   }> {
     const res = await fetch(
       this.url(`/api/${this.fingerprint}/git/config`),
@@ -480,7 +485,9 @@ export class ApiClient {
   /** POST /api/:fp/git/config */
   async configureGit(
     repoUrl: string,
-    encryptedPat: string
+    encryptedPat: string,
+    authType?: string,
+    encryptedSSHKey?: string
   ): Promise<{ status: string }> {
     const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/git/config`),
@@ -488,7 +495,13 @@ export class ApiClient {
         method: 'POST',
         headers: this.headers(),
         credentials: 'include',
-        body: JSON.stringify({ repo_url: repoUrl, encrypted_pat: encryptedPat, branch: 'HEAD' }),
+        body: JSON.stringify({
+          repo_url: repoUrl,
+          encrypted_pat: encryptedPat || '',
+          encrypted_ssh_key: encryptedSSHKey || '',
+          auth_type: authType || '',
+          branch: 'HEAD',
+        }),
       }
     );
     if (!res.ok) {
@@ -521,6 +534,12 @@ export class ApiClient {
     status: string;
     operation: string;
     message: string;
+    entries_changed?: number;
+    host?: string;
+    port?: number;
+    fingerprint?: string;
+    old_fingerprint?: string;
+    new_fingerprint?: string;
   }> {
     const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/git/push`),
@@ -531,11 +550,15 @@ export class ApiClient {
         body: JSON.stringify({ token: token || '' }),
       }
     );
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Request failed' }));
-      throw new Error(err.error || `Git push failed (${res.status})`);
+    const data = await res.json().catch(() => ({ error: 'Request failed' }));
+    // If it's a structured host key error, return the data directly
+    if (data.status === 'host_key_unknown' || data.status === 'host_key_changed') {
+      return data;
     }
-    return res.json();
+    if (!res.ok) {
+      throw new Error(data.error || `Git push failed (${res.status})`);
+    }
+    return data;
   }
 
   /** POST /api/:fp/git/pull */
@@ -544,6 +567,11 @@ export class ApiClient {
     operation: string;
     entries_changed?: number;
     message: string;
+    host?: string;
+    port?: number;
+    fingerprint?: string;
+    old_fingerprint?: string;
+    new_fingerprint?: string;
   }> {
     const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/git/pull`),
@@ -554,11 +582,15 @@ export class ApiClient {
         body: JSON.stringify({ token: token || '' }),
       }
     );
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Request failed' }));
-      throw new Error(err.error || `Git pull failed (${res.status})`);
+    const data = await res.json().catch(() => ({ error: 'Request failed' }));
+    // If it's a structured host key error, return the data directly
+    if (data.status === 'host_key_unknown' || data.status === 'host_key_changed') {
+      return data;
     }
-    return res.json();
+    if (!res.ok) {
+      throw new Error(data.error || `Git pull failed (${res.status})`);
+    }
+    return data;
   }
 
   /** POST /api/:fp/git/toggle-sync — deprecated */
@@ -597,6 +629,64 @@ export class ApiClient {
       }
     );
     if (!res.ok) throw new Error(`Git log failed (${res.status})`);
+    return res.json();
+  }
+
+  // ---------------------------------------------------------------------------
+  // SSH Known Hosts API
+  // ---------------------------------------------------------------------------
+
+  /** POST /api/:fp/git/trust-hostkey — store a trusted host key (TOFU) */
+  async trustHostKey(host: string, fingerprint: string): Promise<{ status: string }> {
+    const res = await this.guardedFetch(
+      this.url(`/api/${this.fingerprint}/git/trust-hostkey`),
+      {
+        method: 'POST',
+        headers: this.headers(),
+        credentials: 'include',
+        body: JSON.stringify({ host, fingerprint }),
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || `Trust host key failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  /** GET /api/:fp/git/trusted-hosts — list trusted hosts */
+  async getTrustedHosts(): Promise<{
+    hosts: Array<{
+      hostname: string;
+      host_key_fingerprint: string;
+      created_at: string;
+    }>;
+  }> {
+    const res = await fetch(
+      this.url(`/api/${this.fingerprint}/git/trusted-hosts`),
+      {
+        headers: this.headers(),
+        credentials: 'include',
+      }
+    );
+    if (!res.ok) throw new Error(`Trusted hosts fetch failed (${res.status})`);
+    return res.json();
+  }
+
+  /** DELETE /api/:fp/git/trusted-hosts/:host — remove a trusted host */
+  async deleteTrustedHost(host: string): Promise<{ status: string }> {
+    const res = await this.guardedFetch(
+      this.url(`/api/${this.fingerprint}/git/trusted-hosts/${encodeURIComponent(host)}`),
+      {
+        method: 'DELETE',
+        headers: this.headers(),
+        credentials: 'include',
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || `Delete trusted host failed (${res.status})`);
+    }
     return res.json();
   }
 

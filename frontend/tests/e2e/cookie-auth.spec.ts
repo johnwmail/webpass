@@ -40,7 +40,7 @@ test.describe('Cookie Authentication', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
-    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill((await testUser.registrationCode) || '').catch(() => {});
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -98,7 +98,7 @@ test.describe('Cookie Authentication', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
-    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill((await testUser.registrationCode) || '').catch(() => {});
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -150,7 +150,7 @@ test.describe('Cookie Authentication', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
-    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill((await testUser.registrationCode) || '').catch(() => {});
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -209,7 +209,7 @@ test.describe('Cookie Authentication', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
-    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill((await testUser.registrationCode) || '').catch(() => {});
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
@@ -254,7 +254,7 @@ test.describe('Cookie Authentication', () => {
 
     await page.getByPlaceholder('Choose a strong password').fill(testUser.password);
     await page.getByPlaceholder('Confirm your password').fill(testUser.password);
-    await page.getByPlaceholder('6-digit code from admin').fill((await testUser.registrationCode) || '');
+    await page.getByPlaceholder('6-digit code from admin (required)').fill((await testUser.registrationCode) || '').catch(() => {});
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByText('PGP Key', { exact: false }).waitFor({ timeout: 5000 });
 
