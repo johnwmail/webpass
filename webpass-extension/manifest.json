@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "WebPass Browser Extension",
+  "version": "0.1.0",
+  "description": "Zero-knowledge password manager browser extension for WebPass",
+  "permissions": [
+    "storage",
+    "scripting",
+    "cookies",
+    "activeTab",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "http://localhost/*",
+    "https://localhost/*",
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup/index.html",
+    "default_title": "WebPass",
+    "default_icon": {
+      "128": "icon.png"
+    }
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "background": {
+    "service_worker": "background/sw.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/autofill.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "webpass@webpass.app",
+      "strict_min_version": "109.0"
+    }
+  },
+  "icons": {
+    "128": "icon.png"
+  }
+}

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebPass</title>
+<style>
+:root {
+  --bg: #1a1a2e;
+  --bg-card: #16213e;
+  --bg-input: #0f3460;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+  --danger: #ef4444;
+  --success: #22c55e;
+  --border: #334155;
+  --radius: 6px;
+  --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 360px;
+  min-height: 400px;
+  max-height: 600px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.view { display: flex; flex-direction: column; height: 100%; }
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  background: var(--bg-card); flex-shrink: 0;
+}
+.logo { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+.form { padding: 16px 12px; display: flex; flex-direction: column; gap: 10px; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+.field input {
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-input); color: var(--text); font-size: 13px; outline: none;
+}
+.field input:focus { border-color: var(--accent); }
+.btn-primary {
+  padding: 8px 16px; border: none; border-radius: var(--radius);
+  background: var(--accent); color: #fff; font-size: 13px; font-weight: 600;
+  cursor: pointer; text-align: center;
+}
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-sm {
+  padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-input); color: var(--text); font-size: 11px; cursor: pointer;
+}
+.btn-sm:hover { background: var(--accent); border-color: var(--accent); }
+.btn-icon {
+  background: none; border: none; color: var(--text-muted); cursor: pointer;
+  font-size: 18px; padding: 4px; line-height: 1;
+}
+.btn-icon:hover { color: var(--text); }
+.error { color: var(--danger); font-size: 12px; padding: 4px 0; }
+.status-msg { text-align: center; color: var(--text-muted); font-size: 13px; padding: 24px 12px; }
+
+/* Search */
+.search-bar { padding: 8px 12px; flex-shrink: 0; }
+.search-bar input {
+  width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-input); color: var(--text); font-size: 13px; outline: none;
+}
+.search-bar input:focus { border-color: var(--accent); }
+
+/* Entry list */
+.entry-list { flex: 1; overflow-y: auto; }
+.entry-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; cursor: pointer; border-bottom: 1px solid rgba(51, 65, 85, 0.3);
+}
+.entry-item:hover { background: rgba(99, 102, 241, 0.08); }
+.entry-name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entry-date { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+
+/* Entry detail */
+.entry-detail { padding: 12px; flex: 1; }
+.entry-path { font-family: var(--font-mono); font-size: 12px; color: var(--accent); margin-bottom: 12px; word-break: break-all; }
+.passphrase-input { display: flex; gap: 6px; margin: 8px 0; }
+.passphrase-input input {
+  flex: 1; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-input); color: var(--text); font-size: 13px; outline: none;
+}
+.passphrase-input input:focus { border-color: var(--accent); }
+.entry-fields { display: flex; flex-direction: column; gap: 10px; }
+.field-row label { font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 2px; }
+.value-row { display: flex; align-items: center; gap: 6px; }
+.value-row .mono {
+  font-family: var(--font-mono); font-size: 13px; background: var(--bg-input);
+  padding: 4px 8px; border-radius: var(--radius); flex: 1; word-break: break-all;
+}
+
+/* Settings gear in header */
+.settings-btn { margin-left: auto; margin-right: 4px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="module" src="popup.js"></script>
+</body>
+</html>
