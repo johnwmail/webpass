@@ -301,6 +301,12 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Skip CSRF if request uses Bearer token auth (not susceptible to CSRF)
+		if r.Header.Get("Authorization") != "" && strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// Paths exempt from CSRF validation (authentication endpoints where user isn't logged in yet)
 		path := r.URL.Path
 		if path == "/api" || // POST /api (create user)
