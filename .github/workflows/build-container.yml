@@ -7,7 +7,6 @@ on:
     paths-ignore:
       - "*.md"
       - "LICENSE"
-      - ".qwen/**"
   workflow_dispatch:
 
 jobs:
