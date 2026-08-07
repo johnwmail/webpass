@@ -251,7 +251,7 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		// Prevent browsers from applying XSS filtering
 		w.Header().Set("X-XSS-Protection", "0")
 		// Permissions Policy - restrict browser features
-		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), clipboard-write=(self)")
 
 		next.ServeHTTP(w, r)
 	})

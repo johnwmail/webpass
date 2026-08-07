@@ -8,6 +8,7 @@ import {
   getTOTPErrorHint,
 } from '../lib/otp';
 import { Copy, Check, AlertTriangle, Eye, EyeOff } from 'lucide-preact';
+import { useClipboard } from '../hooks/useClipboard';
 
 interface Props {
   content: string;
@@ -18,7 +19,6 @@ export function OTPDisplay({ content }: Props) {
   const [expiresIn, setExpiresIn] = useState<number>(0);
   const [period, setPeriod] = useState<number>(30);
   const [showOTP, setShowOTP] = useState(true);
-  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string>('');
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -62,25 +62,11 @@ export function OTPDisplay({ content }: Props) {
     setExpiresIn(remaining);
   };
 
+  const { copied, copyToClipboard } = useClipboard({ clearAfterMs: 45000 });
+
   const copyCode = async () => {
     if (!code) return;
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopied(true);
-      setTimeout(() => {
-        navigator.clipboard.writeText('').catch(() => {});
-      }, 45000);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      const textArea = document.createElement('textarea');
-      textArea.value = code;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+    await copyToClipboard(code);
   };
 
   if (error && !code) {

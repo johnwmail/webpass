@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'preact/hooks';
 import { Copy, Check, Sparkles, RotateCcw } from 'lucide-preact';
+import { useClipboard } from '../hooks/useClipboard';
 
 interface Props {
   onUse?: (password: string) => void;
@@ -36,11 +37,10 @@ export function GeneratorModal({ onUse, onClose }: Props) {
   const [numbers, setNumbers] = useState(true);
   const [symbols, setSymbols] = useState(true);
   const [password, setPassword] = useState('');
-  const [copied, setCopied] = useState(false);
+  const { copied, copyToClipboard: copyPassword } = useClipboard({ clearAfterMs: 45000 });
 
   const regenerate = useCallback(() => {
     setPassword(generatePassword(length, { uppercase, lowercase, numbers, symbols }));
-    setCopied(false);
   }, [length, uppercase, lowercase, numbers, symbols]);
 
   useEffect(() => {
@@ -48,16 +48,7 @@ export function GeneratorModal({ onUse, onClose }: Props) {
   }, [regenerate]);
 
   const copyToClipboard = async () => {
-    try {
-      await navigator.clipboard.writeText(password);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-      setTimeout(() => {
-        navigator.clipboard.writeText('').catch(() => {});
-      }, 45000);
-    } catch {
-      // fallback
-    }
+    await copyPassword(password);
   };
 
   return (

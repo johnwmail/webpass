@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'preact/hooks';
 import { session } from '../lib/session';
 import { getAccount } from '../lib/storage';
 import { decryptPrivateKey, decryptBinary, encryptBinary, WrongKeyError } from '../lib/crypto';
+import { useClipboard } from './useClipboard';
 
 export interface EntryState {
   content: { password: string; notes: string } | null;
@@ -80,31 +81,32 @@ export function useEntry(path: string, onEdit: () => void, onDelete: () => void)
     }));
   }, []);
 
-  const copyPassword = useCallback(async () => {
-    setState(s => {
-      if (!s.content) return s;
-      return s;
+  const { copied: clipboardCopied, copyToClipboard } = useClipboard({ clearAfterMs: 45000 });
+
+  // Reset decrypted state when path changes or unmounts to clear memory
+  useEffect(() => {
+    setState({
+      content: null,
+      rawContent: '',
+      decrypting: false,
+      error: '',
+      needsReencrypt: false,
+      copied: false,
+      confirmDelete: false,
+      deleteLoading: false,
+      autoHidden: false,
     });
+  }, [path]);
 
-    const { content } = state;
-    if (!content) return;
-
-    try {
-      await navigator.clipboard.writeText(content.password);
-      setState(s => ({ ...s, copied: true }));
-      
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-      copyTimerRef.current = window.setTimeout(() => {
-        setState(s => ({ ...s, copied: false }));
-      }, 2000);
-
-      window.setTimeout(() => {
-        navigator.clipboard.writeText('').catch(() => {});
-      }, 45000);
-    } catch {
-      // ignore
-    }
-  }, [state.content]);
+  const copyPassword = useCallback(async () => {
+    if (!state.content?.password) return;
+    await copyToClipboard(state.content.password);
+    setState(s => ({ ...s, copied: true }));
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = window.setTimeout(() => {
+      setState(s => ({ ...s, copied: false }));
+    }, 2000);
+  }, [state.content?.password, copyToClipboard]);
 
   const handleDelete = useCallback(async () => {
     if (!state.confirmDelete) {
