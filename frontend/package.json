@@ -19,7 +19,7 @@
     "lint": "echo 'No linter configured'"
   },
   "dependencies": {
-    "fflate": "^0.8.2",
+    "fflate": "^0.8.3",
     "lucide-preact": "^0.460.0",
     "openpgp": "^6.3.0",
     "otpauth": "^9.3.2",
