@@ -9,7 +9,7 @@ importers:
   .:
     dependencies:
       fflate:
-        specifier: ^0.8.2
+        specifier: ^0.8.3
         version: 0.8.3
       lucide-preact:
         specifier: ^0.460.0
