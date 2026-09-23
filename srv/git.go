@@ -21,7 +21,7 @@ import (
 	gossh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"golang.org/x/crypto/ssh"
 
-	"srv.exe.dev/db/dbgen"
+	"github.com/johnwmail/webpass/db/dbgen"
 )
 
 // ---------------------------------------------------------------------------

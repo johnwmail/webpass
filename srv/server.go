@@ -26,8 +26,8 @@ import (
 	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 
-	"srv.exe.dev/db"
-	"srv.exe.dev/db/dbgen"
+	"github.com/johnwmail/webpass/db"
+	"github.com/johnwmail/webpass/db/dbgen"
 )
 
 // Server is the WebPass API server.

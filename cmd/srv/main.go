@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"srv.exe.dev/srv"
+	"github.com/johnwmail/webpass/srv"
 )
 
 var (
