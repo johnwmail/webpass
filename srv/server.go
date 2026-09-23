@@ -26,8 +26,8 @@ import (
 	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 
-	"srv.exe.dev/db"
-	"srv.exe.dev/db/dbgen"
+	"github.com/johnwmail/webpass/db"
+	"github.com/johnwmail/webpass/db/dbgen"
 )
 
 // Server is the WebPass API server.
@@ -297,6 +297,12 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 				}
 				http.SetCookie(w, cookie)
 			}
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Skip CSRF if request uses Bearer token auth (not susceptible to CSRF)
+		if r.Header.Get("Authorization") != "" && strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
 			next.ServeHTTP(w, r)
 			return
 		}

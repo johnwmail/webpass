@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"srv.exe.dev/db/dbgen"
+	"github.com/johnwmail/webpass/db/dbgen"
 )
 
 func TestGitServiceNew(t *testing.T) {
