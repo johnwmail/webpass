@@ -14,7 +14,7 @@ test.describe('PGP Key Auto-Decrypt', () => {
 
   test('entry auto-decrypts when PGP key is already unlocked', async ({ page }) => {
     testUser = await generateTestUser();
-    const pgpPassphrase = `pgp-pass-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const pgpPassphrase = `pgp-pass-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
 
     // Register and login via full UI flow
     await page.goto('/');
