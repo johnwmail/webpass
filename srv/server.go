@@ -14,9 +14,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -185,18 +187,22 @@ func (s *Server) Handler() http.Handler {
 
 	// Serve frontend SPA if StaticDir is set
 	if s.StaticDir != "" {
-		fs := http.FileServer(http.Dir(s.StaticDir))
+		staticFS := os.DirFS(s.StaticDir)
+		fileServer := http.FileServerFS(staticFS)
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			path := r.URL.Path
-			if path == "/" {
-				http.ServeFile(w, r, s.StaticDir+"/index.html")
+			name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
+			if name == "" {
+				name = "index.html"
+			}
+			if !fs.ValidPath(name) {
+				http.NotFound(w, r)
 				return
 			}
-			if _, err := os.Stat(s.StaticDir + path); err == nil {
-				fs.ServeHTTP(w, r)
+			if _, err := fs.Stat(staticFS, name); err == nil {
+				fileServer.ServeHTTP(w, r)
 				return
 			}
-			http.ServeFile(w, r, s.StaticDir+"/index.html")
+			http.ServeFileFS(w, r, staticFS, "index.html")
 		})
 	}
 
