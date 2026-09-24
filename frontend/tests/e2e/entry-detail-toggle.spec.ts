@@ -18,7 +18,7 @@ import {
  * @returns The generated PGP passphrase for later use in decryption
  */
 async function registerAndLogin(page: any, testUser: any): Promise<string> {
-  const pgpPassphrase = `pgp-pass-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const pgpPassphrase = `pgp-pass-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
 
   await page.goto('/');
   await page.getByRole('button', { name: /Get Started/i }).click();
