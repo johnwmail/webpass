@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/johnwmail/webpass/frontend"
 	"github.com/johnwmail/webpass/srv"
 )
 
@@ -139,11 +141,25 @@ func run() error {
 	server.BuildTime = BuildTime
 	server.Commit = Commit
 
-	// Serve frontend static files if directory exists and not disabled
+	// Serve the frontend SPA unless disabled.
+	// Priority: an existing on-disk STATIC_DIR (local dev / custom deployments)
+	// takes precedence, otherwise fall back to the assets embedded in the binary.
 	if disableFrontend == "" || disableFrontend == "0" || disableFrontend == "false" {
 		if info, err := os.Stat(staticDir); err == nil && info.IsDir() {
 			server.StaticDir = staticDir
+			fmt.Printf("  Frontend Source: disk (%s)\n", staticDir)
+		} else if embedded, err := frontend.Dist(); err == nil {
+			if _, statErr := fs.Stat(embedded, "index.html"); statErr == nil {
+				server.StaticFS = embedded
+				fmt.Println("  Frontend Source: embedded")
+			} else {
+				fmt.Println("  Frontend Source: none (embedded assets missing; run `npm run build`)")
+			}
+		} else {
+			fmt.Printf("  Frontend Source: none (embedded assets error: %v)\n", err)
 		}
+	} else {
+		fmt.Println("  Frontend Source: disabled")
 	}
 
 	// Create HTTP server

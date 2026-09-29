@@ -25,7 +25,10 @@ WebPass is a zero-knowledge password manager with:
 ├── frontend/
 │   ├── src/            # Preact components + logic
 │   ├── index.html
+│   ├── embed.go        # //go:embed all:dist — embeds built SPA into the binary
+│   ├── dist/           # Vite build output (gitignored; .gitkeep placeholder committed)
 │   └── package.json
+├── openbsd/            # OpenBSD rc.d service + install notes
 └── GITSYNC.md          # Git sync feature documentation
 ```
 
@@ -34,7 +37,8 @@ WebPass is a zero-knowledge password manager with:
 ### Backend
 
 ```bash
-# Build
+# Build frontend first, then build the single binary (embeds the SPA)
+cd frontend && npm run build && cd ..
 go build -o webpass-server ./cmd/srv
 
 # Run (with env vars)
@@ -80,7 +84,7 @@ npm run typecheck
 | ----------------- | ---------------------------------------- |
 | `JWT_SECRET`      | 32-byte hex for JWT signing (required). If not set, random key generated on startup (fine for single-instance with short sessions). Set fixed value for multi-instance or long sessions. |
 | `DB_PATH`         | SQLite path (default: `/data/db/db.sqlite3`) |
-| `STATIC_DIR`      | Frontend dist dir (default: `frontend/dist`) |
+| `STATIC_DIR`      | Serve frontend from this on-disk dir instead of the embedded assets (dev only; default `frontend/dist` when it exists) |
 | `DISABLE_FRONTEND`| Disable frontend serving (`1`/`true` to disable, even if `STATIC_DIR` exists) |
 | `PORT`            | HTTP listen port (default: `8080`; Playwright E2E tests use `18080`) |
 | `CORS_ORIGINS`    | Comma-separated allowed origins          |

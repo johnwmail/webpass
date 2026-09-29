@@ -31,12 +31,27 @@ function openpgpPreloadPlugin(): import('vite').Plugin {
   };
 }
 
+// The Go backend embeds frontend/dist via //go:embed all:dist. That pattern
+// requires the directory to contain at least one file at compile time, so a
+// committed dist/.gitkeep placeholder keeps `go build`/`go test` working from a
+// clean checkout. Vite empties dist on every build, so recreate the placeholder
+// afterwards to avoid showing it as deleted.
+function embedPlaceholderPlugin(): import('vite').Plugin {
+  return {
+    name: 'embed-placeholder',
+    enforce: 'post',
+    closeBundle() {
+      writeFileSync(resolve(__dirname, 'dist', '.gitkeep'), '');
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   // Load environment variables
   const env = loadEnv(mode, process.cwd(), '');
 
   return {
-    plugins: [preact(), openpgpPreloadPlugin()],
+    plugins: [preact(), openpgpPreloadPlugin(), embedPlaceholderPlugin()],
     define: {
       'import.meta.env.FRONTEND_VERSION': JSON.stringify(env.FRONTEND_VERSION || process.env.FRONTEND_VERSION || 'vdev'),
       'import.meta.env.FRONTEND_COMMIT': JSON.stringify(env.FRONTEND_COMMIT || process.env.FRONTEND_COMMIT || 'unknown'),

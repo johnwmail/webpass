@@ -19,7 +19,6 @@ services:
       # Runtime configuration
       - JWT_SECRET=${JWT_SECRET:-change-me-to-random-32-byte-hex}
       - DB_PATH=/data/db/db.sqlite3
-      - STATIC_DIR=/app/frontend/dist
       - GIT_REPO_ROOT=/data/git-repos
       # Registration protection mode (TOTP-based)
       - REGISTRATION_ENABLED=${REGISTRATION_ENABLED:-false}
