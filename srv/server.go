@@ -37,7 +37,8 @@ type Server struct {
 	DB           *sql.DB
 	Q            *dbgen.Queries
 	JWTKey       []byte
-	StaticDir    string // path to frontend dist/ directory (optional)
+	StaticDir    string // path to an on-disk frontend dist/ directory (optional)
+	StaticFS     fs.FS  // embedded frontend filesystem (optional; preferred over StaticDir)
 	GitService   *GitService
 	Registration *RegistrationService
 	RateLimiter  *RateLimiter  // rate limiter for auth endpoints
@@ -185,9 +186,14 @@ func (s *Server) Handler() http.Handler {
 	// Version info
 	mux.HandleFunc("GET /api/version", s.handleVersion)
 
-	// Serve frontend SPA if StaticDir is set
-	if s.StaticDir != "" {
-		staticFS := os.DirFS(s.StaticDir)
+	// Serve frontend SPA if an embedded or on-disk filesystem is configured.
+	// StaticFS (embedded assets) is used when set; otherwise StaticDir (an
+	// on-disk override for local development and E2E tests) is used.
+	staticFS := s.StaticFS
+	if staticFS == nil && s.StaticDir != "" {
+		staticFS = os.DirFS(s.StaticDir)
+	}
+	if staticFS != nil {
 		fileServer := http.FileServerFS(staticFS)
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")

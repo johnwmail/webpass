@@ -58,7 +58,7 @@ A web-based password manager with zero-knowledge architecture. All cryptography 
 | Git      | go-git (pure Go, no Git CLI needed)    |
 | Auth     | bcrypt + JWT (5-min) + TOTP (2FA)      |
 | Testing  | Playwright (81 E2E tests) + Vitest     |
-| Deploy   | Docker (single container)               |
+| Deploy   | Single binary (embedded SPA) / Docker  |
 
 ## 🚀 Quick Start
 
@@ -71,13 +71,20 @@ A web-based password manager with zero-knowledge architecture. All cryptography 
 
 ### Build
 
-```bash
-# Build backend
-go build -o webpass-server ./cmd/srv
+The frontend is embedded into the Go binary, so a single build produces one
+self-contained executable that serves both the API and the SPA.
 
-# Build frontend (optional, for static serving)
-cd frontend && npm run build
+```bash
+# 1. Build the frontend (output goes to frontend/dist)
+cd frontend && npm run build && cd ..
+
+# 2. Build the single binary (embeds frontend/dist)
+go build -o webpass-server ./cmd/srv
 ```
+
+> The Go build still compiles if `frontend/dist` only contains the committed
+> placeholder, but the resulting binary serves no UI. To serve assets from disk
+> instead of embedding them (e.g. local dev with live edits), set `STATIC_DIR`.
 
 ### Run
 
@@ -124,6 +131,19 @@ cp .env.example .env
 # Start
 docker compose up -d
 ```
+
+### OpenBSD
+
+WebPass cross-compiles to a static `openbsd/amd64` (or `arm64`) binary with all
+dependencies (pure-Go SQLite, go-git, embedded SPA) — no CGO, no runtime deps.
+
+```bash
+CGO_ENABLED=0 GOOS=openbsd GOARCH=amd64 \
+  go build -ldflags="-s -w" -o webpass-server ./cmd/srv
+```
+
+See [DEPLOY-OPENBSD.md](DEPLOY-OPENBSD.md) for the `rc.d` service, dedicated
+user setup, and filesystem paths.
 
 ### Database Migrations & Upgrades
 
@@ -300,7 +320,7 @@ See [`.env.example`](.env.example) for all available options with detailed comme
 | -------------- | -------- | ---------------------------------------- |
 | `JWT_SECRET`   | Yes      | 32-byte hex string for JWT signing       |
 | `DB_PATH`      | No       | Path to SQLite database (default: `/data/db/db.sqlite3`) |
-| `STATIC_DIR`   | No       | Path to frontend `dist/` directory       |
+| `STATIC_DIR`   | No       | Serve frontend from this dir instead of embedded assets (dev only) |
 | `CORS_ORIGINS` | No       | Comma-separated allowed origins          |
 | `PORT`         | No       | HTTP listen port (default: `8080`)       |
 | `GIT_REPO_ROOT`| No       | Git repos directory (default: `/data/git-repos`) |
