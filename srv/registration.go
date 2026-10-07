@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -53,11 +54,12 @@ func NewRegistrationService() *RegistrationService {
 		}
 	}
 
-	// Get code file path from environment or use default
+	// Get code file path from environment or use default.
+	// Prefer /data when it exists and is writable (container/production),
+	// otherwise fall back to /tmp (local dev/tests).
 	codeFile := os.Getenv("REGISTRATION_CODE_FILE")
 	if codeFile == "" {
-		// Default to temp directory for testing, /data for production
-		codeFile = "/tmp/registration_code.txt"
+		codeFile = defaultCodeFile()
 	}
 
 	rs := &RegistrationService{
@@ -75,9 +77,17 @@ func NewRegistrationService() *RegistrationService {
 		} else {
 			slog.Info("registration: protected (TOTP code required)",
 				"period", period,
-				"algorithm", algorithm.String())
-			// Start code rotation monitoring
-			go rs.monitorCodeRotation()
+				"algorithm", algorithm.String(),
+				"code_file", codeFile)
+			// Validate the secret up-front so misconfiguration is not silent.
+			if _, err := rs.getCurrentCode(); err != nil {
+				slog.Error("registration: invalid REGISTRATION_TOTP_SECRET "+
+					"(must be unpadded base32); registration code will NOT be generated",
+					"error", err)
+			} else {
+				// Start code rotation monitoring
+				go rs.monitorCodeRotation()
+			}
 		}
 	} else {
 		slog.Info("registration: disabled")
@@ -133,15 +143,38 @@ func (rs *RegistrationService) getCurrentCode() (string, error) {
 	return code, nil
 }
 
+// defaultCodeFile picks where the registration code is written when
+// REGISTRATION_CODE_FILE is not set. Prefer /data when writable (container /
+// production), otherwise fall back to /tmp (local dev / tests).
+func defaultCodeFile() string {
+	if dirWritable("/data") {
+		return "/data/registration_code.txt"
+	}
+	return "/tmp/registration_code.txt"
+}
+
+// dirWritable reports whether a file can be created inside dir.
+func dirWritable(dir string) bool {
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	f, err := os.CreateTemp(dir, ".webpass-write-test-*")
+	if err != nil {
+		return false
+	}
+	name := f.Name()
+	_ = f.Close()
+	_ = os.Remove(name)
+	return true
+}
+
 // writeCodeFile writes the current code to the configured file.
 func (rs *RegistrationService) writeCodeFile(code string) error {
-	// Ensure directory exists
-	dir := strings.TrimSuffix(rs.codeFile, "/"+strings.Split(rs.codeFile[len(rs.codeFile)-10:], "/")[0])
-	if idx := strings.LastIndex(rs.codeFile, "/"); idx > 0 {
-		dir = rs.codeFile[:idx]
-	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
+	if dir := filepath.Dir(rs.codeFile); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return err
+		}
 	}
 
 	// Write code with restricted permissions
@@ -157,11 +190,17 @@ func (rs *RegistrationService) monitorCodeRotation() {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
+	var errLogged bool
 	for range ticker.C {
 		code, err := rs.getCurrentCode()
 		if err != nil {
+			if !errLogged {
+				slog.Error("registration: failed to generate code", "error", err)
+				errLogged = true
+			}
 			continue
 		}
+		errLogged = false
 
 		// Check if code has changed
 		if code != rs.lastCode {
