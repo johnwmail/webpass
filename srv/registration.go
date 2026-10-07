@@ -82,7 +82,7 @@ func NewRegistrationService() *RegistrationService {
 			// Validate the secret up-front so misconfiguration is not silent.
 			if _, err := rs.getCurrentCode(); err != nil {
 				slog.Error("registration: invalid REGISTRATION_TOTP_SECRET "+
-					"(must be unpadded base32); registration code will NOT be generated",
+					"(must be valid base32); registration code will NOT be generated",
 					"error", err)
 			} else {
 				// Start code rotation monitoring
