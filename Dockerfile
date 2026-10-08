@@ -86,10 +86,8 @@ USER 0
 WORKDIR /app
 
 # Copy binary from builder (owned by root, will be run by UID 8080)
+# The frontend assets are embedded into the binary, so nothing else is needed.
 COPY --from=backend-builder /app/webpass-server .
-
-# Copy frontend assets
-COPY --from=backend-builder /app/frontend/dist ./frontend/dist
 
 # Create data directory with proper ownership using COPY --chown
 # Distroless nonroot user is UID 8080 (standard nobody user)
@@ -99,7 +97,6 @@ COPY --chown=8080:8080 --from=backend-builder /app/data/ /data/
 # Default environment variables
 ENV PORT=8080
 ENV DB_PATH=/data/db/db.sqlite3
-ENV STATIC_DIR=/app/frontend/dist
 ENV GIT_REPO_ROOT=/data/git-repos
 
 USER 8080:8080

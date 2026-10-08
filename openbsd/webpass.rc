@@ -1,0 +1,40 @@
+#!/bin/ksh
+#
+# WebPass rc.d service script for OpenBSD.
+#
+# Install as /etc/rc.d/webpass, then:
+#   rcctl enable webpass
+#   rcctl start webpass
+#
+# Runtime configuration is read from /etc/webpass.env (see
+# openbsd/webpass.env.example). Keeping secrets in a mode 0640 file instead of
+# in daemon arguments prevents them from showing up in the process list.
+
+daemon="/usr/local/bin/webpass-server"
+daemon_user="_webpass"
+daemon_flags=""
+daemon_logger="daemon.info"
+
+env_file="/etc/webpass.env"
+
+. /etc/rc.d/rc.subr
+
+# webpass-server runs in the foreground, so let rc.subr background it.
+rc_bg=YES
+# webpass-server does not implement configuration reload via SIGHUP.
+rc_reload=NO
+
+rc_pre() {
+	install -d -o _webpass -g _webpass -m 0700 /var/webpass
+}
+
+rc_start() {
+	if [ ! -f "${env_file}" ]; then
+		echo "${env_file} not found" 1>&2
+		return 1
+	fi
+	# Source the environment file as _webpass before exec'ing the server.
+	rc_exec "set -a; . ${env_file}; set +a; exec ${daemon} ${daemon_flags}"
+}
+
+rc_cmd $1
