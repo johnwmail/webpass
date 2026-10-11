@@ -34,9 +34,9 @@ CGO_ENABLED=0 go build -ldflags="-s -w" -o webpass-server ./cmd/srv
 > If `pkg_add go` provides an older Go than `go.mod` requires, Go's toolchain
 > auto-download (`GOTOOLCHAIN=auto`) fetches the matching OpenBSD toolchain.
 
-The CI workflow `Build OpenBSD Binary` publishes ready-to-use
-`webpass-server-openbsd-amd64` / `-arm64` artifacts, so you can skip local
-compilation.
+The `Release` CI workflow publishes prebuilt binaries to the GitHub Releases
+page on every version tag: `webpass-server-openbsd-amd64` (plus Linux
+`amd64`/`arm64`), so you can download it and skip local compilation.
 
 ## 2. Create the service user and directories
 
