@@ -54,6 +54,16 @@ jobs:
       - name: Build frontend
         run: cd frontend && npm run build
 
+      # Hermetic Git remote for git-sync E2E tests. go-git supports the
+      # file:// transport, so no external Gitea/GitHub server or PAT is
+      # needed. go-git initialises new repos on the "master" branch, so make
+      # the bare repo HEAD point there.
+      - name: Create local Git test repository
+        run: |
+          rm -rf /tmp/webpass-git-sync-test.git
+          git init --bare /tmp/webpass-git-sync-test.git
+          git -C /tmp/webpass-git-sync-test.git symbolic-ref HEAD refs/heads/master
+
       - name: Install Playwright browsers
         run: cd frontend && npx playwright install --with-deps chromium
 
@@ -74,8 +84,8 @@ jobs:
           REGISTRATION_TOTP_PERIOD: 3600
           REGISTRATION_TOTP_ALGO: SHA1
           # Use DEFAULT rate limits for rate limit tests
-          WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
-          WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
+          WEBPASS_REPO_URL: file:///tmp/webpass-git-sync-test.git
+          WEBPASS_REPO_PAT: ci-dummy-token
 
       # =============================================================================
       # Phase 1: All tests EXCEPT registration and rate limit in Protected mode
@@ -96,8 +106,8 @@ jobs:
           # Relaxed rate limits for E2E tests to prevent false failures
           RATE_LIMIT_ATTEMPTS: 100
           RATE_LIMIT_WINDOW_MINUTES: 1
-          WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
-          WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
+          WEBPASS_REPO_URL: file:///tmp/webpass-git-sync-test.git
+          WEBPASS_REPO_PAT: ci-dummy-token
 
       # =============================================================================
       # Phase 2: Registration tests in Open mode (server restarts with new config)
@@ -121,8 +131,8 @@ jobs:
           # Relaxed rate limits for E2E tests to prevent false failures
           RATE_LIMIT_ATTEMPTS: 100
           RATE_LIMIT_WINDOW_MINUTES: 1
-          WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
-          WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
+          WEBPASS_REPO_URL: file:///tmp/webpass-git-sync-test.git
+          WEBPASS_REPO_PAT: ci-dummy-token
 
       # =============================================================================
       # Phase 3: Registration tests in Protected mode (server restarts)
@@ -148,8 +158,8 @@ jobs:
           # Relaxed rate limits for E2E tests to prevent false failures
           RATE_LIMIT_ATTEMPTS: 100
           RATE_LIMIT_WINDOW_MINUTES: 1
-          WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
-          WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
+          WEBPASS_REPO_URL: file:///tmp/webpass-git-sync-test.git
+          WEBPASS_REPO_PAT: ci-dummy-token
 
       # =============================================================================
       # Phase 4: Registration tests in Disabled mode (server restarts)
@@ -173,8 +183,8 @@ jobs:
           # Relaxed rate limits for E2E tests to prevent false failures
           RATE_LIMIT_ATTEMPTS: 100
           RATE_LIMIT_WINDOW_MINUTES: 1
-          WEBPASS_REPO_URL: ${{ secrets.WEBPASS_REPO_URL }}
-          WEBPASS_REPO_PAT: ${{ secrets.WEBPASS_REPO_PAT }}
+          WEBPASS_REPO_URL: file:///tmp/webpass-git-sync-test.git
+          WEBPASS_REPO_PAT: ci-dummy-token
 
       - name: Upload test results (HTML report)
         if: always()

@@ -163,6 +163,19 @@ export GIT_REPO_ROOT="$ROOT_DIR/git-repos"
 # Create git repos directory if it doesn't exist
 mkdir -p "$GIT_REPO_ROOT"
 
+# Use a hermetic local bare repository for git-sync E2E tests when no
+# external repository is configured. go-git supports file:// remotes, so no
+# Gitea/GitHub server or PAT is required.
+if [ -z "$WEBPASS_REPO_URL" ]; then
+    WEBPASS_GIT_TEST_REPO="${TMPDIR:-/tmp}/webpass-git-sync-test.git"
+    rm -rf "$WEBPASS_GIT_TEST_REPO"
+    git init --bare "$WEBPASS_GIT_TEST_REPO" >/dev/null
+    git -C "$WEBPASS_GIT_TEST_REPO" symbolic-ref HEAD refs/heads/master
+    export WEBPASS_REPO_URL="file://$WEBPASS_GIT_TEST_REPO"
+    export WEBPASS_REPO_PAT="ci-dummy-token"
+    log_info "Using local Git test repository: $WEBPASS_REPO_URL"
+fi
+
 # Install Playwright browsers if needed
 log_info "Ensuring Playwright browsers are installed..."
 cd "$FRONTEND_DIR"

@@ -97,8 +97,9 @@ test.describe('Git Sync - Configuration', () => {
     const gitServerAvailable = await isGitServerAvailable(WEBPASS_REPO_URL);
     test.skip(
       !WEBPASS_REPO_URL || !WEBPASS_REPO_PAT || !gitServerAvailable,
-      'WEBPASS_REPO_URL/WEBPASS_REPO_PAT required and the external Git test server must be reachable',
+      'WEBPASS_REPO_URL/WEBPASS_REPO_PAT required and the Git test repository must be available',
     );
+    test.setTimeout(120000);
 
     await openGitSync(page);
 
@@ -162,8 +163,9 @@ test.describe('Git Sync - Pull Error Handling', () => {
     const gitServerAvailable = await isGitServerAvailable(WEBPASS_REPO_URL);
     test.skip(
       !WEBPASS_REPO_URL || !WEBPASS_REPO_PAT || !gitServerAvailable,
-      'WEBPASS_REPO_URL/WEBPASS_REPO_PAT required and the external Git test server must be reachable',
+      'WEBPASS_REPO_URL/WEBPASS_REPO_PAT required and the Git test repository must be available',
     );
+    test.setTimeout(120000);
 
     // First configure git with real Git repo
     await openGitSync(page);
@@ -224,8 +226,9 @@ test.describe('Git Sync - Pull Error Handling', () => {
     const gitServerAvailable = await isGitServerAvailable(WEBPASS_REPO_URL);
     test.skip(
       !WEBPASS_REPO_URL || !WEBPASS_REPO_PAT || !gitServerAvailable,
-      'WEBPASS_REPO_URL/WEBPASS_REPO_PAT required and the external Git test server must be reachable',
+      'WEBPASS_REPO_URL/WEBPASS_REPO_PAT required and the Git test repository must be available',
     );
+    test.setTimeout(120000);
 
     // First configure git with real Git repo
     await openGitSync(page);
@@ -334,8 +337,9 @@ test.describe('Git Sync - Push/Pull Workflow', () => {
     const gitServerAvailable = await isGitServerAvailable(WEBPASS_REPO_URL);
     test.skip(
       !WEBPASS_REPO_URL || !WEBPASS_REPO_PAT || !gitServerAvailable,
-      'WEBPASS_REPO_URL/WEBPASS_REPO_PAT required and the external Git test server must be reachable',
+      'WEBPASS_REPO_URL/WEBPASS_REPO_PAT required and the Git test repository must be available',
     );
+    test.setTimeout(120000);
 
     // Step 1: Create a test entry - click the "Entry" button in sidebar
     await page.getByRole('button', { name: /Entry/i }).first().click();
@@ -375,8 +379,9 @@ test.describe('Git Sync - Push/Pull Workflow', () => {
     const gitServerAvailable = await isGitServerAvailable(WEBPASS_REPO_URL);
     test.skip(
       !WEBPASS_REPO_URL || !WEBPASS_REPO_PAT || !gitServerAvailable,
-      'WEBPASS_REPO_URL/WEBPASS_REPO_PAT required and the external Git test server must be reachable',
+      'WEBPASS_REPO_URL/WEBPASS_REPO_PAT required and the Git test repository must be available',
     );
+    test.setTimeout(120000);
 
     // Step 1: Configure git first
     await openGitSync(page);
