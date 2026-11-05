@@ -207,20 +207,19 @@ npx playwright show-report
 
 ### Git Sync Test Configuration
 
-Git sync E2E tests require a real Git repository. Set credentials via:
+`./playwright-e2e-test.sh` creates a temporary local bare repository
+(`file:///tmp/webpass-git-sync-test.git`) automatically, so git-sync tests run
+without an external server or PAT. CI uses the same approach.
+
+To run against a real remote instead, override the defaults:
 
 ```bash
-# Option 1: .env file (gitignored)
-WEBPASS_REPO_URL="https://gitea.example.com/user/password-store.git"
-WEBPASS_REPO_PAT="your-personal-access-token"
-
-# Option 2: Environment variables
-export WEBPASS_REPO_URL="..."
-export WEBPASS_REPO_PAT="..."
-
-# Option 3: GitHub Secrets (CI/CD)
-# Add WEBPASS_REPO_URL and WEBPASS_REPO_PAT to repository secrets
+export WEBPASS_REPO_URL="https://gitea.example.com/user/password-store.git"
+export WEBPASS_REPO_PAT="your-personal-access-token"
 ```
+
+If the configured remote is unreachable or returns 5xx, git-sync tests are
+skipped rather than failing the whole suite.
 
 ## 📡 API Endpoints
 
