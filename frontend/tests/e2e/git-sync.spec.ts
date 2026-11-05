@@ -15,6 +15,7 @@ import {
   apiRegister,
   apiDeleteAccount,
 } from '../helpers/api';
+import { isGitServerAvailable } from '../helpers/git-server';
 
 // Get Git credentials from environment variables
 // Falls back to empty string if not set (tests will be skipped)
@@ -93,7 +94,11 @@ test.describe('Git Sync - Configuration', () => {
 
   test('configure git sync with valid URL and PAT', async ({ page }) => {
     // Skip test if credentials not configured
-    test.skip(!WEBPASS_REPO_URL || !WEBPASS_REPO_PAT, 'WEBPASS_REPO_URL and WEBPASS_REPO_PAT environment variables required');
+    const gitServerAvailable = await isGitServerAvailable(WEBPASS_REPO_URL);
+    test.skip(
+      !WEBPASS_REPO_URL || !WEBPASS_REPO_PAT || !gitServerAvailable,
+      'WEBPASS_REPO_URL/WEBPASS_REPO_PAT required and the external Git test server must be reachable',
+    );
 
     await openGitSync(page);
 
@@ -154,7 +159,11 @@ test.describe('Git Sync - Pull Error Handling', () => {
 
   test('error message stays visible and modal does not auto-close on pull error', async ({ page }) => {
     // Skip test if credentials not configured
-    test.skip(!WEBPASS_REPO_URL || !WEBPASS_REPO_PAT, 'WEBPASS_REPO_URL and WEBPASS_REPO_PAT environment variables required');
+    const gitServerAvailable = await isGitServerAvailable(WEBPASS_REPO_URL);
+    test.skip(
+      !WEBPASS_REPO_URL || !WEBPASS_REPO_PAT || !gitServerAvailable,
+      'WEBPASS_REPO_URL/WEBPASS_REPO_PAT required and the external Git test server must be reachable',
+    );
 
     // First configure git with real Git repo
     await openGitSync(page);
@@ -212,7 +221,11 @@ test.describe('Git Sync - Pull Error Handling', () => {
 
   test('pull with wrong passphrase shows error and modal stays open', async ({ page }) => {
     // Skip test if credentials not configured
-    test.skip(!WEBPASS_REPO_URL || !WEBPASS_REPO_PAT, 'WEBPASS_REPO_URL and WEBPASS_REPO_PAT environment variables required');
+    const gitServerAvailable = await isGitServerAvailable(WEBPASS_REPO_URL);
+    test.skip(
+      !WEBPASS_REPO_URL || !WEBPASS_REPO_PAT || !gitServerAvailable,
+      'WEBPASS_REPO_URL/WEBPASS_REPO_PAT required and the external Git test server must be reachable',
+    );
 
     // First configure git with real Git repo
     await openGitSync(page);
@@ -318,7 +331,11 @@ test.describe('Git Sync - Push/Pull Workflow', () => {
 
   test('create entry then push to git', async ({ page }) => {
     // Skip test if credentials not configured
-    test.skip(!WEBPASS_REPO_URL || !WEBPASS_REPO_PAT, 'WEBPASS_REPO_URL and WEBPASS_REPO_PAT environment variables required');
+    const gitServerAvailable = await isGitServerAvailable(WEBPASS_REPO_URL);
+    test.skip(
+      !WEBPASS_REPO_URL || !WEBPASS_REPO_PAT || !gitServerAvailable,
+      'WEBPASS_REPO_URL/WEBPASS_REPO_PAT required and the external Git test server must be reachable',
+    );
 
     // Step 1: Create a test entry - click the "Entry" button in sidebar
     await page.getByRole('button', { name: /Entry/i }).first().click();
@@ -355,7 +372,11 @@ test.describe('Git Sync - Push/Pull Workflow', () => {
 
   test('pull entries from git after configure', async ({ page }) => {
     // Skip test if credentials not configured
-    test.skip(!WEBPASS_REPO_URL || !WEBPASS_REPO_PAT, 'WEBPASS_REPO_URL and WEBPASS_REPO_PAT environment variables required');
+    const gitServerAvailable = await isGitServerAvailable(WEBPASS_REPO_URL);
+    test.skip(
+      !WEBPASS_REPO_URL || !WEBPASS_REPO_PAT || !gitServerAvailable,
+      'WEBPASS_REPO_URL/WEBPASS_REPO_PAT required and the external Git test server must be reachable',
+    );
 
     // Step 1: Configure git first
     await openGitSync(page);

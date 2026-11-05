@@ -20,6 +20,7 @@ import {
   apiDeleteEntry,
   ensureCsrfCookie,
 } from '../helpers/api';
+import { isGitServerAvailable } from '../helpers/git-server';
 
 // Get Git credentials from environment variables
 const WEBPASS_REPO_URL = process.env.WEBPASS_REPO_URL || '';
@@ -217,7 +218,11 @@ test.describe('Git Sync - One-Way Sync Behavior', () => {
 
   test('one-way sync: push overwrites remote, pull replaces local', async ({ page }) => {
     // Skip test if credentials not configured
-    test.skip(!WEBPASS_REPO_URL || !WEBPASS_REPO_PAT, 'WEBPASS_REPO_URL and WEBPASS_REPO_PAT environment variables required');
+    const gitServerAvailable = await isGitServerAvailable(WEBPASS_REPO_URL);
+    test.skip(
+      !WEBPASS_REPO_URL || !WEBPASS_REPO_PAT || !gitServerAvailable,
+      'WEBPASS_REPO_URL/WEBPASS_REPO_PAT required and the external Git test server must be reachable',
+    );
 
     test.setTimeout(180000); // 3 minutes for this complex test
 
