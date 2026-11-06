@@ -13,10 +13,9 @@ const (
 	totpSkewSteps     = 1 // accept the current step and the previous one
 )
 
-// validateTOTPCode verifies a TOTP code against the current (and previous)
-// time step and enforces replay protection: a step that has already been
-// accepted is rejected even if its code is still within the validity window.
-func validateTOTPCode(secret, code string, lastAcceptedStep int64) (int64, bool) {
+// matchTOTPCode returns the time step matched by code (current or previous),
+// without applying replay protection.
+func matchTOTPCode(secret, code string) (int64, bool) {
 	now := time.Now()
 	currentStep := now.Unix() / totpPeriodSeconds
 
@@ -31,11 +30,19 @@ func validateTOTPCode(secret, code string, lastAcceptedStep int64) (int64, bool)
 			continue
 		}
 		if subtle.ConstantTimeCompare([]byte(expected), []byte(code)) == 1 {
-			if step > lastAcceptedStep {
-				return step, true
-			}
-			return 0, false
+			return step, true
 		}
 	}
 	return 0, false
+}
+
+// validateTOTPCode verifies a TOTP code against the current (and previous)
+// time step and enforces replay protection: a step that has already been
+// accepted is rejected even if its code is still within the validity window.
+func validateTOTPCode(secret, code string, lastAcceptedStep int64) (int64, bool) {
+	step, ok := matchTOTPCode(secret, code)
+	if !ok || step <= lastAcceptedStep {
+		return 0, false
+	}
+	return step, true
 }
