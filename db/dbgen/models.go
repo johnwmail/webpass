@@ -61,6 +61,14 @@ type Migration struct {
 	ExecutedAt      time.Time `json:"executed_at"`
 }
 
+type RecoveryCode struct {
+	ID          int64      `json:"id"`
+	Fingerprint string     `json:"fingerprint"`
+	CodeHash    string     `json:"code_hash"`
+	UsedAt      *time.Time `json:"used_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+}
+
 type User struct {
 	Fingerprint    string     `json:"fingerprint"`
 	PasswordHash   string     `json:"password_hash"`

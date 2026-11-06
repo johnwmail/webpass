@@ -42,6 +42,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
   const [totpUrl, setTotpUrl] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [totpConfirmed, setTotpConfirmed] = useState(false);
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [totpSkipped, setTotpSkipped] = useState(false);
   const [loginExpiresAt, setLoginExpiresAt] = useState<number | null>(null);
   const [totpLoading, setTotpLoading] = useState(false);
@@ -276,6 +277,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
       if (result.expires_at) {
         setLoginExpiresAt(result.expires_at);
       }
+      setRecoveryCodes(result.recovery_codes || []);
       setTotpConfirmed(true);
     } catch (e: any) {
       setError(e.message || 'Invalid code');
@@ -797,14 +799,28 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                   </button>
                 </>
               ) : (
-                <div class={`notice ${totpConfirmed ? 'notice-success' : 'notice-info'}`}>
-                  <Check size={18} style={{ flexShrink: 0 }} />
-                  <span>
-                    {totpConfirmed
-                      ? '2FA is enabled. Your account is secured with two-factor authentication.'
-                      : '2FA skipped. You can enable it later in Settings.'}
-                  </span>
-                </div>
+                <>
+                  <div class={`notice ${totpConfirmed ? 'notice-success' : 'notice-info'}`}>
+                    <Check size={18} style={{ flexShrink: 0 }} />
+                    <span>
+                      {totpConfirmed
+                        ? '2FA is enabled. Your account is secured with two-factor authentication.'
+                        : '2FA skipped. You can enable it later in Settings.'}
+                    </span>
+                  </div>
+                  {totpConfirmed && recoveryCodes.length > 0 && (
+                    <div class="notice notice-warning" style="margin-top: 12px;">
+                      <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+                      <div>
+                        <strong>Save these recovery codes now</strong>
+                        <pre class="recovery-codes" style="font-family: var(--font-mono); font-size: 12px; white-space: pre-wrap; margin: 8px 0; user-select: all;">{recoveryCodes.join('\n')}</pre>
+                        <p style="font-size: 12px; margin: 6px 0 0;">
+                          Each code can be used once if you lose access to your authenticator.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
 
               <div class="setup-actions">

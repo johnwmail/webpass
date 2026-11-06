@@ -2431,3 +2431,125 @@ func TestAuditLogPurgedOnAccountDelete(t *testing.T) {
 		t.Fatalf("expected one account_delete row, found %d", deletion)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// P6c: recovery codes
+// ---------------------------------------------------------------------------
+
+func TestRecoveryCodeLoginFlow(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	csrf := getCSRFToken(t, ts)
+
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"recovery1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
+
+	resp = doReq(t, ts, "POST", "/api/recovery1/login", `{"password":"password1234"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	var lr map[string]string
+	decodeJSON(t, resp, &lr)
+	token := lr["token"]
+
+	resp = doReqWithCSRF(t, ts, "POST", "/api/recovery1/totp/setup", `{"current_password":"password1234"}`, token, csrf)
+	expectStatus(t, resp, http.StatusOK)
+	var setup map[string]string
+	decodeJSON(t, resp, &setup)
+	secret := setup["secret"]
+
+	code, err := totp.GenerateCode(secret, time.Now())
+	if err != nil {
+		t.Fatalf("generate totp: %v", err)
+	}
+	confirmBody := `{"secret":"` + secret + `","code":"` + code + `","current_password":"password1234"}`
+	resp = doReqWithCSRF(t, ts, "POST", "/api/recovery1/totp/confirm", confirmBody, token, csrf)
+	expectStatus(t, resp, http.StatusOK)
+	var confirm struct {
+		Enabled       bool     `json:"enabled"`
+		RecoveryCodes []string `json:"recovery_codes"`
+	}
+	decodeJSON(t, resp, &confirm)
+	if !confirm.Enabled || len(confirm.RecoveryCodes) != recoveryCodeCount {
+		t.Fatalf("expected enabled and %d recovery codes, got %+v", recoveryCodeCount, confirm)
+	}
+
+	// Hashes are stored, not plaintext.
+	var plainCount int
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM recovery_codes WHERE fingerprint = ? AND code_hash = ?`, "recovery1", confirm.RecoveryCodes[0]).Scan(&plainCount); err != nil {
+		t.Fatalf("query plaintext hash: %v", err)
+	}
+	if plainCount != 0 {
+		t.Fatal("recovery code was stored in plaintext")
+	}
+
+	recoveryCode := confirm.RecoveryCodes[0]
+	loginBody := `{"password":"password1234","recovery_code":"` + recoveryCode + `"}`
+	resp = doReq(t, ts, "POST", "/api/recovery1/login/recovery", loginBody, "")
+	expectStatus(t, resp, http.StatusOK)
+	var recoveryLogin map[string]string
+	decodeJSON(t, resp, &recoveryLogin)
+	if recoveryLogin["token"] == "" {
+		t.Fatal("expected token from recovery login")
+	}
+
+	// Same code cannot be reused.
+	resp = doReq(t, ts, "POST", "/api/recovery1/login/recovery", loginBody, "")
+	expectStatus(t, resp, http.StatusUnauthorized)
+	_ = resp.Body.Close()
+
+	// Wrong password is rejected.
+	wrongBody := `{"password":"wrongpassword","recovery_code":"` + confirm.RecoveryCodes[1] + `"}`
+	resp = doReq(t, ts, "POST", "/api/recovery1/login/recovery", wrongBody, "")
+	expectStatus(t, resp, http.StatusUnauthorized)
+	_ = resp.Body.Close()
+}
+
+func TestRecoveryCodesPurgedOnAccountDelete(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	csrf := getCSRFToken(t, ts)
+
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"recoverydel1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
+
+	resp = doReq(t, ts, "POST", "/api/recoverydel1/login", `{"password":"password1234"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	var lr map[string]string
+	decodeJSON(t, resp, &lr)
+	token := lr["token"]
+
+	resp = doReqWithCSRF(t, ts, "POST", "/api/recoverydel1/totp/setup", `{"current_password":"password1234"}`, token, csrf)
+	expectStatus(t, resp, http.StatusOK)
+	var setup map[string]string
+	decodeJSON(t, resp, &setup)
+	secret := setup["secret"]
+	code, _ := totp.GenerateCode(secret, time.Now())
+	confirmBody := `{"secret":"` + secret + `","code":"` + code + `","current_password":"password1234"}`
+	resp = doReqWithCSRF(t, ts, "POST", "/api/recoverydel1/totp/confirm", confirmBody, token, csrf)
+	expectStatus(t, resp, http.StatusOK)
+	var confirm struct {
+		Enabled bool   `json:"enabled"`
+		Token   string `json:"token"`
+	}
+	decodeJSON(t, resp, &confirm)
+	if confirm.Token != "" {
+		token = confirm.Token
+	}
+
+	resp = doReqWithCSRF(t, ts, "DELETE", "/api/recoverydel1/account", `{"current_password":"password1234"}`, token, csrf)
+	expectStatus(t, resp, http.StatusNoContent)
+	_ = resp.Body.Close()
+
+	var count int
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM recovery_codes WHERE fingerprint = ?`, "recoverydel1").Scan(&count); err != nil {
+		t.Fatalf("count recovery codes: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected recovery codes to be purged, found %d", count)
+	}
+}

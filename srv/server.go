@@ -181,6 +181,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api", s.rateLimitMiddleware(s.handleCreateUser))
 	mux.HandleFunc("POST /api/{fingerprint}/login", s.rateLimitMiddleware(s.handleLogin))
 	mux.HandleFunc("POST /api/{fingerprint}/login/2fa", s.rateLimitMiddleware(s.handleLogin2FA))
+	mux.HandleFunc("POST /api/{fingerprint}/login/recovery", s.rateLimitMiddleware(s.handleLoginRecovery))
 	mux.HandleFunc("POST /api/logout", s.handleLogout)
 
 	// Authenticated routes (no rate limiting - already protected by JWT)
@@ -442,7 +443,8 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 			path == "/api/logout" || // POST /api/logout
 			path == "/api/registration/validate" || // POST /api/registration/validate
 			strings.HasSuffix(path, "/login") || // POST /api/{fingerprint}/login
-			strings.HasSuffix(path, "/login/2fa") { // POST /api/{fingerprint}/login/2fa
+			strings.HasSuffix(path, "/login/2fa") || // POST /api/{fingerprint}/login/2fa
+			strings.HasSuffix(path, "/login/recovery") { // POST /api/{fingerprint}/login/recovery
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -604,6 +606,8 @@ func rateLimitScope(path string) string {
 		return "register"
 	case strings.HasSuffix(path, "/login/2fa"):
 		return "login2fa"
+	case strings.HasSuffix(path, "/login/recovery"):
+		return "recovery"
 	case strings.HasSuffix(path, "/login"):
 		return "login"
 	case path == "/api/registration/validate":
@@ -1372,13 +1376,51 @@ func (s *Server) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 	if lastStep < 0 {
 		lastStep = 0
 	}
-	if err := s.Q.UpdateUserTOTP(r.Context(), dbgen.UpdateUserTOTPParams{
+
+	codes, hashes, err := generateRecoveryCodes()
+	if err != nil {
+		slog.Error("generate recovery codes", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	tx, err := s.DB.BeginTx(r.Context(), nil)
+	if err != nil {
+		slog.Error("begin totp transaction", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	qtx := s.Q.WithTx(tx)
+	if err := qtx.UpdateUserTOTP(r.Context(), dbgen.UpdateUserTOTPParams{
 		TotpSecret:   &encrypted,
 		TotpEnabled:  &enabled,
 		LastTotpStep: lastStep,
 		Fingerprint:  fp,
 	}); err != nil {
+		_ = tx.Rollback()
 		slog.Error("update totp", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := qtx.DeleteRecoveryCodes(r.Context(), fp); err != nil {
+		_ = tx.Rollback()
+		slog.Error("delete old recovery codes", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	for _, hash := range hashes {
+		if err := qtx.InsertRecoveryCode(r.Context(), dbgen.InsertRecoveryCodeParams{
+			Fingerprint: fp,
+			CodeHash:    hash,
+		}); err != nil {
+			_ = tx.Rollback()
+			slog.Error("insert recovery code", "error", err)
+			jsonError(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		slog.Error("commit totp transaction", "error", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -1398,7 +1440,7 @@ func (s *Server) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 	s.setAuthCookie(w, r, token)
 
-	resp := map[string]any{"enabled": true}
+	resp := map[string]any{"enabled": true, "recovery_codes": codes}
 	if s.cookieAuth {
 		resp["expires_at"] = time.Now().Add(s.hardLimit).Unix()
 	} else {
@@ -1655,6 +1697,12 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	if err := qtx.DeleteAuditLog(ctx, fp); err != nil {
 		_ = tx.Rollback()
 		slog.Error("delete account: purge audit log", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := qtx.DeleteRecoveryCodes(ctx, fp); err != nil {
+		_ = tx.Rollback()
+		slog.Error("delete account: purge recovery codes", "error", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
