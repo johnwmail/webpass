@@ -1079,6 +1079,11 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	s.clearAuthCookie(w, r)
 
 	// Clear the CSRF cookie as well so a new one is issued on the next GET.
+	// The CSRF cookie is a double-submit token, not an authentication
+	// credential. Secure is only set when the request is HTTPS so local HTTP
+	// development keeps working; production deployments terminate TLS (or set
+	// X-Forwarded-Proto) and therefore get Secure=true.
+	// codeql[go/cookie-secure-not-set]
 	http.SetCookie(w, &http.Cookie{
 		Name:     csrfTokenCookie,
 		Value:    "",

@@ -2000,3 +2000,43 @@ func TestUseSecureCookie(t *testing.T) {
 		t.Fatal("X-Forwarded-Proto=https should enable Secure")
 	}
 }
+
+func TestCookieAuth_SecureDetectedFromForwardedProto(t *testing.T) {
+	t.Setenv("COOKIE_AUTH_ENABLED", "true")
+	t.Setenv("COOKIE_SECURE", "") // rely on per-request HTTPS detection
+
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookiehttps1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
+
+	req, err := http.NewRequest("POST", ts.URL+"/api/cookiehttps1/login", strings.NewReader(`{"password":"pw"}`))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-Proto", "https")
+
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("login request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	expectStatus(t, resp, http.StatusOK)
+
+	var authCookie *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == "webpass_auth" {
+			authCookie = c
+		}
+	}
+	if authCookie == nil {
+		t.Fatal("expected auth cookie")
+	}
+	if !authCookie.Secure {
+		t.Fatal("cookie should be Secure when X-Forwarded-Proto is https")
+	}
+}
