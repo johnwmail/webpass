@@ -86,8 +86,12 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
   };
 
   const handleGenerateKey = async () => {
-    setLoading(true);
     setError('');
+    if (pgpPassphrase.length < 12) {
+      setError('PGP passphrase must be at least 12 characters');
+      return;
+    }
+    setLoading(true);
     try {
       const result = await generateKeyPair(pgpPassphrase);
       setPublicKey(result.publicKey);
@@ -567,6 +571,9 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                           data-bwignore="true"
                           data-1p-ignore="true"
                         />
+                        <p class="help-text" style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">
+                          At least 12 characters. This cannot be recovered if lost.
+                        </p>
                       </div>
                       <div class="field">
                         <label class="label">Confirm PGP Passphrase</label>
@@ -589,7 +596,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                       <button
                         class="btn btn-primary btn-block"
                         onClick={handleGenerateKey}
-                        disabled={!pgpPassphrase || pgpPassphrase !== pgpPassphraseConfirm || loading}
+                        disabled={pgpPassphrase.length < 12 || pgpPassphrase !== pgpPassphraseConfirm || loading}
                       >
                         {loading ? <><span class="spinner" /> Generating...</> : <><Key size={16} style={{ marginRight: '8px' }} /> Generate Keypair</>}
                       </button>
