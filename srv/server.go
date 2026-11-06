@@ -1302,7 +1302,8 @@ func (s *Server) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !totp.Validate(body.Code, body.Secret) {
+	step, ok := matchTOTPCode(body.Secret, body.Code)
+	if !ok {
 		jsonError(w, "invalid totp code", http.StatusBadRequest)
 		return
 	}
@@ -1316,15 +1317,16 @@ func (s *Server) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 
 	enabled := int64(1)
 	// Allow the confirmation code to be used once for the next login, but
-	// reject it (and older steps) afterwards.
-	step := time.Now().Unix()/totpPeriodSeconds - 1
-	if step < 0 {
-		step = 0
+	// reject it (and older steps) afterwards. Using the matched step (instead
+	// of "current - 1") keeps this correct across a 30-second boundary.
+	lastStep := step - 1
+	if lastStep < 0 {
+		lastStep = 0
 	}
 	if err := s.Q.UpdateUserTOTP(r.Context(), dbgen.UpdateUserTOTPParams{
 		TotpSecret:   &encrypted,
 		TotpEnabled:  &enabled,
-		LastTotpStep: step,
+		LastTotpStep: lastStep,
 		Fingerprint:  fp,
 	}); err != nil {
 		slog.Error("update totp", "error", err)
