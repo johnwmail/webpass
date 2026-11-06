@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1539,6 +1540,191 @@ func expectStatus(t *testing.T, resp *http.Response, expected int) {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("%s %s: expected status %d, got %d; body: %s",
 			resp.Request.Method, resp.Request.URL.Path, expected, resp.StatusCode, string(body))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fingerprint validation (regression: traversal via registration)
+// ---------------------------------------------------------------------------
+
+func TestValidateFingerprint(t *testing.T) {
+	valid := []string{
+		"ABCDEF0123456789ABCDEF0123456789ABCDEF01", // v4 PGP fingerprint
+		strings.Repeat("A", 64),                    // v5/v6 PGP fingerprint
+		"abc123",
+		"test-fp",
+		"test_fp",
+		"a.b",
+	}
+	for _, fp := range valid {
+		if err := validateFingerprint(fp); err != nil {
+			t.Errorf("expected %q to be valid, got %v", fp, err)
+		}
+	}
+
+	invalid := []string{
+		"",
+		".",
+		"..",
+		"../escape",
+		"../../data/db",
+		"a/b",
+		`a\b`,
+		"a..b",
+		".hidden",
+		"a b",
+		"a%2fb",
+		"a\x00b",
+		strings.Repeat("a", 129),
+	}
+	for _, fp := range invalid {
+		if err := validateFingerprint(fp); err == nil {
+			t.Errorf("expected %q to be rejected", fp)
+		}
+	}
+}
+
+func TestCreateUser_RejectsUnsafeFingerprint(t *testing.T) {
+	t.Setenv("RATE_LIMIT_ATTEMPTS", "100")
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	for _, fp := range []string{"../escape", "a/b", "..", ".hidden", "a..b"} {
+		t.Run(fp, func(t *testing.T) {
+			body := `{"password":"pw","public_key":"pk","fingerprint":` + strconv.Quote(fp) + `}`
+			resp := doReq(t, ts, "POST", "/api", body, "")
+			expectStatus(t, resp, http.StatusBadRequest)
+			_ = resp.Body.Close()
+		})
+	}
+
+	// A normal fingerprint must still be accepted.
+	resp := doReq(t, ts, "POST", "/api",
+		`{"password":"pw","public_key":"pk","fingerprint":"ABCDEF0123456789ABCDEF0123456789ABCDEF01"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
+}
+
+// ---------------------------------------------------------------------------
+// Import path validation (regression: traversal written to git repo)
+// ---------------------------------------------------------------------------
+
+func TestImportJSON_RejectsUnsafePaths(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	csrf := getCSRFToken(t, ts)
+
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"imptrav1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
+
+	resp = doReq(t, ts, "POST", "/api/imptrav1/login", `{"password":"pw"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	var lr map[string]string
+	decodeJSON(t, resp, &lr)
+	token := lr["token"]
+
+	body := `[
+		{"path":"../../escape","content":"aGVsbG8="},
+		{"path":"..","content":"aGVsbG8="},
+		{"path":"ok","content":"aGVsbG8="}
+	]`
+	resp = doReqWithCSRF(t, ts, "POST", "/api/imptrav1/import", body, token, csrf)
+	expectStatus(t, resp, http.StatusOK)
+
+	var result struct {
+		Imported int `json:"imported"`
+		Errors   []struct {
+			Path string `json:"path"`
+		} `json:"errors"`
+	}
+	decodeJSON(t, resp, &result)
+	if result.Imported != 1 {
+		t.Fatalf("expected 1 imported entry, got %d", result.Imported)
+	}
+	if len(result.Errors) != 2 {
+		t.Fatalf("expected 2 rejected paths, got %d", len(result.Errors))
+	}
+
+	// Only the safe path may be stored.
+	resp = doReq(t, ts, "GET", "/api/imptrav1/entries", "", token)
+	expectStatus(t, resp, http.StatusOK)
+	var list struct {
+		Entries []struct{ Path string } `json:"entries"`
+	}
+	decodeJSON(t, resp, &list)
+	if len(list.Entries) != 1 || list.Entries[0].Path != "ok" {
+		t.Fatalf("expected only safe entry 'ok', got %+v", list.Entries)
+	}
+}
+
+func TestImportTarGz_RejectsUnsafePaths(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	csrf := getCSRFToken(t, ts)
+
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"imptrav2"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
+
+	resp = doReq(t, ts, "POST", "/api/imptrav2/login", `{"password":"pw"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	var lr map[string]string
+	decodeJSON(t, resp, &lr)
+	token := lr["token"]
+
+	// Build a tar.gz containing a traversal entry and a safe entry.
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+	for _, name := range []string{"../../escape.gpg", "ok.gpg"} {
+		data := []byte("payload")
+		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0600, Size: int64(len(data))}); err != nil {
+			t.Fatalf("tar header: %v", err)
+		}
+		if _, err := tw.Write(data); err != nil {
+			t.Fatalf("tar write: %v", err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("tar close: %v", err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+
+	req, err := http.NewRequest("POST", ts.URL+"/api/imptrav2/import", bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/gzip")
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-CSRF-Token", csrf)
+	req.AddCookie(&http.Cookie{Name: "webpass_csrf", Value: csrf, Path: "/api"})
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("import request: %v", err)
+	}
+	expectStatus(t, resp, http.StatusOK)
+	var importResp map[string]int
+	decodeJSON(t, resp, &importResp)
+	if importResp["imported"] != 1 {
+		t.Fatalf("expected 1 imported entry, got %d", importResp["imported"])
+	}
+
+	resp = doReq(t, ts, "GET", "/api/imptrav2/entries", "", token)
+	expectStatus(t, resp, http.StatusOK)
+	var list struct {
+		Entries []struct{ Path string } `json:"entries"`
+	}
+	decodeJSON(t, resp, &list)
+	if len(list.Entries) != 1 || list.Entries[0].Path != "ok" {
+		t.Fatalf("expected only safe entry 'ok', got %+v", list.Entries)
 	}
 }
 
