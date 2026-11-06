@@ -217,6 +217,9 @@ func (s *Server) Handler() http.Handler {
 	// Revoke all sessions (password/2FA changes also do this automatically)
 	mux.HandleFunc("POST /api/{fingerprint}/sessions/revoke", s.requireAuth(s.handleRevokeSessions))
 
+	// Security audit log
+	mux.HandleFunc("GET /api/{fingerprint}/audit", s.requireAuth(s.handleAuditLog))
+
 	// Health check
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -988,6 +991,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 
 	// Log successful registration with mode
 	slog.Info("registration: new account created", "mode", mode, "fingerprint", fp)
+	s.audit(r, fp, "register", "mode="+mode)
 
 	w.WriteHeader(http.StatusCreated)
 	jsonOK(w, map[string]string{"fingerprint": fp})
@@ -1094,11 +1098,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		// Perform a dummy bcrypt comparison so unknown accounts take the same
 		// time as wrong passwords (prevents timing-based enumeration).
 		_ = bcrypt.CompareHashAndPassword(s.dummyHash, []byte(body.Password))
+		s.audit(r, fp, "login_failed", "invalid_credentials")
 		jsonError(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(body.Password)); err != nil {
+		s.audit(r, fp, "login_failed", "invalid_credentials")
 		jsonError(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -1112,6 +1118,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err := s.Q.UpdateLoginTime(r.Context(), fp); err != nil {
 		slog.Error("update login time", "error", err)
 	}
+	s.audit(r, fp, "login_success", "")
 
 	token, err := s.createToken(fp, user.SessionVersion)
 	if err != nil {
@@ -1150,16 +1157,19 @@ func (s *Server) handleLogin2FA(w http.ResponseWriter, r *http.Request) {
 	user, err := s.Q.GetUser(r.Context(), fp)
 	if err != nil {
 		_ = bcrypt.CompareHashAndPassword(s.dummyHash, []byte(body.Password))
+		s.audit(r, fp, "login_failed", "invalid_credentials")
 		jsonError(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(body.Password)); err != nil {
+		s.audit(r, fp, "login_failed", "invalid_credentials")
 		jsonError(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
 	if user.TotpSecret == nil || *user.TotpSecret == "" {
+		s.audit(r, fp, "login_2fa_failed", "invalid_code")
 		jsonError(w, "invalid 2fa code", http.StatusUnauthorized)
 		return
 	}
@@ -1173,6 +1183,7 @@ func (s *Server) handleLogin2FA(w http.ResponseWriter, r *http.Request) {
 
 	step, ok := validateTOTPCode(secret, body.TOTPCode, user.LastTotpStep)
 	if !ok {
+		s.audit(r, fp, "login_2fa_failed", "invalid_code")
 		jsonError(w, "invalid 2fa code", http.StatusUnauthorized)
 		return
 	}
@@ -1211,6 +1222,7 @@ func (s *Server) handleLogin2FA(w http.ResponseWriter, r *http.Request) {
 	if err := s.Q.UpdateLoginTime(r.Context(), fp); err != nil {
 		slog.Error("update login time", "error", err)
 	}
+	s.audit(r, fp, "login_2fa_success", "")
 
 	token, err := s.createToken(fp, user.SessionVersion)
 	if err != nil {
@@ -1237,8 +1249,11 @@ func (s *Server) handleLogin2FA(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	// Best-effort: drop any cached plaintext git credential for this user.
-	if fp, _, err := s.verifyToken(r); err == nil && s.GitService != nil {
-		s.GitService.ClearSessionToken(fp)
+	if fp, _, err := s.verifyToken(r); err == nil {
+		s.audit(r, fp, "logout", "")
+		if s.GitService != nil {
+			s.GitService.ClearSessionToken(fp)
+		}
 	}
 
 	s.clearAuthCookie(w, r)
@@ -1290,6 +1305,7 @@ func (s *Server) handleTOTPSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.audit(r, fp, "totp_setup", "")
 	key, err := totp.Generate(totp.GenerateOpts{
 		Issuer:      "WebPass",
 		AccountName: fp,
@@ -1366,6 +1382,8 @@ func (s *Server) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+
+	s.audit(r, fp, "totp_enabled", "")
 
 	// Rotate the session so tokens issued before 2FA was enabled are no longer
 	// valid, while keeping the current device logged in.
@@ -1634,6 +1652,12 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	qtx := s.Q.WithTx(tx)
+	if err := qtx.DeleteAuditLog(ctx, fp); err != nil {
+		_ = tx.Rollback()
+		slog.Error("delete account: purge audit log", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	entries, err := qtx.ListEntries(ctx, fp)
 	if err != nil {
 		_ = tx.Rollback()
@@ -1663,6 +1687,8 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+
+	s.audit(r, fp, "account_delete", "")
 
 	// Delete git repo folder if it exists
 	if s.GitService != nil {
@@ -1754,6 +1780,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	s.clearAuthCookie(w, r)
 
+	s.audit(r, fp, "password_change", "")
 	slog.Info("password changed successfully", "fingerprint", fp)
 	jsonOK(w, map[string]any{"status": "success", "reauth": true})
 }
@@ -1779,6 +1806,7 @@ func (s *Server) handleRevokeSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	s.clearAuthCookie(w, r)
 
+	s.audit(r, fp, "sessions_revoke", "")
 	slog.Info("all sessions revoked", "fingerprint", fp)
 	jsonOK(w, map[string]string{"status": "revoked"})
 }
@@ -1868,6 +1896,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	s.audit(r, fp, "export", fmt.Sprintf("entries=%d", len(entries)))
 	slog.Info("EXPORT: completed", "fingerprint", fp, "entries", len(entries))
 }
 
@@ -1979,6 +2008,7 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request, fp str
 		}
 	}
 
+	s.audit(r, fp, "import", fmt.Sprintf("imported=%d overwritten=%d errors=%d", count, overwritten, len(errors)))
 	slog.Info("IMPORT JSON: completed", "fingerprint", fp, "imported", count, "overwritten", overwritten, "errors", len(errors))
 
 	// Return partial success (always 200, even with errors)
@@ -2102,6 +2132,7 @@ func (s *Server) handleImportTarGz(w http.ResponseWriter, r *http.Request, fp st
 		count++
 	}
 
+	s.audit(r, fp, "import", fmt.Sprintf("imported=%d", count))
 	slog.Info("IMPORT TAR.GZ: completed", "fingerprint", fp, "imported", count)
 	jsonOK(w, map[string]int{"imported": count})
 }
@@ -2203,6 +2234,7 @@ func (s *Server) handleGitConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.audit(r, fp, "git_config", "auth="+authType)
 	slog.Info("GIT CONFIG: successfully configured", "fingerprint", fp, "repo", body.RepoURL, "branch", branch, "auth", authType)
 	jsonOK(w, map[string]string{"status": "configured"})
 }
@@ -2415,6 +2447,7 @@ func (s *Server) handleTrustHostKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.audit(r, fp, "git_trust_host", "host="+body.Host)
 	jsonOK(w, map[string]string{"status": "trusted"})
 }
 
@@ -2458,5 +2491,6 @@ func (s *Server) handleDeleteTrustedHost(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	s.audit(r, fp, "git_untrust_host", "host="+host)
 	jsonOK(w, map[string]string{"status": "deleted"})
 }
