@@ -2279,3 +2279,66 @@ func TestHSTSOnlyOverHTTPS(t *testing.T) {
 		t.Fatal("expected HSTS header over HTTPS")
 	}
 }
+
+func TestRequireHTTPS(t *testing.T) {
+	t.Setenv("REQUIRE_HTTPS", "true")
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	noRedirect := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	// API over plain HTTP with a public host must be rejected.
+	req, _ := http.NewRequest("GET", ts.URL+"/api/health", nil)
+	req.Host = "example.com"
+	resp, err := noRedirect.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for plain HTTP API, got %d", resp.StatusCode)
+	}
+
+	// A proxy signalling HTTPS is accepted.
+	req, _ = http.NewRequest("GET", ts.URL+"/api/health", nil)
+	req.Host = "example.com"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	resp, err = noRedirect.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 with X-Forwarded-Proto=https, got %d", resp.StatusCode)
+	}
+
+	// Browser navigation is redirected.
+	req, _ = http.NewRequest("GET", ts.URL+"/", nil)
+	req.Host = "example.com"
+	resp, err = noRedirect.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusPermanentRedirect {
+		t.Fatalf("expected 308 redirect, got %d", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "https://example.com/" {
+		t.Fatalf("unexpected redirect location: %q", loc)
+	}
+
+	// Localhost is exempt for development.
+	req, _ = http.NewRequest("GET", ts.URL+"/api/health", nil)
+	req.Host = "127.0.0.1"
+	resp, err = noRedirect.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected localhost to be exempt, got %d", resp.StatusCode)
+	}
+}

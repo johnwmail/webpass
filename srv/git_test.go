@@ -736,3 +736,25 @@ func TestSyncDatabaseRefusesEmptyRepo(t *testing.T) {
 		t.Fatalf("local entries should be preserved, got %+v", entries)
 	}
 }
+
+func TestValidateRepoURLAllowedHosts(t *testing.T) {
+	t.Setenv("GIT_ALLOWED_HOSTS", "github.com,example.com")
+
+	for _, raw := range []string{
+		"https://github.com/user/repo.git",
+		"https://sub.example.com/user/repo.git",
+	} {
+		if _, err := validateRepoURL(raw); err != nil {
+			t.Errorf("expected %q to be allowed, got %v", raw, err)
+		}
+	}
+	for _, raw := range []string{
+		"https://gitlab.com/user/repo.git",
+		"https://example.net/user/repo.git",
+		"https://203.0.113.10/user/repo.git",
+	} {
+		if _, err := validateRepoURL(raw); err == nil {
+			t.Errorf("expected %q to be rejected by GIT_ALLOWED_HOSTS", raw)
+		}
+	}
+}

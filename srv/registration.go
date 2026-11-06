@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/pquerna/otp"
@@ -177,8 +178,15 @@ func (rs *RegistrationService) writeCodeFile(code string) error {
 		}
 	}
 
-	// Write code with restricted permissions
-	return os.WriteFile(rs.codeFile, []byte(code), 0600)
+	// O_NOFOLLOW prevents a local attacker from pre-creating a symlink that
+	// redirects the write to another file.
+	f, err := os.OpenFile(rs.codeFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0600)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	_, err = f.WriteString(code)
+	return err
 }
 
 // monitorCodeRotation monitors for code changes and logs/writes them.
@@ -213,8 +221,10 @@ func (rs *RegistrationService) monitorCodeRotation() {
 			periodEnd := (periodStart + 1) * int64(rs.period)
 			expiresIn := periodEnd - now.Unix()
 
-			// Log the new code
-			slog.Info("REGISTRATION CODE", "code", code, "expires_in", expiresIn, "period", rs.period)
+			// Log the rotation without leaking the code at the default level;
+			// administrators read the current code from the configured file.
+			slog.Info("registration code rotated", "expires_in", expiresIn, "period", rs.period, "code_file", rs.codeFile)
+			slog.Debug("registration code value", "code", code)
 
 			// Write to file
 			if err := rs.writeCodeFile(code); err != nil {

@@ -258,7 +258,40 @@ func (s *Server) Handler() http.Handler {
 	handler = s.bodyLimitMiddleware(handler)
 	handler = securityHeadersMiddleware(handler)
 	handler = s.corsMiddleware(handler)
+	handler = s.httpsRedirectMiddleware(handler)
 	return handler
+}
+
+// ---------------------------------------------------------------------------
+// HTTPS enforcement
+// ---------------------------------------------------------------------------
+
+// httpsRedirectMiddleware enforces HTTPS when REQUIRE_HTTPS=true. API requests
+// receive a 403 (no redirect body), while browser navigation is redirected.
+func (s *Server) httpsRedirectMiddleware(next http.Handler) http.Handler {
+	if !envBool("REQUIRE_HTTPS") {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isHTTPSRequest(r) || isLocalRequestHost(r.Host) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
+			jsonError(w, "https required", http.StatusForbidden)
+			return
+		}
+		http.Redirect(w, r, "https://"+r.Host+r.URL.RequestURI(), http.StatusPermanentRedirect)
+	})
+}
+
+func isLocalRequestHost(hostport string) bool {
+	host := hostport
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 // ---------------------------------------------------------------------------
