@@ -171,6 +171,7 @@ test.describe('Change Password', () => {
   });
 
   test('change password - with 2FA enabled', async ({ page }) => {
+    test.setTimeout(120000); // includes waiting for the next TOTP step
     testUser = await generateTestUser();
     const newPassword = `newpass-2fa-${Date.now()}`;
 
