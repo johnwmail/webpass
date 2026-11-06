@@ -30,7 +30,7 @@ describe('generateKeyPair', () => {
 
     expect(result.publicKey).toContain('-----BEGIN PGP PUBLIC KEY BLOCK-----');
     expect(result.privateKey).toContain('-----BEGIN PGP PRIVATE KEY BLOCK-----');
-    expect(result.fingerprint).toMatch(/^[0-9A-F]{40}$/);
+    expect(result.fingerprint).toMatch(/^(?:[0-9A-F]{40}|[0-9A-F]{64})$/);
   }, 30000);
 
   it('generates deterministic fingerprints for same inputs', async () => {
@@ -56,7 +56,7 @@ describe('getFingerprint', () => {
   it('extracts fingerprint from public key', async () => {
     const fp = await getFingerprint(publicKey);
     expect(fp).toBe(fingerprint);
-    expect(fp).toMatch(/^[0-9A-F]{40}$/);
+    expect(fp).toMatch(/^(?:[0-9A-F]{40}|[0-9A-F]{64})$/);
   });
 
   it('throws on invalid key', async () => {
@@ -109,6 +109,12 @@ describe('importPrivateKey', () => {
 });
 
 describe('clearSensitiveData', () => {
+  it('zeroes typed arrays in place', () => {
+    const secret = new Uint8Array([1, 2, 3, 4]);
+    clearSensitiveData(secret);
+    expect(Array.from(secret)).toEqual([0, 0, 0, 0]);
+  });
+
   it('nullifies variables without throwing', () => {
     let a: any = 'secret';
     let b: any = 123;

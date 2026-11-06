@@ -301,6 +301,7 @@ All endpoints require JWT authentication except where noted.
 - **Session revocation** — password/2FA changes bump a session version; `POST /api/{fp}/sessions/revoke` logs out everywhere
 - **TOTP secrets encrypted at rest** — AES-256-GCM via `DATA_ENCRYPTION_KEY` (or an auto-generated key file), with replay protection
 - **Password policy** — minimum 12 characters, max 72 bytes (bcrypt limit), enforced server-side
+- **Local key derivation** — PBKDF2-HMAC-SHA256 with 600k iterations; legacy 100k records are transparently upgraded on login
 - **Security headers** — HSTS on HTTPS, `Cache-Control: no-store` for API responses, COOP/CORP, strict CSP
 - **All traffic over HTTPS** required in production
 - **Rate limiting** on authentication endpoints (sliding window, 5 attempts / 15 min default)

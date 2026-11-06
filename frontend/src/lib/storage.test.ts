@@ -15,6 +15,8 @@ import {
   deleteGitToken,
   aesEncrypt,
   aesDecrypt,
+  aesDecryptWithFallback,
+  LEGACY_PBKDF2_ITERATIONS,
   savePublicKey,
   getPublicKey,
   savePrivateKey,
@@ -144,6 +146,20 @@ describe('AES Encrypt/Decrypt', () => {
     const encrypted = await aesEncrypt(plaintext, password);
     const decrypted = await aesDecrypt(encrypted.encrypted, password, encrypted.salt, encrypted.iv);
     expect(decrypted).toBe(plaintext);
+  });
+
+  it('decrypts legacy 100k-iteration data and flags it', async () => {
+    const password = 'legacy-password';
+    const plaintext = 'legacy data';
+    const encrypted = await aesEncrypt(plaintext, password, LEGACY_PBKDF2_ITERATIONS);
+    const result = await aesDecryptWithFallback(
+      encrypted.encrypted,
+      password,
+      encrypted.salt,
+      encrypted.iv
+    );
+    expect(result.plaintext).toBe(plaintext);
+    expect(result.usedLegacyIterations).toBe(true);
   });
 
   it('fails with wrong password', async () => {

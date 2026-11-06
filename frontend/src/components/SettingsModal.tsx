@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'preact/hooks';
 import { session } from '../lib/session';
-import { getAccount, deleteAccount as deleteAccountFromDB, saveAccount, aesDecrypt, aesEncrypt } from '../lib/storage';
+import { getAccount, deleteAccount as deleteAccountFromDB, saveAccount, aesDecryptWithFallback, aesEncrypt } from '../lib/storage';
 import { decryptPAT, decryptPrivateKey } from '../lib/crypto';
 import QRCode from 'qrcode';
 import { GitSync } from './GitSync';
@@ -292,8 +292,14 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
         throw new Error('Account not found');
       }
 
-      // Decrypt API URL with current password (also validates it locally)
-      const apiUrl = await aesDecrypt(account.apiUrlEncrypted, currentPassword, account.apiUrlSalt, account.apiUrlIv);
+      // Decrypt API URL with current password (also validates it locally).
+      // Legacy 100k-iteration data is transparently accepted.
+      const { plaintext: apiUrl } = await aesDecryptWithFallback(
+        account.apiUrlEncrypted,
+        currentPassword,
+        account.apiUrlSalt,
+        account.apiUrlIv
+      );
 
       // Re-encrypt API URL with new password (not persisted yet)
       const newEncrypted = await aesEncrypt(apiUrl, newPassword);

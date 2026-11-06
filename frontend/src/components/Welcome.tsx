@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'preact/hooks';
 import type { Account } from '../types';
-import { listAccounts, getAccount, aesDecrypt } from '../lib/storage';
+import { listAccounts, getAccount, aesDecryptWithFallback, aesEncrypt, saveAccount } from '../lib/storage';
 import { ApiClient } from '../lib/api';
 import { session } from '../lib/session';
 import { Footer } from './Footer';
@@ -54,12 +54,24 @@ export function Welcome({ onSetup, onLogin }: Props) {
 
       let apiUrl: string;
       try {
-        apiUrl = await aesDecrypt(
+        const decrypted = await aesDecryptWithFallback(
           account.apiUrlEncrypted,
           password,
           account.apiUrlSalt,
           account.apiUrlIv
         );
+        apiUrl = decrypted.plaintext;
+
+        // Transparently upgrade accounts encrypted with the old 100k KDF.
+        if (decrypted.usedLegacyIterations) {
+          const upgraded = await aesEncrypt(apiUrl, password);
+          await saveAccount({
+            ...account,
+            apiUrlEncrypted: upgraded.encrypted,
+            apiUrlSalt: upgraded.salt,
+            apiUrlIv: upgraded.iv,
+          });
+        }
       } catch {
         throw new Error('Wrong password');
       }
