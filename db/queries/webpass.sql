@@ -41,7 +41,7 @@ WHERE fingerprint = ?;
 
 -- name: UpdateUserTOTP :exec
 UPDATE users
-SET totp_secret = ?, totp_enabled = ?
+SET totp_secret = ?, totp_enabled = ?, last_totp_step = ?
 WHERE fingerprint = ?;
 
 -- name: UpdatePassword :exec
@@ -65,5 +65,15 @@ SET last_activity = CURRENT_TIMESTAMP
 WHERE fingerprint = ?;
 
 -- name: GetSessionInfo :one
-SELECT login_time, last_activity FROM users
+SELECT login_time, last_activity, session_version FROM users
+WHERE fingerprint = ?;
+
+-- name: BumpSessionVersion :exec
+UPDATE users
+SET session_version = session_version + 1
+WHERE fingerprint = ?;
+
+-- name: UpdateLastTOTPStep :exec
+UPDATE users
+SET last_totp_step = ?
 WHERE fingerprint = ?;

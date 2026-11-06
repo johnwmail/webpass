@@ -27,6 +27,9 @@ services:
       # Only set when running behind a reverse proxy (comma-separated IPs/CIDRs).
       - TRUSTED_PROXIES=${TRUSTED_PROXIES:-}
       - MAX_REQUEST_BODY_BYTES=${MAX_REQUEST_BODY_BYTES:-}
+      # Optional: encrypts TOTP secrets at rest. If unset, a key file is
+      # generated under /data (back it up with the database).
+      - DATA_ENCRYPTION_KEY=${DATA_ENCRYPTION_KEY:-}
       # Allow git sync to self-hosted remotes on private/LAN addresses.
       - GIT_ALLOW_PRIVATE_NETWORKS=${GIT_ALLOW_PRIVATE_NETWORKS:-false}
       # Registration protection mode (TOTP-based)

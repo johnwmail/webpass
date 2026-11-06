@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -208,7 +209,7 @@ func TestRateLimitMiddleware_Integration(t *testing.T) {
 
 	// First 3 login attempts should be processed (may fail auth, but not rate limited)
 	for i := 0; i < 3; i++ {
-		resp := doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"wrong"}`, "")
+		resp := doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"wrongpassword"}`, "")
 		// Should get 401 (invalid credentials), not 429 (rate limited)
 		if resp.StatusCode == http.StatusTooManyRequests {
 			t.Fatalf("request %d should not be rate limited", i+1)
@@ -216,7 +217,7 @@ func TestRateLimitMiddleware_Integration(t *testing.T) {
 	}
 
 	// 4th attempt should be rate limited
-	resp := doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"wrong"}`, "")
+	resp := doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"wrongpassword"}`, "")
 	expectStatus(t, resp, http.StatusTooManyRequests)
 }
 
@@ -231,7 +232,7 @@ func TestRateLimit_Registration(t *testing.T) {
 
 	// First 2 registration attempts should be processed
 	for i := 0; i < 2; i++ {
-		body := `{"password":"pw","public_key":"pk` + string(rune('0'+i)) + `","fingerprint":"fp` + string(rune('0'+i)) + `"}`
+		body := `{"password":"password1234","public_key":"pk` + string(rune('0'+i)) + `","fingerprint":"fp` + string(rune('0'+i)) + `"}`
 		resp := doReq(t, ts, "POST", "/api", body, "")
 		// Should not be rate limited (may get other errors, but not 429)
 		if resp.StatusCode == http.StatusTooManyRequests {
@@ -240,7 +241,7 @@ func TestRateLimit_Registration(t *testing.T) {
 	}
 
 	// 3rd registration should be rate limited
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk3","fingerprint":"fp3"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk3","fingerprint":"fp3"}`, "")
 	expectStatus(t, resp, http.StatusTooManyRequests)
 }
 
@@ -253,19 +254,19 @@ func TestRateLimit_Login2FA(t *testing.T) {
 	defer ts.Close()
 
 	// Create user
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"fp2fa"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"fp2fa"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 
 	// First 2 login attempts (password check, will get requires_2fa or proceed)
 	for i := 0; i < 2; i++ {
-		resp := doReq(t, ts, "POST", "/api/fp2fa/login", `{"password":"pw"}`, "")
+		resp := doReq(t, ts, "POST", "/api/fp2fa/login", `{"password":"password1234"}`, "")
 		if resp.StatusCode == http.StatusTooManyRequests {
 			t.Fatalf("login attempt %d should not be rate limited", i+1)
 		}
 	}
 
 	// 3rd login should be rate limited
-	resp = doReq(t, ts, "POST", "/api/fp2fa/login", `{"password":"pw"}`, "")
+	resp = doReq(t, ts, "POST", "/api/fp2fa/login", `{"password":"password1234"}`, "")
 	expectStatus(t, resp, http.StatusTooManyRequests)
 }
 
@@ -305,7 +306,7 @@ func TestFullCRUDFlow(t *testing.T) {
 	csrf := getCSRFToken(t, ts)
 
 	// 1. Create user (exempt from CSRF)
-	body := `{"password":"hunter2","public_key":"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 test","fingerprint":"abc123"}`
+	body := `{"password":"hunter2password","public_key":"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 test","fingerprint":"abc123"}`
 	resp := doReq(t, ts, "POST", "/api", body, "")
 	expectStatus(t, resp, http.StatusCreated)
 	var createResp map[string]string
@@ -316,7 +317,7 @@ func TestFullCRUDFlow(t *testing.T) {
 	fp := createResp["fingerprint"]
 
 	// 2. Login (exempt from CSRF)
-	resp = doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"hunter2"}`, "")
+	resp = doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"hunter2password"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 	var loginResp map[string]string
 	decodeJSON(t, resp, &loginResp)
@@ -407,8 +408,8 @@ func TestUnauthorized(t *testing.T) {
 		return lr["token"]
 	}
 
-	tokenA := createUserAndGetToken("userA", "passA")
-	createUserAndGetToken("userB", "passB")
+	tokenA := createUserAndGetToken("userA", "passA12345678")
+	createUserAndGetToken("userB", "passB12345678")
 
 	// userA's token trying to access userB's entries
 	resp = doReq(t, ts, "GET", "/api/userB/entries", "", tokenA)
@@ -421,11 +422,11 @@ func TestLoginWrongPassword(t *testing.T) {
 	defer ts.Close()
 
 	// Create user
-	resp := doReq(t, ts, "POST", "/api", `{"password":"correct","public_key":"pk1","fingerprint":"fp1"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"correctpassword","public_key":"pk1","fingerprint":"fp1"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 
 	// Wrong password
-	resp = doReq(t, ts, "POST", "/api/fp1/login", `{"password":"wrong"}`, "")
+	resp = doReq(t, ts, "POST", "/api/fp1/login", `{"password":"wrongpassword"}`, "")
 	expectStatus(t, resp, http.StatusUnauthorized)
 }
 
@@ -434,7 +435,7 @@ func TestDuplicateUser(t *testing.T) {
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
-	body := `{"password":"pw","public_key":"pk","fingerprint":"dup1"}`
+	body := `{"password":"password1234","public_key":"pk","fingerprint":"dup1"}`
 	resp := doReq(t, ts, "POST", "/api", body, "")
 	expectStatus(t, resp, http.StatusCreated)
 
@@ -451,17 +452,17 @@ func TestTOTPFlow(t *testing.T) {
 	csrf := getCSRFToken(t, ts)
 
 	// Create user and login
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"totp1"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"totp1"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 
-	resp = doReq(t, ts, "POST", "/api/totp1/login", `{"password":"pw"}`, "")
+	resp = doReq(t, ts, "POST", "/api/totp1/login", `{"password":"password1234"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 	var lr map[string]string
 	decodeJSON(t, resp, &lr)
 	token := lr["token"]
 
 	// Setup TOTP (requires CSRF)
-	resp = doReqWithCSRF(t, ts, "POST", "/api/totp1/totp/setup", "", token, csrf)
+	resp = doReqWithCSRF(t, ts, "POST", "/api/totp1/totp/setup", `{"current_password":"password1234"}`, token, csrf)
 	expectStatus(t, resp, http.StatusOK)
 	var setupResp map[string]string
 	decodeJSON(t, resp, &setupResp)
@@ -480,17 +481,17 @@ func TestTOTPFlow(t *testing.T) {
 	}
 
 	// Confirm TOTP (requires CSRF)
-	confirmBody := `{"secret":"` + secret + `","code":"` + code + `"}`
+	confirmBody := `{"secret":"` + secret + `","code":"` + code + `","current_password":"password1234"}`
 	resp = doReqWithCSRF(t, ts, "POST", "/api/totp1/totp/confirm", confirmBody, token, csrf)
 	expectStatus(t, resp, http.StatusOK)
-	var confirmResp map[string]bool
+	var confirmResp map[string]any
 	decodeJSON(t, resp, &confirmResp)
-	if !confirmResp["enabled"] {
+	if confirmResp["enabled"] != true {
 		t.Fatal("expected enabled=true")
 	}
 
 	// Now login should require 2FA
-	resp = doReq(t, ts, "POST", "/api/totp1/login", `{"password":"pw"}`, "")
+	resp = doReq(t, ts, "POST", "/api/totp1/login", `{"password":"password1234"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 	var login2Resp map[string]any
 	decodeJSON(t, resp, &login2Resp)
@@ -504,7 +505,7 @@ func TestTOTPFlow(t *testing.T) {
 		t.Fatalf("generate totp code: %v", err)
 	}
 	resp = doReq(t, ts, "POST", "/api/totp1/login/2fa",
-		`{"password":"pw","totp_code":"`+code2+`"}`, "")
+		`{"password":"password1234","totp_code":"`+code2+`"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 	var token2Resp map[string]string
 	decodeJSON(t, resp, &token2Resp)
@@ -514,12 +515,12 @@ func TestTOTPFlow(t *testing.T) {
 
 	// 2FA with wrong code
 	resp = doReq(t, ts, "POST", "/api/totp1/login/2fa",
-		`{"password":"pw","totp_code":"000000"}`, "")
+		`{"password":"password1234","totp_code":"000000"}`, "")
 	expectStatus(t, resp, http.StatusUnauthorized)
 
 	// 2FA with wrong password
 	resp = doReq(t, ts, "POST", "/api/totp1/login/2fa",
-		`{"password":"wrong","totp_code":"`+code2+`"}`, "")
+		`{"password":"wrongpassword","totp_code":"`+code2+`"}`, "")
 	expectStatus(t, resp, http.StatusUnauthorized)
 }
 
@@ -532,9 +533,9 @@ func TestExportImport(t *testing.T) {
 	csrf := getCSRFToken(t, ts)
 
 	// Create user and login
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"exp1"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"exp1"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
-	resp = doReq(t, ts, "POST", "/api/exp1/login", `{"password":"pw"}`, "")
+	resp = doReq(t, ts, "POST", "/api/exp1/login", `{"password":"password1234"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 	var lr map[string]string
 	decodeJSON(t, resp, &lr)
@@ -582,9 +583,9 @@ func TestExportImport(t *testing.T) {
 	}
 
 	// Import into a new user
-	resp = doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk2","fingerprint":"imp1"}`, "")
+	resp = doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk2","fingerprint":"imp1"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
-	resp = doReq(t, ts, "POST", "/api/imp1/login", `{"password":"pw"}`, "")
+	resp = doReq(t, ts, "POST", "/api/imp1/login", `{"password":"password1234"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 	var lr2 map[string]string
 	decodeJSON(t, resp, &lr2)
@@ -628,7 +629,7 @@ func TestFingerprintFromKey(t *testing.T) {
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"my-public-key"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"my-public-key"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 	var cr map[string]string
 	decodeJSON(t, resp, &cr)
@@ -708,9 +709,9 @@ func TestUpsertEntryUpdates(t *testing.T) {
 	csrf := getCSRFToken(t, ts)
 
 	// Create user and login
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"upd1"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"upd1"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
-	resp = doReq(t, ts, "POST", "/api/upd1/login", `{"password":"pw"}`, "")
+	resp = doReq(t, ts, "POST", "/api/upd1/login", `{"password":"password1234"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 	var lr map[string]string
 	decodeJSON(t, resp, &lr)
@@ -758,9 +759,9 @@ func TestDeleteAccount(t *testing.T) {
 	csrf := getCSRFToken(t, ts)
 
 	// Create user
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"del1"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"del1"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
-	resp = doReq(t, ts, "POST", "/api/del1/login", `{"password":"pw"}`, "")
+	resp = doReq(t, ts, "POST", "/api/del1/login", `{"password":"password1234"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 	var lr map[string]string
 	decodeJSON(t, resp, &lr)
@@ -777,11 +778,11 @@ func TestDeleteAccount(t *testing.T) {
 	expectStatus(t, resp, http.StatusOK)
 
 	// Delete account (requires CSRF)
-	resp = doReqWithCSRF(t, ts, "DELETE", "/api/del1/account", "", token, csrf)
+	resp = doReqWithCSRF(t, ts, "DELETE", "/api/del1/account", `{"current_password":"password1234"}`, token, csrf)
 	expectStatus(t, resp, http.StatusNoContent)
 
 	// Verify user is deleted - login should fail
-	resp = doReq(t, ts, "POST", "/api/del1/login", `{"password":"pw"}`, "")
+	resp = doReq(t, ts, "POST", "/api/del1/login", `{"password":"password1234"}`, "")
 	expectStatus(t, resp, http.StatusUnauthorized)
 
 	// Verify entries are deleted (should return empty list)
@@ -802,9 +803,9 @@ func TestDeleteAccount_WithGitRepo(t *testing.T) {
 	defer ts.Close()
 
 	// Create user
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"del2"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"del2"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
-	resp = doReq(t, ts, "POST", "/api/del2/login", `{"password":"pw"}`, "")
+	resp = doReq(t, ts, "POST", "/api/del2/login", `{"password":"password1234"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 	var lr map[string]string
 	decodeJSON(t, resp, &lr)
@@ -827,7 +828,7 @@ func TestDeleteAccount_WithGitRepo(t *testing.T) {
 
 	// Delete account (requires CSRF)
 	csrf := getCSRFToken(t, ts)
-	resp = doReqWithCSRF(t, ts, "DELETE", "/api/del2/account", "", token, csrf)
+	resp = doReqWithCSRF(t, ts, "DELETE", "/api/del2/account", `{"current_password":"password1234"}`, token, csrf)
 	expectStatus(t, resp, http.StatusNoContent)
 
 	// Verify git repo is deleted
@@ -845,35 +846,40 @@ func TestChangePassword(t *testing.T) {
 	csrf := getCSRFToken(t, ts)
 
 	// 1. Create user
-	body := `{"password":"original123","public_key":"test-key","fingerprint":"test-fp"}`
+	body := `{"password":"original1234","public_key":"test-key","fingerprint":"test-fp"}`
 	resp := doReq(t, ts, "POST", "/api", body, "")
 	expectStatus(t, resp, http.StatusCreated)
 	fp := "test-fp"
 
 	// 2. Login with original password
-	resp = doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"original123"}`, "")
+	resp = doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"original1234"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 	var loginResp map[string]string
 	decodeJSON(t, resp, &loginResp)
 	token := loginResp["token"]
 
 	// 3. Change password (requires CSRF)
-	changeBody := `{"current_password":"original123","new_password":"newpass456"}`
+	changeBody := `{"current_password":"original1234","new_password":"newpass45678"}`
 	resp = doReqWithCSRF(t, ts, "POST", "/api/"+fp+"/password", changeBody, token, csrf)
 	expectStatus(t, resp, http.StatusOK)
-	var changeResp map[string]string
+	var changeResp map[string]any
 	decodeJSON(t, resp, &changeResp)
 	if changeResp["status"] != "success" {
-		t.Fatalf("expected success, got %s", changeResp["status"])
+		t.Fatalf("expected success, got %v", changeResp["status"])
 	}
 
 	// 4. Login with new password should work
-	resp = doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"newpass456"}`, "")
+	resp = doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"newpass45678"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 
 	// 5. Login with old password should fail
-	resp = doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"original123"}`, "")
+	resp = doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"original1234"}`, "")
 	expectStatus(t, resp, http.StatusUnauthorized)
+
+	// 6. The token issued before the password change must be revoked.
+	resp = doReq(t, ts, "GET", "/api/"+fp+"/entries", "", token)
+	expectStatus(t, resp, http.StatusUnauthorized)
+	_ = resp.Body.Close()
 }
 
 func TestChangePasswordWrongCurrent(t *testing.T) {
@@ -885,20 +891,20 @@ func TestChangePasswordWrongCurrent(t *testing.T) {
 	csrf := getCSRFToken(t, ts)
 
 	// 1. Create user
-	body := `{"password":"correct123","public_key":"test-key","fingerprint":"test-fp2"}`
+	body := `{"password":"correct12345","public_key":"test-key","fingerprint":"test-fp2"}`
 	resp := doReq(t, ts, "POST", "/api", body, "")
 	expectStatus(t, resp, http.StatusCreated)
 	fp := "test-fp2"
 
 	// 2. Login to get token
-	resp = doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"correct123"}`, "")
+	resp = doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"correct12345"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 	var loginResp map[string]string
 	decodeJSON(t, resp, &loginResp)
 	token := loginResp["token"]
 
 	// 3. Try to change password with wrong current password (requires CSRF)
-	changeBody := `{"current_password":"wrongpassword","new_password":"newpass456"}`
+	changeBody := `{"current_password":"wrongpassword","new_password":"newpass45678"}`
 	resp = doReqWithCSRF(t, ts, "POST", "/api/"+fp+"/password", changeBody, token, csrf)
 	expectStatus(t, resp, http.StatusUnauthorized)
 }
@@ -912,19 +918,19 @@ func TestChangePasswordWith2FA(t *testing.T) {
 	csrf := getCSRFToken(t, ts)
 
 	// 1. Create user
-	body := `{"password":"pass123","public_key":"test-key","fingerprint":"test-fp3"}`
+	body := `{"password":"pass123456789","public_key":"test-key","fingerprint":"test-fp3"}`
 	resp := doReq(t, ts, "POST", "/api", body, "")
 	expectStatus(t, resp, http.StatusCreated)
 	fp := "test-fp3"
 
 	// 2. Setup TOTP (requires CSRF)
-	loginResp := doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"pass123"}`, "")
+	loginResp := doReq(t, ts, "POST", "/api/"+fp+"/login", `{"password":"pass123456789"}`, "")
 	expectStatus(t, loginResp, http.StatusOK)
 	var loginData map[string]string
 	decodeJSON(t, loginResp, &loginData)
 	loginToken := loginData["token"]
 
-	totpResp := doReqWithCSRF(t, ts, "POST", "/api/"+fp+"/totp/setup", "", loginToken, csrf)
+	totpResp := doReqWithCSRF(t, ts, "POST", "/api/"+fp+"/totp/setup", `{"current_password":"pass123456789"}`, loginToken, csrf)
 	expectStatus(t, totpResp, http.StatusOK)
 	var totpData map[string]string
 	decodeJSON(t, totpResp, &totpData)
@@ -934,13 +940,13 @@ func TestChangePasswordWith2FA(t *testing.T) {
 	code, _ := totp.GenerateCode(totpSecret, time.Now())
 
 	// 3. Confirm TOTP (requires CSRF)
-	confirmBody := `{"secret":"` + totpSecret + `","code":"` + code + `"}`
+	confirmBody := `{"secret":"` + totpSecret + `","code":"` + code + `","current_password":"pass123456789"}`
 	confirmResp := doReqWithCSRF(t, ts, "POST", "/api/"+fp+"/totp/confirm", confirmBody, loginToken, csrf)
 	expectStatus(t, confirmResp, http.StatusOK)
 
 	// 4. Login with 2FA to get new token
 	login2faCode, _ := totp.GenerateCode(totpSecret, time.Now())
-	login2faBody := `{"password":"pass123","totp_code":"` + login2faCode + `"}`
+	login2faBody := `{"password":"pass123456789","totp_code":"` + login2faCode + `"}`
 	login2faResp := doReq(t, ts, "POST", "/api/"+fp+"/login/2fa", login2faBody, "")
 	expectStatus(t, login2faResp, http.StatusOK)
 	var login2faData map[string]string
@@ -948,13 +954,19 @@ func TestChangePasswordWith2FA(t *testing.T) {
 	token := login2faData["token"]
 
 	// 5. Change password (requires CSRF)
-	changeBody := `{"current_password":"pass123","new_password":"newpass789"}`
+	changeBody := `{"current_password":"pass123456789","new_password":"newpass78901"}`
 	resp = doReqWithCSRF(t, ts, "POST", "/api/"+fp+"/password", changeBody, token, csrf)
 	expectStatus(t, resp, http.StatusOK)
 
+	// Replay protection rejects reusing the same TOTP step; simulate a new
+	// time step so the second login can be exercised.
+	if _, err := s.DB.Exec(`UPDATE users SET last_totp_step = 0 WHERE fingerprint = ?`, fp); err != nil {
+		t.Fatalf("reset totp step: %v", err)
+	}
+
 	// 6. Login with new password and 2FA should work
 	newLogin2faCode, _ := totp.GenerateCode(totpSecret, time.Now())
-	newLogin2faBody := `{"password":"newpass789","totp_code":"` + newLogin2faCode + `"}`
+	newLogin2faBody := `{"password":"newpass78901","totp_code":"` + newLogin2faCode + `"}`
 	newLogin2faResp := doReq(t, ts, "POST", "/api/"+fp+"/login/2fa", newLogin2faBody, "")
 	expectStatus(t, newLogin2faResp, http.StatusOK)
 }
@@ -973,11 +985,11 @@ func TestCookieAuth_LoginSetsCookie(t *testing.T) {
 	defer ts.Close()
 
 	// Create user
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookie1"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"cookie1"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 
 	// Login
-	resp = doReq(t, ts, "POST", "/api/cookie1/login", `{"password":"pw"}`, "")
+	resp = doReq(t, ts, "POST", "/api/cookie1/login", `{"password":"password1234"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 
 	// Verify cookie is set
@@ -1021,11 +1033,11 @@ func TestCookieAuth_Login2FA_SetsCookie(t *testing.T) {
 	csrf := getCSRFToken(t, ts)
 
 	// Create user
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookie2fa"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"cookie2fa"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 
 	// Login to get cookie
-	loginResp := doReq(t, ts, "POST", "/api/cookie2fa/login", `{"password":"pw"}`, "")
+	loginResp := doReq(t, ts, "POST", "/api/cookie2fa/login", `{"password":"password1234"}`, "")
 	expectStatus(t, loginResp, http.StatusOK)
 
 	// Extract cookie
@@ -1042,7 +1054,8 @@ func TestCookieAuth_Login2FA_SetsCookie(t *testing.T) {
 	}
 
 	// Setup TOTP using cookie (requires CSRF)
-	totpReq, _ := http.NewRequest("POST", ts.URL+"/api/cookie2fa/totp/setup", nil)
+	totpReq, _ := http.NewRequest("POST", ts.URL+"/api/cookie2fa/totp/setup", strings.NewReader(`{"current_password":"password1234"}`))
+	totpReq.Header.Set("Content-Type", "application/json")
 	totpReq.AddCookie(authCookie)
 	totpReq.Header.Set("X-CSRF-Token", csrf)
 	totpReq.AddCookie(&http.Cookie{
@@ -1060,7 +1073,7 @@ func TestCookieAuth_Login2FA_SetsCookie(t *testing.T) {
 	totpSecret := totpData["secret"]
 
 	code, _ := totp.GenerateCode(totpSecret, time.Now())
-	confirmBody := `{"secret":"` + totpSecret + `","code":"` + code + `"}`
+	confirmBody := `{"secret":"` + totpSecret + `","code":"` + code + `","current_password":"password1234"}`
 	confirmReq, _ := http.NewRequest("POST", ts.URL+"/api/cookie2fa/totp/confirm", strings.NewReader(confirmBody))
 	confirmReq.Header.Set("Content-Type", "application/json")
 	confirmReq.AddCookie(authCookie)
@@ -1078,7 +1091,7 @@ func TestCookieAuth_Login2FA_SetsCookie(t *testing.T) {
 
 	// Login with 2FA
 	login2faCode, _ := totp.GenerateCode(totpSecret, time.Now())
-	login2faBody := `{"password":"pw","totp_code":"` + login2faCode + `"}`
+	login2faBody := `{"password":"password1234","totp_code":"` + login2faCode + `"}`
 	login2faResp := doReq(t, ts, "POST", "/api/cookie2fa/login/2fa", login2faBody, "")
 	expectStatus(t, login2faResp, http.StatusOK)
 
@@ -1105,10 +1118,10 @@ func TestCookieAuth_AuthenticatedRequest(t *testing.T) {
 	defer ts.Close()
 
 	// Create user and login to get cookie
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookie3"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"cookie3"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 
-	loginResp := doReq(t, ts, "POST", "/api/cookie3/login", `{"password":"pw"}`, "")
+	loginResp := doReq(t, ts, "POST", "/api/cookie3/login", `{"password":"password1234"}`, "")
 	expectStatus(t, loginResp, http.StatusOK)
 
 	// Extract cookie
@@ -1150,10 +1163,10 @@ func TestCookieAuth_LogoutClearsCookie(t *testing.T) {
 	defer ts.Close()
 
 	// Create user and login
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookie4"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"cookie4"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 
-	loginResp := doReq(t, ts, "POST", "/api/cookie4/login", `{"password":"pw"}`, "")
+	loginResp := doReq(t, ts, "POST", "/api/cookie4/login", `{"password":"password1234"}`, "")
 	expectStatus(t, loginResp, http.StatusOK)
 
 	// Verify cookie exists
@@ -1203,7 +1216,7 @@ func TestCookieAuth_WithoutCookie_ReturnsUnauthorized(t *testing.T) {
 	defer ts.Close()
 
 	// Create user
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookie5"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"cookie5"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 
 	// Try to access protected endpoint without cookie
@@ -1220,10 +1233,10 @@ func TestCookieAuth_SecureFlag(t *testing.T) {
 	defer ts.Close()
 
 	// Create user and login
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookie6"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"cookie6"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 
-	loginResp := doReq(t, ts, "POST", "/api/cookie6/login", `{"password":"pw"}`, "")
+	loginResp := doReq(t, ts, "POST", "/api/cookie6/login", `{"password":"password1234"}`, "")
 	expectStatus(t, loginResp, http.StatusOK)
 
 	// Verify Secure flag is set
@@ -1251,11 +1264,11 @@ func TestCookieAuth_Disabled_FallsBackToBearer(t *testing.T) {
 	defer ts.Close()
 
 	// Create user
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookie7"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"cookie7"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 
 	// Login should return token (no cookie when disabled)
-	loginResp := doReq(t, ts, "POST", "/api/cookie7/login", `{"password":"pw"}`, "")
+	loginResp := doReq(t, ts, "POST", "/api/cookie7/login", `{"password":"password1234"}`, "")
 	expectStatus(t, loginResp, http.StatusOK)
 
 	// Verify no cookie is set
@@ -1286,10 +1299,10 @@ func TestCookieAuth_CookieDomain(t *testing.T) {
 	defer ts.Close()
 
 	// Create user and login
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookie8"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"cookie8"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 
-	loginResp := doReq(t, ts, "POST", "/api/cookie8/login", `{"password":"pw"}`, "")
+	loginResp := doReq(t, ts, "POST", "/api/cookie8/login", `{"password":"password1234"}`, "")
 	expectStatus(t, loginResp, http.StatusOK)
 
 	// Verify domain is set
@@ -1467,11 +1480,11 @@ func TestPathTraversal_Rejected(t *testing.T) {
 	csrf := getCSRFToken(t, ts)
 
 	// Create user
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"ptrav1"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"ptrav1"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 
 	// Login
-	resp = doReq(t, ts, "POST", "/api/ptrav1/login", `{"password":"pw"}`, "")
+	resp = doReq(t, ts, "POST", "/api/ptrav1/login", `{"password":"password1234"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 	var loginResp map[string]string
 	decodeJSON(t, resp, &loginResp)
@@ -1507,10 +1520,10 @@ func TestPathTraversal_MoveEntry(t *testing.T) {
 	csrf := getCSRFToken(t, ts)
 
 	// Create user and login
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"ptrav2"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"ptrav2"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 
-	resp = doReq(t, ts, "POST", "/api/ptrav2/login", `{"password":"pw"}`, "")
+	resp = doReq(t, ts, "POST", "/api/ptrav2/login", `{"password":"password1234"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 	var loginResp map[string]string
 	decodeJSON(t, resp, &loginResp)
@@ -1537,10 +1550,10 @@ func TestPathTraversal_ValidPaths(t *testing.T) {
 	csrf := getCSRFToken(t, ts)
 
 	// Create user and login
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"ptrav3"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"ptrav3"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 
-	resp = doReq(t, ts, "POST", "/api/ptrav3/login", `{"password":"pw"}`, "")
+	resp = doReq(t, ts, "POST", "/api/ptrav3/login", `{"password":"password1234"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 	var loginResp map[string]string
 	decodeJSON(t, resp, &loginResp)
@@ -1629,7 +1642,7 @@ func TestCreateUser_RejectsUnsafeFingerprint(t *testing.T) {
 
 	for _, fp := range []string{"../escape", "a/b", "..", ".hidden", "a..b"} {
 		t.Run(fp, func(t *testing.T) {
-			body := `{"password":"pw","public_key":"pk","fingerprint":` + strconv.Quote(fp) + `}`
+			body := `{"password":"password1234","public_key":"pk","fingerprint":` + strconv.Quote(fp) + `}`
 			resp := doReq(t, ts, "POST", "/api", body, "")
 			expectStatus(t, resp, http.StatusBadRequest)
 			_ = resp.Body.Close()
@@ -1638,7 +1651,7 @@ func TestCreateUser_RejectsUnsafeFingerprint(t *testing.T) {
 
 	// A normal fingerprint must still be accepted.
 	resp := doReq(t, ts, "POST", "/api",
-		`{"password":"pw","public_key":"pk","fingerprint":"ABCDEF0123456789ABCDEF0123456789ABCDEF01"}`, "")
+		`{"password":"password1234","public_key":"pk","fingerprint":"ABCDEF0123456789ABCDEF0123456789ABCDEF01"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 	_ = resp.Body.Close()
 }
@@ -1654,11 +1667,11 @@ func TestImportJSON_RejectsUnsafePaths(t *testing.T) {
 
 	csrf := getCSRFToken(t, ts)
 
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"imptrav1"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"imptrav1"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 	_ = resp.Body.Close()
 
-	resp = doReq(t, ts, "POST", "/api/imptrav1/login", `{"password":"pw"}`, "")
+	resp = doReq(t, ts, "POST", "/api/imptrav1/login", `{"password":"password1234"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 	var lr map[string]string
 	decodeJSON(t, resp, &lr)
@@ -1705,11 +1718,11 @@ func TestImportTarGz_RejectsUnsafePaths(t *testing.T) {
 
 	csrf := getCSRFToken(t, ts)
 
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"imptrav2"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"imptrav2"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 	_ = resp.Body.Close()
 
-	resp = doReq(t, ts, "POST", "/api/imptrav2/login", `{"password":"pw"}`, "")
+	resp = doReq(t, ts, "POST", "/api/imptrav2/login", `{"password":"password1234"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 	var lr map[string]string
 	decodeJSON(t, resp, &lr)
@@ -1887,7 +1900,7 @@ func TestBodyLimit_AllowsNormalBody(t *testing.T) {
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"bodylimit1"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"bodylimit1"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 	_ = resp.Body.Close()
 }
@@ -1904,11 +1917,11 @@ func TestCookieAuth_DoesNotExposeJWT(t *testing.T) {
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookiejwt1"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"cookiejwt1"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 	_ = resp.Body.Close()
 
-	resp = doReq(t, ts, "POST", "/api/cookiejwt1/login", `{"password":"pw"}`, "")
+	resp = doReq(t, ts, "POST", "/api/cookiejwt1/login", `{"password":"password1234"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 
 	var body map[string]any
@@ -1929,11 +1942,11 @@ func TestCookieAuth_CSRFNotBypassedByBearerHeader(t *testing.T) {
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookiessrf1"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"cookiessrf1"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 	_ = resp.Body.Close()
 
-	loginResp := doReq(t, ts, "POST", "/api/cookiessrf1/login", `{"password":"pw"}`, "")
+	loginResp := doReq(t, ts, "POST", "/api/cookiessrf1/login", `{"password":"password1234"}`, "")
 	expectStatus(t, loginResp, http.StatusOK)
 	var authCookie *http.Cookie
 	for _, c := range loginResp.Cookies() {
@@ -1963,11 +1976,11 @@ func TestLogout_ClearsGitSessionToken(t *testing.T) {
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"logoutgit1"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"logoutgit1"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 	_ = resp.Body.Close()
 
-	resp = doReq(t, ts, "POST", "/api/logoutgit1/login", `{"password":"pw"}`, "")
+	resp = doReq(t, ts, "POST", "/api/logoutgit1/login", `{"password":"password1234"}`, "")
 	expectStatus(t, resp, http.StatusOK)
 	var lr map[string]string
 	decodeJSON(t, resp, &lr)
@@ -2009,11 +2022,11 @@ func TestCookieAuth_SecureDetectedFromForwardedProto(t *testing.T) {
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
-	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookiehttps1"}`, "")
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"cookiehttps1"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
 	_ = resp.Body.Close()
 
-	req, err := http.NewRequest("POST", ts.URL+"/api/cookiehttps1/login", strings.NewReader(`{"password":"pw"}`))
+	req, err := http.NewRequest("POST", ts.URL+"/api/cookiehttps1/login", strings.NewReader(`{"password":"password1234"}`))
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
@@ -2038,5 +2051,220 @@ func TestCookieAuth_SecureDetectedFromForwardedProto(t *testing.T) {
 	}
 	if !authCookie.Secure {
 		t.Fatal("cookie should be Secure when X-Forwarded-Proto is https")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// P1: session revocation, password policy, TOTP protection, re-auth
+// ---------------------------------------------------------------------------
+
+func TestSessionRevokeEndpoint(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	csrf := getCSRFToken(t, ts)
+
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"revoke1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
+
+	resp = doReq(t, ts, "POST", "/api/revoke1/login", `{"password":"password1234"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	var lr map[string]string
+	decodeJSON(t, resp, &lr)
+	token := lr["token"]
+
+	resp = doReq(t, ts, "GET", "/api/revoke1/entries", "", token)
+	expectStatus(t, resp, http.StatusOK)
+	_ = resp.Body.Close()
+
+	resp = doReqWithCSRF(t, ts, "POST", "/api/revoke1/sessions/revoke", "", token, csrf)
+	expectStatus(t, resp, http.StatusOK)
+	_ = resp.Body.Close()
+
+	resp = doReq(t, ts, "GET", "/api/revoke1/entries", "", token)
+	expectStatus(t, resp, http.StatusUnauthorized)
+	_ = resp.Body.Close()
+}
+
+func TestPasswordPolicy(t *testing.T) {
+	for _, pw := range []string{"", "short", "12345678901"} {
+		if err := validatePassword(pw); err == nil {
+			t.Errorf("expected %q to be rejected", pw)
+		}
+	}
+	for _, pw := range []string{"123456789012", "correct horse battery staple"} {
+		if err := validatePassword(pw); err != nil {
+			t.Errorf("expected %q to be valid, got %v", pw, err)
+		}
+	}
+	if err := validatePassword(strings.Repeat("a", 73)); err == nil {
+		t.Error("expected >72 bytes to be rejected")
+	}
+
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	resp := doReq(t, ts, "POST", "/api", `{"password":"short","public_key":"pk","fingerprint":"shortpw1"}`, "")
+	expectStatus(t, resp, http.StatusBadRequest)
+	_ = resp.Body.Close()
+}
+
+func TestTOTPSecretEncryptedAndReplayProtected(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	csrf := getCSRFToken(t, ts)
+
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"totpsec1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
+
+	resp = doReq(t, ts, "POST", "/api/totpsec1/login", `{"password":"password1234"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	var lr map[string]string
+	decodeJSON(t, resp, &lr)
+	token := lr["token"]
+
+	resp = doReqWithCSRF(t, ts, "POST", "/api/totpsec1/totp/setup", `{"current_password":"password1234"}`, token, csrf)
+	expectStatus(t, resp, http.StatusOK)
+	var setup map[string]string
+	decodeJSON(t, resp, &setup)
+	secret := setup["secret"]
+
+	code, err := totp.GenerateCode(secret, time.Now())
+	if err != nil {
+		t.Fatalf("generate totp: %v", err)
+	}
+	confirmBody := `{"secret":"` + secret + `","code":"` + code + `","current_password":"password1234"}`
+	resp = doReqWithCSRF(t, ts, "POST", "/api/totpsec1/totp/confirm", confirmBody, token, csrf)
+	expectStatus(t, resp, http.StatusOK)
+	_ = resp.Body.Close()
+
+	user, err := s.Q.GetUser(context.Background(), "totpsec1")
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+	if user.TotpSecret == nil || !strings.HasPrefix(*user.TotpSecret, totpSecretPrefix) {
+		t.Fatalf("expected encrypted TOTP secret, got %v", user.TotpSecret)
+	}
+
+	login2fa := `{"password":"password1234","totp_code":"` + code + `"}`
+	resp = doReq(t, ts, "POST", "/api/totpsec1/login/2fa", login2fa, "")
+	expectStatus(t, resp, http.StatusOK)
+	_ = resp.Body.Close()
+
+	// Replaying the same step must be rejected.
+	resp = doReq(t, ts, "POST", "/api/totpsec1/login/2fa", login2fa, "")
+	expectStatus(t, resp, http.StatusUnauthorized)
+	_ = resp.Body.Close()
+}
+
+func TestTOTPSetupRequiresPassword(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	csrf := getCSRFToken(t, ts)
+
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"totpreauth1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
+
+	resp = doReq(t, ts, "POST", "/api/totpreauth1/login", `{"password":"password1234"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	var lr map[string]string
+	decodeJSON(t, resp, &lr)
+	token := lr["token"]
+
+	resp = doReqWithCSRF(t, ts, "POST", "/api/totpreauth1/totp/setup", `{}`, token, csrf)
+	expectStatus(t, resp, http.StatusBadRequest)
+	_ = resp.Body.Close()
+
+	resp = doReqWithCSRF(t, ts, "POST", "/api/totpreauth1/totp/setup", `{"current_password":"wrongpassword"}`, token, csrf)
+	expectStatus(t, resp, http.StatusUnauthorized)
+	_ = resp.Body.Close()
+}
+
+func TestDeleteAccountRequiresPassword(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	csrf := getCSRFToken(t, ts)
+
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"delreauth1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
+
+	resp = doReq(t, ts, "POST", "/api/delreauth1/login", `{"password":"password1234"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	var lr map[string]string
+	decodeJSON(t, resp, &lr)
+	token := lr["token"]
+
+	resp = doReqWithCSRF(t, ts, "DELETE", "/api/delreauth1/account", `{}`, token, csrf)
+	expectStatus(t, resp, http.StatusBadRequest)
+	_ = resp.Body.Close()
+
+	resp = doReqWithCSRF(t, ts, "DELETE", "/api/delreauth1/account", `{"current_password":"wrongpassword"}`, token, csrf)
+	expectStatus(t, resp, http.StatusUnauthorized)
+	_ = resp.Body.Close()
+
+	resp = doReqWithCSRF(t, ts, "DELETE", "/api/delreauth1/account", `{"current_password":"password1234"}`, token, csrf)
+	expectStatus(t, resp, http.StatusNoContent)
+	_ = resp.Body.Close()
+}
+
+// ---------------------------------------------------------------------------
+// P2: security headers
+// ---------------------------------------------------------------------------
+
+func TestSecurityHeaders(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/health")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	if got := resp.Header.Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("expected Cache-Control no-store for API, got %q", got)
+	}
+	if got := resp.Header.Get("Cross-Origin-Opener-Policy"); got != "same-origin" {
+		t.Fatalf("expected COOP same-origin, got %q", got)
+	}
+	if got := resp.Header.Get("Cross-Origin-Resource-Policy"); got != "same-origin" {
+		t.Fatalf("expected CORP same-origin, got %q", got)
+	}
+	if csp := resp.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "object-src 'none'") {
+		t.Fatalf("expected object-src 'none' in CSP, got %q", csp)
+	}
+	if got := resp.Header.Get("Strict-Transport-Security"); got != "" {
+		t.Fatalf("did not expect HSTS over plain HTTP, got %q", got)
+	}
+}
+
+func TestHSTSOnlyOverHTTPS(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/health", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	if got := resp.Header.Get("Strict-Transport-Security"); got == "" {
+		t.Fatal("expected HSTS header over HTTPS")
 	}
 }

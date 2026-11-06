@@ -27,6 +27,7 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
   // Passphrase prompt for delete operations
   const [showDeletePrompt, setShowDeletePrompt] = useState<'local' | 'full' | null>(null);
   const [deletePassphrase, setDeletePassphrase] = useState('');
+  const [deletePassword, setDeletePassword] = useState('');
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   // Version state
@@ -40,6 +41,7 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
   const [totpLoading, setTotpLoading] = useState(false);
   const [totpConfirmed, setTotpConfirmed] = useState(false);
   const [show2faSetup, setShow2faSetup] = useState(false);
+  const [reauthPassword, setReauthPassword] = useState('');
   const qrRef = useRef<HTMLCanvasElement>(null);
 
   // Import state
@@ -239,11 +241,11 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
 
   // Setup 2FA
   const initTOTP = async () => {
-    if (!session.api) return;
+    if (!session.api || !reauthPassword) return;
     setTotpLoading(true);
     setError('');
     try {
-      const result = await session.api.setupTOTP();
+      const result = await session.api.setupTOTP(reauthPassword);
       setTotpSecret(result.secret);
       setTotpUrl(result.url);
       setShow2faSetup(true);
@@ -254,11 +256,12 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
   };
 
   const confirmTOTP = async () => {
-    if (!session.api || !totpSecret || !totpCode) return;
+    if (!session.api || !totpSecret || !totpCode || !reauthPassword) return;
     setTotpLoading(true);
     setError('');
     try {
-      await session.api.confirmTOTP(totpSecret, totpCode);
+      const result = await session.api.confirmTOTP(totpSecret, totpCode, reauthPassword);
+      session.updateSession({ token: result.token, expiresAt: result.expires_at });
       setTotpConfirmed(true);
       setSuccess('2FA enabled successfully');
       setTimeout(() => setSuccess(''), 3000);
@@ -289,11 +292,15 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
         throw new Error('Account not found');
       }
 
-      // Decrypt API URL with current password
+      // Decrypt API URL with current password (also validates it locally)
       const apiUrl = await aesDecrypt(account.apiUrlEncrypted, currentPassword, account.apiUrlSalt, account.apiUrlIv);
 
-      // Re-encrypt API URL with new password
+      // Re-encrypt API URL with new password (not persisted yet)
       const newEncrypted = await aesEncrypt(apiUrl, newPassword);
+
+      // Change the password on the server first. If it fails, the locally
+      // stored data still uses the old (valid) password.
+      await session.api.changePassword(currentPassword, newPassword);
 
       // Save updated account to IndexedDB
       await saveAccount({
@@ -303,8 +310,6 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
         apiUrlIv: newEncrypted.iv,
       });
 
-      // Call backend to change password
-      await session.api.changePassword(currentPassword, newPassword);
       setSuccess('Password changed successfully. Please login with your new password.');
 
       // Clear password fields
@@ -344,7 +349,7 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
       console.info('Clear Local Data: account removed from IndexedDB and sessionStorage', 'fingerprint', fp, 'label', account.label || '(unnamed)');
       setSuccess('Local data cleared');
       setShowDeletePrompt(null);
-      setDeletePassphrase('');
+      setDeletePassphrase(''); setDeletePassword('');
       setTimeout(() => setSuccess(''), 3000);
       session.clear();
       onLock();
@@ -369,16 +374,16 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
         throw new Error('Account not found');
       }
       await decryptPrivateKey(account.privateKey, deletePassphrase);
-      // Call backend to delete account
+      // Call backend to delete account (requires the login password)
       if (session.api) {
-        await session.api.deleteAccount();
+        await session.api.deleteAccount(deletePassword);
       }
       // Delete from IndexedDB
       await deleteAccountFromDB(fp);
       console.info('Permanently Delete Account: server DB + IndexedDB + sessionStorage cleared', 'fingerprint', fp, 'label', account.label || '(unnamed)');
       setSuccess('Account permanently deleted');
       setShowDeletePrompt(null);
-      setDeletePassphrase('');
+      setDeletePassphrase(''); setDeletePassword('');
       setTimeout(() => setSuccess(''), 5000);
       session.clear();
       onLock();
@@ -687,13 +692,30 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
                 </>
               )
             ) : (
-              <button
-                class="btn btn-sm"
-                onClick={initTOTP}
-                disabled={totpLoading}
-              >
-                {totpLoading ? <><span class="spinner" /> Setting up...</> : '🔐 Enable 2FA'}
-              </button>
+              <>
+                <p class="help-text" style="margin-bottom: 8px; font-size: 12px;">
+                  Enter your login password to confirm this change.
+                </p>
+                <div class="field">
+                  <label class="label">Login Password</label>
+                  <input
+                    class="input"
+                    type="password"
+                    value={reauthPassword}
+                    onInput={(e) => setReauthPassword((e.target as HTMLInputElement).value)}
+                    placeholder="Enter login password"
+                    autocomplete="current-password"
+                    disabled={totpLoading}
+                  />
+                </div>
+                <button
+                  class="btn btn-sm"
+                  onClick={initTOTP}
+                  disabled={!reauthPassword || totpLoading}
+                >
+                  {totpLoading ? <><span class="spinner" /> Setting up...</> : '🔐 Enable 2FA'}
+                </button>
+              </>
             )}
           </div>
 
@@ -823,11 +845,11 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
 
       {/* Delete Passphrase Prompt Modal */}
       {showDeletePrompt && (
-        <div class="modal-overlay" onClick={() => { setShowDeletePrompt(null); setDeletePassphrase(''); }}>
+        <div class="modal-overlay" onClick={() => { setShowDeletePrompt(null); setDeletePassphrase(''); setDeletePassword(''); }}>
           <div class="modal" style="max-width: 400px;" onClick={(e) => e.stopPropagation()}>
             <div class="modal-header">
               <h3>{showDeletePrompt === 'local' ? '🗑️ Clear Local Data' : '☠️ Delete Account'}</h3>
-              <button class="btn btn-ghost btn-icon" onClick={() => { setShowDeletePrompt(null); setDeletePassphrase(''); }}>✕</button>
+              <button class="btn btn-ghost btn-icon" onClick={() => { setShowDeletePrompt(null); setDeletePassphrase(''); setDeletePassword(''); }}>✕</button>
             </div>
             <div class="modal-body">
               <p style="margin-bottom: 16px; font-size: 13px; color: var(--text-muted);">
@@ -843,7 +865,7 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
                   value={deletePassphrase}
                   onInput={(e) => setDeletePassphrase((e.target as HTMLInputElement).value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && deletePassphrase) {
+                    if (e.key === 'Enter' && deletePassphrase && (showDeletePrompt === 'local' || deletePassword)) {
                       showDeletePrompt === 'local' ? handleDeleteLocalData() : handleDeleteFullAccount();
                     }
                   }}
@@ -857,11 +879,25 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
                   data-1p-ignore="true"
                 />
               </div>
+              {showDeletePrompt === 'full' && (
+                <div class="field">
+                  <label class="label">Login Password</label>
+                  <input
+                    class="input"
+                    type="password"
+                    value={deletePassword}
+                    onInput={(e) => setDeletePassword((e.target as HTMLInputElement).value)}
+                    placeholder="Enter your login password"
+                    disabled={deleteLoading}
+                    autocomplete="current-password"
+                  />
+                </div>
+              )}
               {error && <p class="error-msg">{error}</p>}
               <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 16px;">
                 <button
                   class="btn btn-ghost"
-                  onClick={() => { setShowDeletePrompt(null); setDeletePassphrase(''); }}
+                  onClick={() => { setShowDeletePrompt(null); setDeletePassphrase(''); setDeletePassword(''); }}
                   disabled={deleteLoading}
                 >
                   Cancel
@@ -869,7 +905,7 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
                 <button
                   class="btn btn-danger"
                   onClick={() => showDeletePrompt === 'local' ? handleDeleteLocalData() : handleDeleteFullAccount()}
-                  disabled={!deletePassphrase || deleteLoading}
+                  disabled={!deletePassphrase || (showDeletePrompt === 'full' && !deletePassword) || deleteLoading}
                 >
                   {deleteLoading ? <><span class="spinner" /> Deleting...</> : 'Confirm'}
                 </button>

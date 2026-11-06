@@ -379,6 +379,7 @@ test.describe('Authentication', () => {
     await page.getByRole('button', { name: '☠️ Permanently Delete Account' }).click();
     await page.waitForSelector('text=Enter your PGP passphrase', { timeout: 5000 });
     await page.getByPlaceholder('Enter your PGP passphrase').fill(accountAPassphrase);
+    await page.getByPlaceholder('Enter your login password').fill(accountA.password);
     await page.getByRole('button', { name: 'Confirm' }).last().click();
     await page.getByRole('heading', { name: 'WebPass' }).waitFor({ timeout: 10000 });
 

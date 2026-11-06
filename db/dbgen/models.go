@@ -52,15 +52,17 @@ type Migration struct {
 }
 
 type User struct {
-	Fingerprint  string     `json:"fingerprint"`
-	PasswordHash string     `json:"password_hash"`
-	PublicKey    string     `json:"public_key"`
-	TotpSecret   *string    `json:"totp_secret"`
-	TotpEnabled  *int64     `json:"totp_enabled"`
-	Created      *time.Time `json:"created"`
-	LoginTime    *time.Time `json:"login_time"`
-	LastActivity *time.Time `json:"last_activity"`
-	GpgID        *string    `json:"gpg_id"`
+	Fingerprint    string     `json:"fingerprint"`
+	PasswordHash   string     `json:"password_hash"`
+	PublicKey      string     `json:"public_key"`
+	TotpSecret     *string    `json:"totp_secret"`
+	TotpEnabled    *int64     `json:"totp_enabled"`
+	Created        *time.Time `json:"created"`
+	LoginTime      *time.Time `json:"login_time"`
+	LastActivity   *time.Time `json:"last_activity"`
+	GpgID          *string    `json:"gpg_id"`
+	SessionVersion int64      `json:"session_version"`
+	LastTotpStep   int64      `json:"last_totp_step"`
 }
 
 type Visitor struct {

@@ -170,3 +170,20 @@ CREATE TABLE test_table (
 	// This test verifies the executeMigration function indirectly
 	t.Skip("executeMigration tested indirectly via RunMigrations")
 }
+
+func TestOpenRestrictsDatabasePermissions(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.sqlite3")
+	d, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+
+	info, err := os.Stat(dbPath)
+	if err != nil {
+		t.Fatalf("stat database: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0600 {
+		t.Fatalf("expected database permissions 0600, got %04o", perm)
+	}
+}

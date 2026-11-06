@@ -10,6 +10,17 @@ import (
 	"time"
 )
 
+const bumpSessionVersion = `-- name: BumpSessionVersion :exec
+UPDATE users
+SET session_version = session_version + 1
+WHERE fingerprint = ?
+`
+
+func (q *Queries) BumpSessionVersion(ctx context.Context, fingerprint string) error {
+	_, err := q.db.ExecContext(ctx, bumpSessionVersion, fingerprint)
+	return err
+}
+
 const createUser = `-- name: CreateUser :exec
 INSERT INTO users (fingerprint, password_hash, public_key, gpg_id)
 VALUES (?, ?, ?, ?)
@@ -81,24 +92,25 @@ func (q *Queries) GetEntry(ctx context.Context, arg GetEntryParams) (Entry, erro
 }
 
 const getSessionInfo = `-- name: GetSessionInfo :one
-SELECT login_time, last_activity FROM users
+SELECT login_time, last_activity, session_version FROM users
 WHERE fingerprint = ?
 `
 
 type GetSessionInfoRow struct {
-	LoginTime    *time.Time `json:"login_time"`
-	LastActivity *time.Time `json:"last_activity"`
+	LoginTime      *time.Time `json:"login_time"`
+	LastActivity   *time.Time `json:"last_activity"`
+	SessionVersion int64      `json:"session_version"`
 }
 
 func (q *Queries) GetSessionInfo(ctx context.Context, fingerprint string) (GetSessionInfoRow, error) {
 	row := q.db.QueryRowContext(ctx, getSessionInfo, fingerprint)
 	var i GetSessionInfoRow
-	err := row.Scan(&i.LoginTime, &i.LastActivity)
+	err := row.Scan(&i.LoginTime, &i.LastActivity, &i.SessionVersion)
 	return i, err
 }
 
 const getUser = `-- name: GetUser :one
-SELECT fingerprint, password_hash, public_key, totp_secret, totp_enabled, created, login_time, last_activity, gpg_id FROM users WHERE fingerprint = ?
+SELECT fingerprint, password_hash, public_key, totp_secret, totp_enabled, created, login_time, last_activity, gpg_id, session_version, last_totp_step FROM users WHERE fingerprint = ?
 `
 
 func (q *Queries) GetUser(ctx context.Context, fingerprint string) (User, error) {
@@ -114,6 +126,8 @@ func (q *Queries) GetUser(ctx context.Context, fingerprint string) (User, error)
 		&i.LoginTime,
 		&i.LastActivity,
 		&i.GpgID,
+		&i.SessionVersion,
+		&i.LastTotpStep,
 	)
 	return i, err
 }
@@ -226,6 +240,22 @@ func (q *Queries) UpdateLastActivity(ctx context.Context, fingerprint string) er
 	return err
 }
 
+const updateLastTOTPStep = `-- name: UpdateLastTOTPStep :exec
+UPDATE users
+SET last_totp_step = ?
+WHERE fingerprint = ?
+`
+
+type UpdateLastTOTPStepParams struct {
+	LastTotpStep int64  `json:"last_totp_step"`
+	Fingerprint  string `json:"fingerprint"`
+}
+
+func (q *Queries) UpdateLastTOTPStep(ctx context.Context, arg UpdateLastTOTPStepParams) error {
+	_, err := q.db.ExecContext(ctx, updateLastTOTPStep, arg.LastTotpStep, arg.Fingerprint)
+	return err
+}
+
 const updateLoginTime = `-- name: UpdateLoginTime :exec
 UPDATE users
 SET login_time = CURRENT_TIMESTAMP, last_activity = CURRENT_TIMESTAMP
@@ -271,18 +301,24 @@ func (q *Queries) UpdateUserGpgID(ctx context.Context, arg UpdateUserGpgIDParams
 
 const updateUserTOTP = `-- name: UpdateUserTOTP :exec
 UPDATE users
-SET totp_secret = ?, totp_enabled = ?
+SET totp_secret = ?, totp_enabled = ?, last_totp_step = ?
 WHERE fingerprint = ?
 `
 
 type UpdateUserTOTPParams struct {
-	TotpSecret  *string `json:"totp_secret"`
-	TotpEnabled *int64  `json:"totp_enabled"`
-	Fingerprint string  `json:"fingerprint"`
+	TotpSecret   *string `json:"totp_secret"`
+	TotpEnabled  *int64  `json:"totp_enabled"`
+	LastTotpStep int64   `json:"last_totp_step"`
+	Fingerprint  string  `json:"fingerprint"`
 }
 
 func (q *Queries) UpdateUserTOTP(ctx context.Context, arg UpdateUserTOTPParams) error {
-	_, err := q.db.ExecContext(ctx, updateUserTOTP, arg.TotpSecret, arg.TotpEnabled, arg.Fingerprint)
+	_, err := q.db.ExecContext(ctx, updateUserTOTP,
+		arg.TotpSecret,
+		arg.TotpEnabled,
+		arg.LastTotpStep,
+		arg.Fingerprint,
+	)
 	return err
 }
 

@@ -17,7 +17,7 @@ func TestGitServiceNew(t *testing.T) {
 	repoRoot := filepath.Join(tmpDir, "git-repos")
 
 	srv := newTestServer(t)
-	gs := NewGitService(dbPath, srv.Q, repoRoot)
+	gs := NewGitService(dbPath, srv.DB, srv.Q, repoRoot)
 
 	if gs.repoRoot != repoRoot {
 		t.Errorf("expected repoRoot %s, got %s", repoRoot, gs.repoRoot)
@@ -706,5 +706,33 @@ func TestGitServiceClearSessionToken(t *testing.T) {
 	s.GitService.ClearSessionToken(fp)
 	if _, ok := s.GitService.getSessionToken(fp); ok {
 		t.Fatal("expected token to be cleared")
+	}
+}
+
+func TestSyncDatabaseRefusesEmptyRepo(t *testing.T) {
+	s := newTestServer(t)
+	ctx := context.Background()
+	fp := "empty-repo-fp"
+	mustCreateUser(t, s, fp)
+
+	if err := s.Q.UpsertEntry(ctx, dbgen.UpsertEntryParams{
+		Fingerprint: fp,
+		Path:        "keep",
+		Content:     []byte("data"),
+	}); err != nil {
+		t.Fatalf("seed entry: %v", err)
+	}
+
+	repoDir := t.TempDir() // empty repository (only an empty dir)
+	if _, err := s.GitService.syncDatabase(ctx, fp, repoDir); err == nil {
+		t.Fatal("expected empty repository to be refused")
+	}
+
+	entries, err := s.Q.ListEntries(ctx, fp)
+	if err != nil {
+		t.Fatalf("list entries: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Path != "keep" {
+		t.Fatalf("local entries should be preserved, got %+v", entries)
 	}
 }

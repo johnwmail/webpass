@@ -57,6 +57,7 @@ func (e *HostKeyChangedError) Error() string {
 type GitService struct {
 	mu       sync.Mutex
 	dbPath   string
+	db       *sql.DB
 	q        *dbgen.Queries
 	repoRoot string                  // base directory for .password-store repos
 	tokens   map[string]SessionToken // fingerprint -> session token cache
@@ -89,9 +90,10 @@ type PullResult struct {
 }
 
 // NewGitService creates a new GitService
-func NewGitService(dbPath string, q *dbgen.Queries, repoRoot string) *GitService {
+func NewGitService(dbPath string, database *sql.DB, q *dbgen.Queries, repoRoot string) *GitService {
 	return &GitService{
 		dbPath:   dbPath,
+		db:       database,
 		q:        q,
 		repoRoot: repoRoot,
 		tokens:   make(map[string]SessionToken),
@@ -644,8 +646,10 @@ func (g *GitService) Pull(ctx context.Context, fingerprint, token string) (*Pull
 
 	gpgIDPath := filepath.Join(repoDir, ".gpg-id")
 	if gpgIDData, err := os.ReadFile(gpgIDPath); err == nil {
-		gpgIDStr := string(gpgIDData)
-		if err := g.q.UpdateUserGpgID(ctx, dbgen.UpdateUserGpgIDParams{
+		gpgIDStr := strings.TrimSpace(string(gpgIDData))
+		if gpgIDStr == "" || len(gpgIDStr) > 255 || strings.ContainsAny(gpgIDStr, "\r\n\x00") {
+			slog.Warn("[PULL] Ignoring invalid .gpg-id", "fingerprint", fingerprint)
+		} else if err := g.q.UpdateUserGpgID(ctx, dbgen.UpdateUserGpgIDParams{
 			GpgID:       &gpgIDStr,
 			Fingerprint: fingerprint,
 		}); err != nil {
@@ -682,30 +686,24 @@ func (g *GitService) Pull(ctx context.Context, fingerprint, token string) (*Pull
 	}, nil
 }
 
-// syncDatabase deletes all DB entries and imports from git repo
+// syncDatabase imports the repository into the DB inside a single transaction.
+// The repository is fully read and validated first; if anything fails (or the
+// remote is unexpectedly empty), the existing local entries are left intact.
 func (g *GitService) syncDatabase(ctx context.Context, fingerprint, repoDir string) (int, error) {
-	entries, err := g.q.ListEntries(ctx, fingerprint)
-	if err != nil {
-		return 0, fmt.Errorf("list entries: %w", err)
-	}
-
-	for _, entry := range entries {
-		if err := g.q.DeleteEntry(ctx, dbgen.DeleteEntryParams{
-			Fingerprint: fingerprint,
-			Path:        entry.Path,
-		}); err != nil {
-			return 0, fmt.Errorf("delete entry %s: %w", entry.Path, err)
-		}
-	}
-
-	count := 0
 	if _, err := os.Stat(repoDir); os.IsNotExist(err) {
 		return 0, nil
 	}
 
-	err = filepath.Walk(repoDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
+	type repoEntry struct {
+		path    string
+		content []byte
+	}
+	var staged []repoEntry
+	var totalBytes int64
+
+	err := filepath.Walk(repoDir, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
 		if info.IsDir() {
 			if info.Name() == ".git" {
@@ -733,25 +731,65 @@ func (g *GitService) syncDatabase(ctx context.Context, fingerprint, repoDir stri
 		}
 		entryPath := strings.TrimSuffix(relPath, ".gpg")
 		entryPath = filepath.ToSlash(entryPath)
+		cleanPath, err := validateEntryPath(entryPath)
+		if err != nil {
+			slog.Warn("[PULL] Skipping entry with invalid path", "fingerprint", fingerprint, "path", entryPath, "error", err)
+			return nil
+		}
+		if len(staged) >= maxImportEntries {
+			return fmt.Errorf("repository has too many entries (limit %d)", maxImportEntries)
+		}
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		if err := g.q.UpsertEntry(ctx, dbgen.UpsertEntryParams{
-			Fingerprint: fingerprint,
-			Path:        entryPath,
-			Content:     content,
-		}); err != nil {
-			return err
+		totalBytes += int64(len(content))
+		if totalBytes > maxImportTotalBytes {
+			return fmt.Errorf("repository exceeds the maximum import size")
 		}
-		count++
+		staged = append(staged, repoEntry{path: cleanPath, content: content})
 		return nil
 	})
-
 	if err != nil {
 		return 0, err
 	}
-	return count, nil
+
+	tx, err := g.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	qtx := g.q.WithTx(tx)
+
+	existing, err := qtx.ListEntries(ctx, fingerprint)
+	if err != nil {
+		return 0, fmt.Errorf("list entries: %w", err)
+	}
+	if len(staged) == 0 && len(existing) > 0 {
+		return 0, fmt.Errorf("remote repository contains no entries; refusing to delete local entries")
+	}
+
+	for _, entry := range existing {
+		if err := qtx.DeleteEntry(ctx, dbgen.DeleteEntryParams{
+			Fingerprint: fingerprint,
+			Path:        entry.Path,
+		}); err != nil {
+			return 0, fmt.Errorf("delete entry %s: %w", entry.Path, err)
+		}
+	}
+	for _, entry := range staged {
+		if err := qtx.UpsertEntry(ctx, dbgen.UpsertEntryParams{
+			Fingerprint: fingerprint,
+			Path:        entry.path,
+			Content:     entry.content,
+		}); err != nil {
+			return 0, fmt.Errorf("upsert entry %s: %w", entry.path, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit import: %w", err)
+	}
+	return len(staged), nil
 }
 
 // exportPasswordStore exports all DB entries to .gpg files
