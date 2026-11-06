@@ -308,9 +308,10 @@ test.describe('Registration - Protected Mode', () => {
     await page.getByRole('button', { name: 'Save' }).click();
     await page.waitForSelector('text=Test', { timeout: 30000 });
 
-    // Enable 2FA in Settings
+    // Enable 2FA in Settings (requires the login password for re-auth)
     await page.getByRole('button', { name: 'Settings' }).click();
     await page.waitForSelector('text=Settings', { timeout: 5000 });
+    await page.getByPlaceholder('Enter login password').fill(testUser.password);
     await page.getByRole('button', { name: /2FA/i }).click();
     await page.waitForSelector('text=Two-Factor Authentication', { timeout: 10000 });
 
