@@ -47,7 +47,7 @@ jobs:
         run: cd frontend && npm test
 
       - name: Run Go tests
-        run: go test -race -coverprofile=coverage.out ./...
+        run: go test -race -timeout 20m -coverprofile=coverage.out ./...
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7

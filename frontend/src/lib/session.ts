@@ -141,6 +141,19 @@ class Session {
     this._notify();
   }
 
+  /** Update token/expiry after a server-side session rotation (e.g. 2FA enable). */
+  updateSession(opts: { token?: string; expiresAt?: number | null }): void {
+    if (opts.token !== undefined) {
+      this.token = opts.token;
+      if (this.api) this.api.token = opts.token;
+    }
+    if (opts.expiresAt !== undefined) {
+      this.expiresAt = opts.expiresAt;
+    }
+    this._persist();
+    this._notify();
+  }
+
   getCachedPrivateKey(): PrivateKey | null {
     // Reset timer on activity — key is being used
     if (this._privateKey) this._resetKeyTimer();

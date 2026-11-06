@@ -251,7 +251,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
     setTotpLoading(true);
     setError('');
     try {
-      const result = await setupApi.setupTOTP();
+      const result = await setupApi.setupTOTP(loginPassword);
       setTotpSecret(result.secret);
       setTotpUrl(result.url);
     } catch (e: any) {
@@ -265,7 +265,13 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
     setTotpLoading(true);
     setError('');
     try {
-      await setupApi.confirmTOTP(totpSecret, totpCode);
+      const result = await setupApi.confirmTOTP(totpSecret, totpCode, loginPassword);
+      if (result.token) {
+        setupApi.token = result.token;
+      }
+      if (result.expires_at) {
+        setLoginExpiresAt(result.expires_at);
+      }
       setTotpConfirmed(true);
     } catch (e: any) {
       setError(e.message || 'Invalid code');

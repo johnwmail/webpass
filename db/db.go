@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -20,24 +23,47 @@ var migrationFS embed.FS
 
 // Open opens an sqlite database and prepares pragmas suitable for a small web app.
 func Open(path string) (*sql.DB, error) {
+	if !isMemoryPath(path) {
+		if dir := filepath.Dir(path); dir != "" && dir != "." {
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				return nil, fmt.Errorf("create db directory: %w", err)
+			}
+		}
+	}
+
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
-	// Light pragmas similar
-	if _, err := db.Exec("PRAGMA foreign_keys=ON;"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("enable foreign keys: %w", err)
+	pragmas := []string{
+		"PRAGMA foreign_keys=ON;",
+		"PRAGMA journal_mode=wal;",
+		"PRAGMA busy_timeout=1000;",
+		"PRAGMA trusted_schema=OFF;",
+		"PRAGMA secure_delete=ON;",
 	}
-	if _, err := db.Exec("PRAGMA journal_mode=wal;"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("set WAL: %w", err)
+	for _, p := range pragmas {
+		if _, err := db.Exec(p); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("exec %s: %w", p, err)
+		}
 	}
-	if _, err := db.Exec("PRAGMA busy_timeout=1000;"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("set busy_timeout: %w", err)
+
+	// The database contains password hashes and (encrypted) secrets; keep it
+	// readable by the service user only.
+	if !isMemoryPath(path) {
+		if err := os.Chmod(path, 0600); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("chmod database: %w", err)
+		}
 	}
+
 	return db, nil
+}
+
+func isMemoryPath(path string) bool {
+	p := strings.TrimSpace(path)
+	return p == "" || p == ":memory:" || strings.HasPrefix(p, "file::memory:") || strings.Contains(p, "mode=memory")
 }
 
 // RunMigrations executes database migrations in numeric order (NNN-*.sql),

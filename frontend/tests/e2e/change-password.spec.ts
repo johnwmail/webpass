@@ -171,15 +171,17 @@ test.describe('Change Password', () => {
   });
 
   test('change password - with 2FA enabled', async ({ page }) => {
+    test.setTimeout(120000); // includes waiting for the next TOTP step
     testUser = await generateTestUser();
     const newPassword = `newpass-2fa-${Date.now()}`;
 
     // Register and login, get the actual fingerprint
     const actualFingerprint = await registerAndLogin(page, testUser);
 
-    // Setup 2FA from settings
+    // Setup 2FA from settings (requires the login password for re-auth)
     await page.getByRole('button', { name: /Settings/i }).click();
     await page.getByText('Settings', { exact: false }).waitFor({ timeout: 5000 });
+    await page.getByPlaceholder('Enter login password').fill(testUser.password);
     await page.getByRole('button', { name: /2FA/i }).click();
     await page.getByText('Two-Factor Authentication', { exact: false }).waitFor({ timeout: 10000 });
 
@@ -264,7 +266,8 @@ test.describe('Change Password', () => {
     // 2FA should still be required - wait for code input
     await page.getByPlaceholder('6-digit code').waitFor({ timeout: 15000 });
 
-    // Enter 2FA code (generate fresh code right before use)
+    // Enter 2FA code (wait for a fresh step so replay protection accepts it)
+    await page.waitForTimeout(30000 - (Date.now() % 30000) + 1000);
     const totpCode3 = totp.generate();
     await page.getByPlaceholder('6-digit code').fill(totpCode3);
     await page.getByRole('button', { name: /Verify/i }).click();

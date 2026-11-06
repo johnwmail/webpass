@@ -51,6 +51,8 @@ type Server struct {
 	cookieDomain string        // optional cookie domain
 	bcryptCost   int           // bcrypt cost factor for password hashing
 	maxBodyBytes int64         // maximum accepted request body size in bytes
+	Secrets      *SecretBox    // encrypts secrets stored at rest (TOTP)
+	dummyHash    []byte        // bcrypt hash used for timing-equalised login failures
 	// Version info (set from main package)
 	Version   string
 	BuildTime string
@@ -122,6 +124,22 @@ func New(dbPath string, jwtKey []byte, hardLimitMin int, softLimitMin int) (*Ser
 		bcryptCost:   bcryptCost,
 		maxBodyBytes: maxBodyBytes,
 	}
+
+	secrets, err := loadSecretBox(dbPath, jwtKey)
+	if err != nil {
+		_ = wdb.Close()
+		return nil, fmt.Errorf("load data encryption key: %w", err)
+	}
+	s.Secrets = secrets
+
+	// Precompute a hash so logins for unknown users still perform a bcrypt
+	// comparison, preventing timing-based account enumeration.
+	dummyHash, err := bcrypt.GenerateFromPassword([]byte("webpass-dummy-password"), bcryptCost)
+	if err != nil {
+		_ = wdb.Close()
+		return nil, fmt.Errorf("generate dummy password hash: %w", err)
+	}
+	s.dummyHash = dummyHash
 	s.hardLimit = time.Duration(hardLimitMin) * time.Minute
 	s.softLimit = time.Duration(softLimitMin) * time.Minute
 
@@ -133,7 +151,7 @@ func New(dbPath string, jwtKey []byte, hardLimitMin int, softLimitMin int) (*Ser
 	if err := os.MkdirAll(repoRoot, 0700); err != nil {
 		return nil, fmt.Errorf("create repo root: %w", err)
 	}
-	s.GitService = NewGitService(dbPath, dbgen.New(wdb), repoRoot)
+	s.GitService = NewGitService(dbPath, wdb, s.Q, repoRoot)
 
 	// Initialize Registration service
 	s.Registration = NewRegistrationService()
@@ -195,6 +213,9 @@ func (s *Server) Handler() http.Handler {
 
 	// Password change
 	mux.HandleFunc("POST /api/{fingerprint}/password", s.requireAuth(s.handleChangePassword))
+
+	// Revoke all sessions (password/2FA changes also do this automatically)
+	mux.HandleFunc("POST /api/{fingerprint}/sessions/revoke", s.requireAuth(s.handleRevokeSessions))
 
 	// Health check
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -305,11 +326,23 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		// Content Security Policy - restrict resource loading
 		// Note: worker-src must include 'self' and blob: for OpenPGP.js web workers
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data:; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data:; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 		// Prevent browsers from applying XSS filtering
 		w.Header().Set("X-XSS-Protection", "0")
 		// Permissions Policy - restrict browser features
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), clipboard-write=(self)")
+		// Isolate the document from cross-origin windows/resources.
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+		// Only enable HSTS on requests that actually arrived over HTTPS.
+		if isHTTPSRequest(r) {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		}
+		// API responses contain tokens and encrypted blobs: never cache them.
+		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Pragma", "no-cache")
+		}
 
 		next.ServeHTTP(w, r)
 	})
@@ -445,10 +478,26 @@ func parseCORSOrigins(raw string) map[string]bool {
 // JWT helpers
 // ---------------------------------------------------------------------------
 
-func (s *Server) createToken(fingerprint string) (string, error) {
+const (
+	tokenIssuer   = "webpass"
+	tokenAudience = "webpass"
+)
+
+func (s *Server) createToken(fingerprint string, sessionVersion int64) (string, error) {
+	now := time.Now()
+	jti := make([]byte, 16)
+	if _, err := rand.Read(jti); err != nil {
+		return "", fmt.Errorf("generate jti: %w", err)
+	}
 	claims := jwt.MapClaims{
 		"fp":  fingerprint,
-		"exp": time.Now().Add(s.hardLimit).Unix(),
+		"sv":  sessionVersion,
+		"iss": tokenIssuer,
+		"aud": tokenAudience,
+		"iat": now.Unix(),
+		"nbf": now.Unix(),
+		"exp": now.Add(s.hardLimit).Unix(),
+		"jti": hex.EncodeToString(jti),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(s.JWTKey)
@@ -459,7 +508,7 @@ func (s *Server) createToken(fingerprint string) (string, error) {
 func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		fp := r.PathValue("fingerprint")
-		tokenFP, err := s.verifyToken(r)
+		tokenFP, tokenSV, err := s.verifyToken(r)
 		if err != nil {
 			jsonError(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -469,8 +518,8 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// Check session limits (hard limit and soft limit)
-		if err := s.checkSessionLimits(r.Context(), fp); err != nil {
+		// Check session limits (hard limit, soft limit, and revocation)
+		if err := s.checkSessionLimits(r.Context(), fp, tokenSV); err != nil {
 			slog.Warn("session limit check failed", "fingerprint", fp, "error", err)
 			jsonError(w, err.Error(), http.StatusUnauthorized)
 			return
@@ -592,65 +641,70 @@ func getClientIP(r *http.Request) string {
 	return remoteIP
 }
 
-func (s *Server) verifyToken(r *http.Request) (string, error) {
-	// Try cookie first (when cookie auth is enabled)
-	if s.cookieAuth {
-		cookie, err := r.Cookie("webpass_auth")
-		if err == nil && cookie.Value != "" {
-			tokenStr := cookie.Value
-			token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) {
-				if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-					return nil, fmt.Errorf("unexpected signing method")
-				}
-				return s.JWTKey, nil
-			})
-			if err == nil && token.Valid {
-				claims, ok := token.Claims.(jwt.MapClaims)
-				if ok {
-					fp, ok := claims["fp"].(string)
-					if ok {
-						return fp, nil
-					}
-				}
-			}
-		}
-		return "", fmt.Errorf("missing auth cookie")
-	}
-
-	// Fallback to Authorization header (when cookie auth is disabled)
-	auth := r.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, "Bearer ") {
-		return "", fmt.Errorf("missing bearer token")
-	}
-	tokenStr := strings.TrimPrefix(auth, "Bearer ")
+// parseToken validates a JWT and extracts the fingerprint and session version.
+func (s *Server) parseToken(tokenStr string) (string, int64, error) {
 	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method")
 		}
 		return s.JWTKey, nil
-	})
+	},
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+		jwt.WithIssuer(tokenIssuer),
+		jwt.WithAudience(tokenAudience),
+		jwt.WithExpirationRequired(),
+	)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || !token.Valid {
-		return "", fmt.Errorf("invalid token")
+		return "", 0, fmt.Errorf("invalid token")
 	}
 	fp, ok := claims["fp"].(string)
-	if !ok {
-		return "", fmt.Errorf("missing fp claim")
+	if !ok || fp == "" {
+		return "", 0, fmt.Errorf("missing fp claim")
 	}
-	return fp, nil
+	var sv int64
+	if v, ok := claims["sv"].(float64); ok {
+		sv = int64(v)
+	}
+	return fp, sv, nil
 }
 
-// checkSessionLimits verifies the session hasn't exceeded hard or soft limits.
+func (s *Server) verifyToken(r *http.Request) (string, int64, error) {
+	// Try cookie first (when cookie auth is enabled)
+	if s.cookieAuth {
+		cookie, err := r.Cookie("webpass_auth")
+		if err == nil && cookie.Value != "" {
+			return s.parseToken(cookie.Value)
+		}
+		return "", 0, fmt.Errorf("missing auth cookie")
+	}
+
+	// Fallback to Authorization header (when cookie auth is disabled)
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return "", 0, fmt.Errorf("missing bearer token")
+	}
+	return s.parseToken(strings.TrimPrefix(auth, "Bearer "))
+}
+
+// checkSessionLimits verifies the session hasn't exceeded hard or soft limits,
+// and that it has not been revoked via a session_version bump.
 // Hard limit: sessionDuration (e.g., 30 min) from login_time
 // Soft limit: softLimit (5 min) from last_activity (browser close detection)
-func (s *Server) checkSessionLimits(ctx context.Context, fp string) error {
+func (s *Server) checkSessionLimits(ctx context.Context, fp string, tokenVersion int64) error {
 	sessionInfo, err := s.Q.GetSessionInfo(ctx, fp)
 	if err != nil {
 		// If user doesn't exist, don't block - let the handler decide
 		return nil
+	}
+
+	// A version mismatch means the token was issued before a password / 2FA
+	// change or an explicit "log out everywhere".
+	if tokenVersion != sessionInfo.SessionVersion {
+		return fmt.Errorf("session revoked (please login again)")
 	}
 
 	now := time.Now()
@@ -678,13 +732,9 @@ func (s *Server) checkSessionLimits(ctx context.Context, fp string) error {
 	return nil
 }
 
-// useSecureCookie reports whether cookies should carry the Secure flag.
-// Explicit COOKIE_SECURE=true always wins; otherwise HTTPS is detected from
-// the direct TLS connection or X-Forwarded-Proto (reverse proxy).
-func (s *Server) useSecureCookie(r *http.Request) bool {
-	if s.cookieSecure {
-		return true
-	}
+// isHTTPSRequest reports whether the request reached us over HTTPS, either
+// directly (TLS) or via a reverse proxy signalling X-Forwarded-Proto.
+func isHTTPSRequest(r *http.Request) bool {
 	if r == nil {
 		return false
 	}
@@ -692,6 +742,16 @@ func (s *Server) useSecureCookie(r *http.Request) bool {
 		return true
 	}
 	return strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
+}
+
+// useSecureCookie reports whether cookies should carry the Secure flag.
+// Explicit COOKIE_SECURE=true always wins; otherwise HTTPS is detected from
+// the direct TLS connection or X-Forwarded-Proto (reverse proxy).
+func (s *Server) useSecureCookie(r *http.Request) bool {
+	if s.cookieSecure {
+		return true
+	}
+	return isHTTPSRequest(r)
 }
 
 // setAuthCookie sets the httpOnly authentication cookie
@@ -780,6 +840,27 @@ func validateRepoFingerprint(fp string) error {
 	return nil
 }
 
+// validatePassword enforces the server-side password policy. bcrypt only uses
+// the first 72 bytes, so longer inputs are rejected rather than silently
+// truncated.
+func validatePassword(pw string) error {
+	if strings.TrimSpace(pw) == "" {
+		return fmt.Errorf("password is required")
+	}
+	if len(pw) < minPasswordLength {
+		return fmt.Errorf("password must be at least %d characters", minPasswordLength)
+	}
+	if len(pw) > maxPasswordLength {
+		return fmt.Errorf("password must be at most %d bytes", maxPasswordLength)
+	}
+	return nil
+}
+
+const (
+	minPasswordLength = 12
+	maxPasswordLength = 72
+)
+
 // fingerprintFromKey computes a short fingerprint from a public key string.
 func fingerprintFromKey(publicKey string) string {
 	h := sha256.Sum256([]byte(publicKey))
@@ -818,6 +899,10 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Password == "" || body.PublicKey == "" {
 		jsonError(w, "password and public_key required", http.StatusBadRequest)
+		return
+	}
+	if err := validatePassword(body.Password); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -973,6 +1058,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	user, err := s.Q.GetUser(r.Context(), fp)
 	if err != nil {
+		// Perform a dummy bcrypt comparison so unknown accounts take the same
+		// time as wrong passwords (prevents timing-based enumeration).
+		_ = bcrypt.CompareHashAndPassword(s.dummyHash, []byte(body.Password))
 		jsonError(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -992,7 +1080,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		slog.Error("update login time", "error", err)
 	}
 
-	token, err := s.createToken(fp)
+	token, err := s.createToken(fp, user.SessionVersion)
 	if err != nil {
 		slog.Error("create token", "error", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
@@ -1028,6 +1116,7 @@ func (s *Server) handleLogin2FA(w http.ResponseWriter, r *http.Request) {
 
 	user, err := s.Q.GetUser(r.Context(), fp)
 	if err != nil {
+		_ = bcrypt.CompareHashAndPassword(s.dummyHash, []byte(body.Password))
 		jsonError(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -1037,9 +1126,52 @@ func (s *Server) handleLogin2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if user.TotpSecret == nil || !totp.Validate(body.TOTPCode, *user.TotpSecret) {
+	if user.TotpSecret == nil || *user.TotpSecret == "" {
 		jsonError(w, "invalid 2fa code", http.StatusUnauthorized)
 		return
+	}
+
+	secret, err := s.Secrets.DecryptString(*user.TotpSecret)
+	if err != nil {
+		slog.Error("decrypt totp secret", "fingerprint", fp, "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	step, ok := validateTOTPCode(secret, body.TOTPCode, user.LastTotpStep)
+	if !ok {
+		jsonError(w, "invalid 2fa code", http.StatusUnauthorized)
+		return
+	}
+
+	// Record the accepted step (replay protection). Legacy plaintext secrets
+	// are transparently upgraded to the encrypted format.
+	if strings.HasPrefix(*user.TotpSecret, totpSecretPrefix) {
+		if err := s.Q.UpdateLastTOTPStep(r.Context(), dbgen.UpdateLastTOTPStepParams{
+			LastTotpStep: step,
+			Fingerprint:  fp,
+		}); err != nil {
+			slog.Error("update totp step", "error", err)
+			jsonError(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		encrypted, encErr := s.Secrets.EncryptString(secret)
+		if encErr != nil {
+			slog.Error("encrypt totp secret", "error", encErr)
+			jsonError(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if err := s.Q.UpdateUserTOTP(r.Context(), dbgen.UpdateUserTOTPParams{
+			TotpSecret:   &encrypted,
+			TotpEnabled:  user.TotpEnabled,
+			LastTotpStep: step,
+			Fingerprint:  fp,
+		}); err != nil {
+			slog.Error("upgrade totp secret", "error", err)
+			jsonError(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Update login_time on successful 2FA login
@@ -1047,7 +1179,7 @@ func (s *Server) handleLogin2FA(w http.ResponseWriter, r *http.Request) {
 		slog.Error("update login time", "error", err)
 	}
 
-	token, err := s.createToken(fp)
+	token, err := s.createToken(fp, user.SessionVersion)
 	if err != nil {
 		slog.Error("create token", "error", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
@@ -1072,7 +1204,7 @@ func (s *Server) handleLogin2FA(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	// Best-effort: drop any cached plaintext git credential for this user.
-	if fp, err := s.verifyToken(r); err == nil && s.GitService != nil {
+	if fp, _, err := s.verifyToken(r); err == nil && s.GitService != nil {
 		s.GitService.ClearSessionToken(fp)
 	}
 
@@ -1104,6 +1236,27 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTOTPSetup(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
+	var body struct {
+		CurrentPassword string `json:"current_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if body.CurrentPassword == "" {
+		jsonError(w, "current_password required", http.StatusBadRequest)
+		return
+	}
+	user, err := s.Q.GetUser(r.Context(), fp)
+	if err != nil {
+		jsonError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(body.CurrentPassword)); err != nil {
+		jsonError(w, "invalid current password", http.StatusUnauthorized)
+		return
+	}
+
 	key, err := totp.Generate(totp.GenerateOpts{
 		Issuer:      "WebPass",
 		AccountName: fp,
@@ -1126,11 +1279,26 @@ func (s *Server) handleTOTPSetup(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
 	var body struct {
-		Secret string `json:"secret"`
-		Code   string `json:"code"`
+		Secret          string `json:"secret"`
+		Code            string `json:"code"`
+		CurrentPassword string `json:"current_password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if body.CurrentPassword == "" {
+		jsonError(w, "current_password required", http.StatusBadRequest)
+		return
+	}
+
+	user, err := s.Q.GetUser(r.Context(), fp)
+	if err != nil {
+		jsonError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(body.CurrentPassword)); err != nil {
+		jsonError(w, "invalid current password", http.StatusUnauthorized)
 		return
 	}
 
@@ -1139,17 +1307,65 @@ func (s *Server) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	encrypted, err := s.Secrets.EncryptString(body.Secret)
+	if err != nil {
+		slog.Error("encrypt totp secret", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
 	enabled := int64(1)
+	// Allow the confirmation code to be used once for the next login, but
+	// reject it (and older steps) afterwards.
+	step := time.Now().Unix()/totpPeriodSeconds - 1
+	if step < 0 {
+		step = 0
+	}
 	if err := s.Q.UpdateUserTOTP(r.Context(), dbgen.UpdateUserTOTPParams{
-		TotpSecret:  &body.Secret,
-		TotpEnabled: &enabled,
-		Fingerprint: fp,
+		TotpSecret:   &encrypted,
+		TotpEnabled:  &enabled,
+		LastTotpStep: step,
+		Fingerprint:  fp,
 	}); err != nil {
 		slog.Error("update totp", "error", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	jsonOK(w, map[string]bool{"enabled": true})
+
+	// Rotate the session so tokens issued before 2FA was enabled are no longer
+	// valid, while keeping the current device logged in.
+	if s.GitService != nil {
+		s.GitService.ClearSessionToken(fp)
+	}
+	token, err := s.rotateSession(r, fp)
+	if err != nil {
+		slog.Error("rotate session after totp confirm", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	s.setAuthCookie(w, r, token)
+
+	resp := map[string]any{"enabled": true}
+	if s.cookieAuth {
+		resp["expires_at"] = time.Now().Add(s.hardLimit).Unix()
+	} else {
+		resp["token"] = token
+	}
+	jsonOK(w, resp)
+}
+
+// rotateSession bumps the user's session version (invalidating all existing
+// tokens) and returns a fresh token for the new version.
+func (s *Server) rotateSession(r *http.Request, fp string) (string, error) {
+	ctx := r.Context()
+	if err := s.Q.BumpSessionVersion(ctx, fp); err != nil {
+		return "", err
+	}
+	info, err := s.Q.GetSessionInfo(ctx, fp)
+	if err != nil {
+		return "", err
+	}
+	return s.createToken(fp, info.SessionVersion)
 }
 
 // ---------------------------------------------------------------------------
@@ -1351,31 +1567,71 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var body struct {
+		CurrentPassword string `json:"current_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if body.CurrentPassword == "" {
+		jsonError(w, "current_password required", http.StatusBadRequest)
+		return
+	}
+
 	ctx := r.Context()
 
-	// Get all entries for this user and delete them
-	entries, err := s.Q.ListEntries(ctx, fp)
+	user, err := s.Q.GetUser(ctx, fp)
 	if err != nil {
-		slog.Error("list entries", "error", err)
+		jsonError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(body.CurrentPassword)); err != nil {
+		jsonError(w, "invalid current password", http.StatusUnauthorized)
+		return
+	}
+
+	// Delete entries and the user atomically.
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		slog.Error("delete account: begin tx", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	qtx := s.Q.WithTx(tx)
+	entries, err := qtx.ListEntries(ctx, fp)
+	if err != nil {
+		_ = tx.Rollback()
+		slog.Error("delete account: list entries", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
 	}
 	for _, entry := range entries {
-		if err := s.Q.DeleteEntry(ctx, dbgen.DeleteEntryParams{
+		if err := qtx.DeleteEntry(ctx, dbgen.DeleteEntryParams{
 			Fingerprint: fp,
 			Path:        entry.Path,
 		}); err != nil {
-			slog.Error("delete entry", "path", entry.Path, "error", err)
+			_ = tx.Rollback()
+			slog.Error("delete account: delete entry", "path", entry.Path, "error", err)
+			jsonError(w, "internal error", http.StatusInternalServerError)
+			return
 		}
 	}
-
-	// Delete user account
-	if err := s.Q.DeleteUser(ctx, fp); err != nil {
+	if err := qtx.DeleteUser(ctx, fp); err != nil {
+		_ = tx.Rollback()
 		slog.Error("delete user", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		slog.Error("delete account: commit", "error", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
 	// Delete git repo folder if it exists
 	if s.GitService != nil {
+		s.GitService.ClearSessionToken(fp)
 		repoPath, err := s.GitService.repoDir(fp)
 		if err != nil {
 			slog.Warn("delete git repo: refusing unsafe fingerprint", "fingerprint", fp, "error", err)
@@ -1416,6 +1672,10 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "current_password and new_password required", http.StatusBadRequest)
 		return
 	}
+	if err := validatePassword(body.NewPassword); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Get user to verify current password
 	user, err := s.Q.GetUser(r.Context(), fp)
@@ -1448,8 +1708,44 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Revoke every session issued with the old password.
+	if err := s.Q.BumpSessionVersion(r.Context(), fp); err != nil {
+		slog.Error("bump session version", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if s.GitService != nil {
+		s.GitService.ClearSessionToken(fp)
+	}
+	s.clearAuthCookie(w, r)
+
 	slog.Info("password changed successfully", "fingerprint", fp)
-	jsonOK(w, map[string]string{"status": "success"})
+	jsonOK(w, map[string]any{"status": "success", "reauth": true})
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/{fingerprint}/sessions/revoke — invalidate all sessions
+// ---------------------------------------------------------------------------
+
+func (s *Server) handleRevokeSessions(w http.ResponseWriter, r *http.Request) {
+	fp := r.PathValue("fingerprint")
+	if fp == "" {
+		jsonError(w, "fingerprint required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.Q.BumpSessionVersion(r.Context(), fp); err != nil {
+		slog.Error("bump session version", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if s.GitService != nil {
+		s.GitService.ClearSessionToken(fp)
+	}
+	s.clearAuthCookie(w, r)
+
+	slog.Info("all sessions revoked", "fingerprint", fp)
+	jsonOK(w, map[string]string{"status": "revoked"})
 }
 
 // ---------------------------------------------------------------------------
@@ -1917,7 +2213,10 @@ func (s *Server) handleGitPush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.GitService.Push(r.Context(), fp, token)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	defer cancel()
+
+	result, err := s.GitService.Push(ctx, fp, token)
 	if err != nil {
 		slog.Error("git push", "error", err)
 		// Check for structured host key errors
@@ -1942,7 +2241,7 @@ func (s *Server) handleGitPush(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		jsonError(w, "push failed: "+err.Error(), http.StatusInternalServerError)
+		jsonError(w, "push failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -1969,7 +2268,10 @@ func (s *Server) handleGitPull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.GitService.Pull(r.Context(), fp, token)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	defer cancel()
+
+	result, err := s.GitService.Pull(ctx, fp, token)
 	if err != nil {
 		slog.Error("git pull", "error", err)
 		// Check for structured host key errors
@@ -1994,7 +2296,7 @@ func (s *Server) handleGitPull(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		jsonError(w, "pull failed: "+err.Error(), http.StatusInternalServerError)
+		jsonError(w, "pull failed", http.StatusInternalServerError)
 		return
 	}
 

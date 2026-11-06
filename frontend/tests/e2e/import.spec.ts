@@ -114,6 +114,7 @@ test.describe('Import Entries', () => {
 
     // Enter passphrase and confirm
     await page.getByPlaceholder('Enter your PGP passphrase').fill(accountAPassphrase);
+    await page.getByPlaceholder('Enter your login password').fill(accountA.password);
     await page.getByRole('button', { name: 'Confirm' }).last().click();
 
     // Wait for account deleted and redirect to welcome

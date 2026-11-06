@@ -94,6 +94,7 @@ npm run typecheck
 | `GIT_ALLOW_PRIVATE_NETWORKS` | Allow git remotes on private/LAN addresses (default: false) |
 | `GIT_ALLOW_INSECURE_HTTP` | Allow `http://` git remotes (default: false) |
 | `GIT_REPO_ROOT`   | Git repos directory (default: `/data/git-repos`) |
+| `DATA_ENCRYPTION_KEY` | Encrypts TOTP secrets at rest (optional; auto-generated as `data_encryption.key` next to the DB). Back it up with the DB. |
 | `SESSION_HARDLIMIT_MINUTES` | JWT hard limit (max session time) in minutes (default: 30, range: 5-480) |
 | `SESSION_SOFTLIMIT_MINUTES` | JWT soft limit (browser close detection) in minutes (default: 5, range: 1-60) |
 

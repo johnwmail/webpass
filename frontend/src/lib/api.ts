@@ -318,13 +318,14 @@ export class ApiClient {
   }
 
   /** DELETE /api/:fp/account — delete user account (server-side) */
-  async deleteAccount(): Promise<void> {
+  async deleteAccount(password: string): Promise<void> {
     const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/account`),
       {
         method: 'DELETE',
         headers: this.headers(),
         credentials: 'include',
+        body: JSON.stringify({ current_password: password }),
       }
     );
     if (!res.ok) throw new Error(`Delete account failed (${res.status})`);
@@ -345,13 +346,14 @@ export class ApiClient {
   }
 
   /** POST /api/:fp/totp/setup */
-  async setupTOTP(): Promise<{ secret: string; url: string }> {
+  async setupTOTP(password: string): Promise<{ secret: string; url: string }> {
     const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/totp/setup`),
       {
         method: 'POST',
         headers: this.headers(),
         credentials: 'include',
+        body: JSON.stringify({ current_password: password }),
       }
     );
     if (!res.ok) throw new Error(`TOTP setup failed (${res.status})`);
@@ -359,20 +361,25 @@ export class ApiClient {
   }
 
   /** POST /api/:fp/totp/confirm */
-  async confirmTOTP(secret: string, code: string): Promise<void> {
+  async confirmTOTP(
+    secret: string,
+    code: string,
+    password: string
+  ): Promise<{ enabled: boolean; token?: string; expires_at?: number }> {
     const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/totp/confirm`),
       {
         method: 'POST',
         headers: this.headers(),
         credentials: 'include',
-        body: JSON.stringify({ secret, code }),
+        body: JSON.stringify({ secret, code, current_password: password }),
       }
     );
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Request failed' }));
       throw new Error(err.error || `TOTP confirm failed (${res.status})`);
     }
+    return res.json();
   }
 
   /** GET /api/:fp/export */

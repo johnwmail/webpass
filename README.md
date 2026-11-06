@@ -234,7 +234,8 @@ All endpoints require JWT authentication except where noted.
 | POST   | `/api/{fingerprint}/login`        | No    | Login → returns JWT or 2FA challenge             |
 | POST   | `/api/{fingerprint}/login/2fa`    | No    | Complete 2FA login                               |
 | DELETE | `/api/{fingerprint}/account`      | JWT   | Delete account permanently                       |
-| POST   | `/api/{fingerprint}/password`     | JWT   | Change password                                  |
+| POST   | `/api/{fingerprint}/password`     | JWT   | Change password (revokes other sessions)         |
+| POST   | `/api/{fingerprint}/sessions/revoke` | JWT | Revoke all sessions (log out everywhere)        |
 
 ### Registration (TOTP-based)
 
@@ -297,6 +298,10 @@ All endpoints require JWT authentication except where noted.
 - **CORS deny-by-default** — cross-origin access only for origins listed in `CORS_ORIGINS`
 - **Request limits** — 8 MiB body cap, bounded imports, and HTTP server timeouts
 - **Git remote validation** — blocks `file://` and private/loopback targets unless explicitly opted in (`GIT_ALLOW_*`)
+- **Session revocation** — password/2FA changes bump a session version; `POST /api/{fp}/sessions/revoke` logs out everywhere
+- **TOTP secrets encrypted at rest** — AES-256-GCM via `DATA_ENCRYPTION_KEY` (or an auto-generated key file), with replay protection
+- **Password policy** — minimum 12 characters, max 72 bytes (bcrypt limit), enforced server-side
+- **Security headers** — HSTS on HTTPS, `Cache-Control: no-store` for API responses, COOP/CORP, strict CSP
 - **All traffic over HTTPS** required in production
 - **Rate limiting** on authentication endpoints (sliding window, 5 attempts / 15 min default)
 - **Registration protection** with TOTP-based codes (optional, configurable)
@@ -326,6 +331,7 @@ See [`.env.example`](.env.example) for all available options with detailed comme
 | `TRUSTED_PROXIES` | No    | Proxy IPs/CIDRs allowed to supply `X-Forwarded-For` |
 | `MAX_REQUEST_BODY_BYTES` | No | Max request body size (default: 8 MiB) |
 | `GIT_ALLOW_PRIVATE_NETWORKS` | No | Allow git sync to private/LAN remotes (default: false) |
+| `DATA_ENCRYPTION_KEY` | No | Encrypts TOTP secrets at rest; auto-generated key file if unset |
 | `PORT`         | No       | HTTP listen port (default: `8080`)       |
 | `GIT_REPO_ROOT`| No       | Git repos directory (default: `/data/git-repos`) |
 | `SESSION_HARDLIMIT_MINUTES` | No | JWT hard limit (max session time) in minutes (default: 30, range: 5-480) |

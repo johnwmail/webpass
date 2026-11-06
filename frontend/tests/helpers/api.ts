@@ -326,7 +326,9 @@ export async function apiDeleteAccount(user: TestUser): Promise<void> {
     // Ensure we have a CSRF cookie
     await ensureCsrfCookie(user);
 
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
     const cookieHeader = getCookieHeader(user.fingerprint);
     if (cookieHeader) {
       headers['Cookie'] = cookieHeader;
@@ -336,6 +338,7 @@ export async function apiDeleteAccount(user: TestUser): Promise<void> {
     const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/account`, {
       method: 'DELETE',
       headers,
+      body: JSON.stringify({ current_password: user.password }),
     });
 
     if (!response.ok) {
@@ -356,7 +359,9 @@ export async function apiDeleteAccount(user: TestUser): Promise<void> {
  * Setup TOTP via API.
  */
 export async function apiSetupTOTP(user: TestUser): Promise<{ secret: string; url: string }> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
   const cookieHeader = getCookieHeader(user.fingerprint);
   if (cookieHeader) {
     headers['Cookie'] = cookieHeader;
@@ -366,6 +371,7 @@ export async function apiSetupTOTP(user: TestUser): Promise<{ secret: string; ur
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/totp/setup`, {
     method: 'POST',
     headers,
+    body: JSON.stringify({ current_password: user.password }),
   });
 
   if (!response.ok) {
@@ -396,7 +402,7 @@ export async function apiConfirmTOTP(
   const response = await fetch(`${BASE_URL}/api/${user.fingerprint}/totp/confirm`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ secret, code }),
+    body: JSON.stringify({ secret, code, current_password: user.password }),
   });
 
   if (!response.ok) {
