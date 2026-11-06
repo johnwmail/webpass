@@ -391,9 +391,15 @@ Entries can store a TOTP secret alongside their password using the standard
 
 When creating or editing an entry, fill in the **2FA / TOTP (optional)** field:
 
+![2FA / TOTP field in the entry editor](docs/screenshots/totp-entry-field.png)
+
 ```
 otpauth://totp/AWS:user@aws.com?secret=JBSWY3DP&issuer=AWS
 ```
+
+After unlocking the entry, WebPass displays the live code:
+
+![TOTP code shown after unlocking an entry](docs/screenshots/totp-entry-code.png)
 
 - The URI is stored as a line in the entry content and **PGP-encrypted with the
   password** — the server only ever sees ciphertext.
