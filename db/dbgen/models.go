@@ -8,6 +8,16 @@ import (
 	"time"
 )
 
+type AuditLog struct {
+	ID          int64     `json:"id"`
+	Fingerprint string    `json:"fingerprint"`
+	Event       string    `json:"event"`
+	Ip          string    `json:"ip"`
+	UserAgent   string    `json:"user_agent"`
+	Detail      string    `json:"detail"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 type Entry struct {
 	ID          int64      `json:"id"`
 	Fingerprint string     `json:"fingerprint"`

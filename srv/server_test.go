@@ -2342,3 +2342,92 @@ func TestRequireHTTPS(t *testing.T) {
 		t.Fatalf("expected localhost to be exempt, got %d", resp.StatusCode)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// P6a: audit log
+// ---------------------------------------------------------------------------
+
+func TestAuditLogEvents(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	// Unknown account failure
+	resp := doReq(t, ts, "POST", "/api/nobody/login", `{"password":"password1234"}`, "")
+	expectStatus(t, resp, http.StatusUnauthorized)
+	_ = resp.Body.Close()
+
+	resp = doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"audit1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
+
+	resp = doReq(t, ts, "POST", "/api/audit1/login", `{"password":"wrongpassword"}`, "")
+	expectStatus(t, resp, http.StatusUnauthorized)
+	_ = resp.Body.Close()
+
+	resp = doReq(t, ts, "POST", "/api/audit1/login", `{"password":"password1234"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	var lr map[string]string
+	decodeJSON(t, resp, &lr)
+	token := lr["token"]
+
+	resp = doReq(t, ts, "GET", "/api/audit1/audit", "", token)
+	expectStatus(t, resp, http.StatusOK)
+	var result struct {
+		Logs []struct {
+			Event  string `json:"event"`
+			Detail string `json:"detail"`
+		} `json:"logs"`
+	}
+	decodeJSON(t, resp, &result)
+
+	events := map[string]bool{}
+	for _, l := range result.Logs {
+		events[l.Event] = true
+		if strings.Contains(l.Detail, "password1234") || strings.Contains(l.Detail, "wrongpassword") {
+			t.Fatalf("audit detail leaked a password: %q", l.Detail)
+		}
+	}
+	for _, want := range []string{"register", "login_failed", "login_success"} {
+		if !events[want] {
+			t.Errorf("expected audit event %q, got %+v", want, events)
+		}
+	}
+}
+
+func TestAuditLogPurgedOnAccountDelete(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	csrf := getCSRFToken(t, ts)
+
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"auditdel1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
+
+	resp = doReq(t, ts, "POST", "/api/auditdel1/login", `{"password":"password1234"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	var lr map[string]string
+	decodeJSON(t, resp, &lr)
+	token := lr["token"]
+
+	resp = doReqWithCSRF(t, ts, "DELETE", "/api/auditdel1/account", `{"current_password":"password1234"}`, token, csrf)
+	expectStatus(t, resp, http.StatusNoContent)
+	_ = resp.Body.Close()
+
+	var count int
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE fingerprint = ? AND event != 'account_delete'`, "auditdel1").Scan(&count); err != nil {
+		t.Fatalf("count audit rows: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected old audit rows to be purged, found %d", count)
+	}
+	var deletion int
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE fingerprint = ? AND event = 'account_delete'`, "auditdel1").Scan(&deletion); err != nil {
+		t.Fatalf("count deletion rows: %v", err)
+	}
+	if deletion != 1 {
+		t.Fatalf("expected one account_delete row, found %d", deletion)
+	}
+}
