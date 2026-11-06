@@ -40,6 +40,7 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
   const [totpCode, setTotpCode] = useState('');
   const [totpLoading, setTotpLoading] = useState(false);
   const [totpConfirmed, setTotpConfirmed] = useState(false);
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [show2faSetup, setShow2faSetup] = useState(false);
   const [reauthPassword, setReauthPassword] = useState('');
   const qrRef = useRef<HTMLCanvasElement>(null);
@@ -262,6 +263,7 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
     try {
       const result = await session.api.confirmTOTP(totpSecret, totpCode, reauthPassword);
       session.updateSession({ token: result.token, expiresAt: result.expires_at });
+      setRecoveryCodes(result.recovery_codes || []);
       setTotpConfirmed(true);
       setSuccess('2FA enabled successfully');
       setTimeout(() => setSuccess(''), 3000);
@@ -660,10 +662,23 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
             <h3>Two-Factor Authentication</h3>
             {show2faSetup ? (
               totpConfirmed ? (
-                <div class="notice notice-success">
-                  <span>✓</span>
-                  <span>2FA is enabled.</span>
-                </div>
+                <>
+                  <div class="notice notice-success">
+                    <span>✓</span>
+                    <span>2FA is enabled.</span>
+                  </div>
+                  {recoveryCodes.length > 0 && (
+                    <div class="notice notice-warning" style="margin-top: 12px;">
+                      <div>
+                        <strong>Save these recovery codes now</strong>
+                        <pre style="font-family: var(--font-mono); font-size: 12px; white-space: pre-wrap; margin: 8px 0; user-select: all;">{recoveryCodes.join('\n')}</pre>
+                        <p style="font-size: 12px; margin: 6px 0 0;">
+                          Each code can be used once if you lose access to your authenticator.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
                 <>
                   {totpUrl && (

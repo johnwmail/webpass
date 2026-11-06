@@ -17,6 +17,8 @@ export function Welcome({ onSetup, onLogin }: Props) {
   const [password, setPassword] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [needs2fa, setNeeds2fa] = useState(false);
+  const [useRecovery, setUseRecovery] = useState(false);
+  const [recoveryCode, setRecoveryCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
@@ -80,12 +82,22 @@ export function Welcome({ onSetup, onLogin }: Props) {
       api.fingerprint = selectedFp;
 
       if (needs2fa) {
-        if (!totpCode) {
-          setError('Enter your 2FA code');
-          setLoading(false);
-          return;
+        let result: { token?: string; expires_at?: number };
+        if (useRecovery) {
+          if (!recoveryCode) {
+            setError('Enter a recovery code');
+            setLoading(false);
+            return;
+          }
+          result = await api.loginRecovery(password, recoveryCode);
+        } else {
+          if (!totpCode) {
+            setError('Enter your 2FA code');
+            setLoading(false);
+            return;
+          }
+          result = await api.login2fa(password, totpCode);
         }
-        const result = await api.login2fa(password, totpCode);
         session.activate({
           fingerprint: selectedFp,
           token: result.token || '',
@@ -94,6 +106,7 @@ export function Welcome({ onSetup, onLogin }: Props) {
           expiresAt: result.expires_at ?? null,
         });
         onLogin();
+        return;
       } else {
         const result = await api.login(password);
         if (result.requires_2fa) {
@@ -157,6 +170,8 @@ export function Welcome({ onSetup, onLogin }: Props) {
                       setSelectedFp(acc.fingerprint);
                       setNeeds2fa(false);
                       setTotpCode('');
+                      setUseRecovery(false);
+                      setRecoveryCode('');
                       setError('');
                     }}
                   >
@@ -210,21 +225,46 @@ export function Welcome({ onSetup, onLogin }: Props) {
 
                 {needs2fa && (
                   <div class="field">
-                    <label class="label">2FA Code</label>
-                    <input
-                      class="input input-mono"
-                      type="text"
-                      value={totpCode}
-                      onInput={(e) => {
-                        setTotpCode((e.target as HTMLInputElement).value);
+                    <label class="label">{useRecovery ? 'Recovery Code' : '2FA Code'}</label>
+                    {useRecovery ? (
+                      <input
+                        class="input input-mono"
+                        type="text"
+                        value={recoveryCode}
+                        onInput={(e) => {
+                          setRecoveryCode((e.target as HTMLInputElement).value);
+                          setError('');
+                        }}
+                        placeholder="XXXX-XXXX-XXXX-XXXX"
+                        autocomplete="one-time-code"
+                      />
+                    ) : (
+                      <input
+                        class="input input-mono"
+                        type="text"
+                        value={totpCode}
+                        onInput={(e) => {
+                          setTotpCode((e.target as HTMLInputElement).value);
+                          setError('');
+                        }}
+                        placeholder="6-digit code"
+                        autocomplete="one-time-code"
+                        maxLength={6}
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                      />
+                    )}
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm"
+                      style="margin-top: 8px;"
+                      onClick={() => {
+                        setUseRecovery(!useRecovery);
                         setError('');
                       }}
-                      placeholder="6-digit code"
-                      autocomplete="one-time-code"
-                      maxLength={6}
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                    />
+                    >
+                      {useRecovery ? 'Use authenticator code' : 'Use a recovery code'}
+                    </button>
                   </div>
                 )}
 
@@ -235,7 +275,7 @@ export function Welcome({ onSetup, onLogin }: Props) {
                     type="submit"
                     class="btn btn-primary"
                     style="flex: 1;"
-                    disabled={!selectedFp || !password || loading}
+                    disabled={!selectedFp || !password || loading || (needs2fa && (useRecovery ? !recoveryCode : !totpCode))}
                   >
                     {loading ? (
                       <><span class="spinner" /> Logging in...</>

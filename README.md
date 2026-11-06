@@ -233,6 +233,7 @@ All endpoints require JWT authentication except where noted.
 | GET    | `/api/{fingerprint}`              | JWT   | Get user info                                    |
 | POST   | `/api/{fingerprint}/login`        | No    | Login → returns JWT or 2FA challenge             |
 | POST   | `/api/{fingerprint}/login/2fa`    | No    | Complete 2FA login                               |
+| POST   | `/api/{fingerprint}/login/recovery` | No  | Login with a one-time 2FA recovery code           |
 | DELETE | `/api/{fingerprint}/account`      | JWT   | Delete account permanently                       |
 | POST   | `/api/{fingerprint}/password`     | JWT   | Change password (revokes other sessions)         |
 | POST   | `/api/{fingerprint}/sessions/revoke` | JWT | Revoke all sessions (log out everywhere)        |
@@ -301,6 +302,7 @@ All endpoints require JWT authentication except where noted.
 - **Git remote validation** — blocks `file://` and private/loopback targets unless explicitly opted in (`GIT_ALLOW_*`)
 - **Session revocation** — password/2FA changes bump a session version; `POST /api/{fp}/sessions/revoke` logs out everywhere
 - **Security audit log** — login/2FA/password/session/git events with IP and user agent (`GET /api/{fp}/audit`); account deletion purges prior entries
+- **2FA recovery codes** — 10 one-time codes generated when 2FA is enabled; hashes stored, reusable codes consumed atomically
 - **TOTP secrets encrypted at rest** — AES-256-GCM via `DATA_ENCRYPTION_KEY` (or an auto-generated key file), with replay protection
 - **Password policy** — minimum 12 characters, max 72 bytes (bcrypt limit), enforced server-side
 - **Local key derivation** — PBKDF2-HMAC-SHA256 with 600k iterations; legacy 100k records are transparently upgraded on login

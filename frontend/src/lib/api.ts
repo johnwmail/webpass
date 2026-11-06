@@ -248,6 +248,39 @@ export class ApiClient {
     return res.json();
   }
 
+  /** POST /api/:fp/login/recovery — log in with a one-time recovery code */
+  async loginRecovery(
+    password: string,
+    recoveryCode: string
+  ): Promise<{ token?: string; expires_at?: number }> {
+    const res = await this.guardedFetch(
+      this.url(`/api/${this.fingerprint}/login/recovery`),
+      {
+        method: 'POST',
+        headers: this.headers(),
+        credentials: 'include',
+        body: JSON.stringify({ password, recovery_code: recoveryCode }),
+      }
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      let errMsg = `Recovery login failed (${res.status})`;
+      try {
+        const err = JSON.parse(text);
+        errMsg = err.error || errMsg;
+      } catch {
+        if (res.status === 429) {
+          errMsg = 'Too many attempts. Please wait before trying again.';
+        } else if (text) {
+          errMsg = text;
+        }
+      }
+      throw new Error(errMsg);
+    }
+    this.refreshCsrfToken();
+    return res.json();
+  }
+
   /** POST /api/logout — clear auth cookie */
   async logout(): Promise<void> {
     await fetch(this.url('/api/logout'), {
@@ -365,7 +398,7 @@ export class ApiClient {
     secret: string,
     code: string,
     password: string
-  ): Promise<{ enabled: boolean; token?: string; expires_at?: number }> {
+  ): Promise<{ enabled: boolean; token?: string; expires_at?: number; recovery_codes?: string[] }> {
     const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/totp/confirm`),
       {
