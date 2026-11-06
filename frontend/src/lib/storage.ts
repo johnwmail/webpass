@@ -110,7 +110,10 @@ export async function deleteGitToken(fingerprint: string): Promise<void> {
 
 // --- AES-GCM encryption with PBKDF2 ---
 
-const PBKDF2_ITERATIONS = 100000;
+// OWASP-recommended PBKDF2-HMAC-SHA256 iteration count for new data.
+export const PBKDF2_ITERATIONS = 600000;
+// Previous releases used 100k; kept for decrypting existing accounts.
+export const LEGACY_PBKDF2_ITERATIONS = 100000;
 
 function bufToBase64(buf: ArrayBuffer): string {
   return btoa(String.fromCharCode(...new Uint8Array(buf)));
@@ -125,7 +128,11 @@ function base64ToBuf(b64: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-export async function deriveAESKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
+export async function deriveAESKey(
+  password: string,
+  salt: Uint8Array,
+  iterations: number = PBKDF2_ITERATIONS
+): Promise<CryptoKey> {
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(password),
@@ -137,7 +144,7 @@ export async function deriveAESKey(password: string, salt: Uint8Array): Promise<
     {
       name: 'PBKDF2',
       salt: salt.buffer as ArrayBuffer,
-      iterations: PBKDF2_ITERATIONS,
+      iterations,
       hash: 'SHA-256',
     },
     keyMaterial,
@@ -149,11 +156,12 @@ export async function deriveAESKey(password: string, salt: Uint8Array): Promise<
 
 export async function aesEncrypt(
   data: string,
-  password: string
+  password: string,
+  iterations: number = PBKDF2_ITERATIONS
 ): Promise<{ encrypted: string; salt: string; iv: string }> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await deriveAESKey(password, salt);
+  const key = await deriveAESKey(password, salt, iterations);
   const encrypted = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     key,
@@ -170,17 +178,42 @@ export async function aesDecrypt(
   encrypted: string,
   password: string,
   salt: string,
-  iv: string
+  iv: string,
+  iterations: number = PBKDF2_ITERATIONS
 ): Promise<string> {
   const saltBuf = base64ToBuf(salt);
   const ivBuf = base64ToBuf(iv);
-  const key = await deriveAESKey(password, new Uint8Array(saltBuf));
+  const key = await deriveAESKey(password, new Uint8Array(saltBuf), iterations);
   const decrypted = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv: ivBuf },
     key,
     base64ToBuf(encrypted)
   );
   return new TextDecoder().decode(decrypted);
+}
+
+/**
+ * Decrypt data that may have been encrypted with the previous (100k) iteration
+ * count. Returns whether a legacy parameter set was used so callers can
+ * transparently re-encrypt with the current parameters.
+ */
+export async function aesDecryptWithFallback(
+  encrypted: string,
+  password: string,
+  salt: string,
+  iv: string
+): Promise<{ plaintext: string; usedLegacyIterations: boolean }> {
+  try {
+    return {
+      plaintext: await aesDecrypt(encrypted, password, salt, iv, PBKDF2_ITERATIONS),
+      usedLegacyIterations: false,
+    };
+  } catch {
+    return {
+      plaintext: await aesDecrypt(encrypted, password, salt, iv, LEGACY_PBKDF2_ITERATIONS),
+      usedLegacyIterations: true,
+    };
+  }
 }
 
 // --- PGP Key storage ---

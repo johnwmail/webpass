@@ -20,7 +20,9 @@ export async function generateKeyPair(passphrase: string): Promise<{
   const openpgp = await getOpenPGP();
   const { privateKey, publicKey } = await openpgp.generateKey({
     type: 'ecc',
-    curve: 'curve25519Legacy',  // openpgp v6 renamed curve25519 to curve25519Legacy
+    // openpgp.js 6.3.x only exposes the legacy curve name in its public
+    // types/API; v6 curve25519 key generation is not available yet upstream.
+    curve: 'curve25519Legacy',
     userIDs: [{ name: 'WebPass User' }],
     passphrase,
     format: 'armored',
@@ -94,17 +96,21 @@ export async function importPrivateKey(
 }
 
 /**
- * Clear sensitive data from memory
- * 
- * Note: JavaScript doesn't provide guaranteed memory clearing,
- * but this helps by nullifying references and suggesting GC.
+ * Best-effort clearing of sensitive data from memory.
+ *
+ * JavaScript strings and object references cannot be reliably wiped; this
+ * function zeroes typed arrays in place and drops the local references. Callers
+ * should also set their own references to null.
  */
 export function clearSensitiveData(...sensitiveVars: unknown[]): void {
-  // Nullify all passed variables
-  for (let i = 0; i < sensitiveVars.length; i++) {
-    sensitiveVars[i] = null;
+  for (const value of sensitiveVars) {
+    if (value instanceof Uint8Array) {
+      value.fill(0);
+    } else if (value instanceof ArrayBuffer) {
+      new Uint8Array(value).fill(0);
+    }
   }
-  
+
   // Suggest garbage collection (if available in environment)
   if (typeof globalThis.gc === 'function') {
     globalThis.gc();
@@ -230,7 +236,7 @@ export async function deriveKey(password: string, salt: Uint8Array): Promise<Cry
     {
       name: 'PBKDF2',
       salt: salt.buffer as ArrayBuffer,
-      iterations: 100000,
+      iterations: 600000,
       hash: 'SHA-256',
     },
     keyMaterial,
