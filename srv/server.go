@@ -20,6 +20,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -619,6 +620,43 @@ func jsonOK(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// fingerprintPattern matches account identifiers accepted at registration.
+// It allows PGP fingerprints (16-64 hex chars) as well as the shorter,
+// human-readable IDs used by older clients, while excluding anything that
+// could be interpreted as a path component or a traversal sequence.
+var fingerprintPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+
+// validateFingerprint rejects fingerprints that are unsafe to use as an
+// account identifier. This is a security boundary: the fingerprint is later
+// used as a directory name under GIT_REPO_ROOT.
+func validateFingerprint(fp string) error {
+	if !fingerprintPattern.MatchString(fp) {
+		return fmt.Errorf("invalid fingerprint format")
+	}
+	// Reject traversal-like identifiers even though they match the charset.
+	if strings.Contains(fp, "..") {
+		return fmt.Errorf("invalid fingerprint format")
+	}
+	return nil
+}
+
+// validateRepoFingerprint is a stricter filesystem-safety check used on the
+// git repo path. It intentionally accepts slightly more than
+// validateFingerprint so that accounts created by older versions (which did
+// not validate the fingerprint) keep working.
+func validateRepoFingerprint(fp string) error {
+	if fp == "" || fp == "." || fp == ".." {
+		return fmt.Errorf("invalid fingerprint")
+	}
+	if strings.ContainsAny(fp, "/\\\x00") || strings.Contains(fp, "..") {
+		return fmt.Errorf("invalid fingerprint")
+	}
+	if filepath.IsAbs(fp) {
+		return fmt.Errorf("invalid fingerprint")
+	}
+	return nil
+}
+
 // fingerprintFromKey computes a short fingerprint from a public key string.
 func fingerprintFromKey(publicKey string) string {
 	h := sha256.Sum256([]byte(publicKey))
@@ -678,6 +716,11 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	fp := body.Fingerprint
 	if fp == "" {
 		fp = fingerprintFromKey(body.PublicKey)
+	}
+	if err := validateFingerprint(fp); err != nil {
+		slog.Warn("registration rejected: invalid fingerprint", "fingerprint", fp)
+		jsonError(w, "invalid fingerprint", http.StatusBadRequest)
+		return
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), s.bcryptCost)
@@ -1177,8 +1220,10 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 
 	// Delete git repo folder if it exists
 	if s.GitService != nil {
-		repoPath := filepath.Join(s.GitService.repoRoot, fp)
-		if _, err := os.Stat(repoPath); err == nil {
+		repoPath, err := s.GitService.repoDir(fp)
+		if err != nil {
+			slog.Warn("delete git repo: refusing unsafe fingerprint", "fingerprint", fp, "error", err)
+		} else if _, err := os.Stat(repoPath); err == nil {
 			if err := os.RemoveAll(repoPath); err != nil {
 				slog.Error("delete git repo", "error", err)
 			}
@@ -1380,10 +1425,23 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request, fp str
 	var errors []map[string]interface{}
 
 	for _, e := range entries {
+		// Validate the destination path before touching the DB. Without this an
+		// attacker could store traversal paths that later escape the git repo
+		// directory during push (see GitService.exportPasswordStore).
+		cleanPath, err := validateEntryPath(e.Path)
+		if err != nil {
+			slog.Warn("IMPORT JSON: rejected invalid path", "fingerprint", fp, "path", e.Path, "error", err)
+			errors = append(errors, map[string]interface{}{
+				"path":  e.Path,
+				"error": "Invalid path: " + err.Error(),
+			})
+			continue
+		}
+
 		// Check if entry already exists (for overwrite count)
 		existing, err := s.Q.GetEntry(r.Context(), dbgen.GetEntryParams{
 			Fingerprint: fp,
-			Path:        e.Path,
+			Path:        cleanPath,
 		})
 		if err == nil && existing.Path != "" {
 			overwritten++
@@ -1392,9 +1450,9 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request, fp str
 		// Convert content to bytes (support multiple formats)
 		content, err := parseImportContent(e.Content)
 		if err != nil {
-			slog.Error("IMPORT JSON: content parse failed", "fingerprint", fp, "path", e.Path, "error", err)
+			slog.Error("IMPORT JSON: content parse failed", "fingerprint", fp, "path", cleanPath, "error", err)
 			errors = append(errors, map[string]interface{}{
-				"path":  e.Path,
+				"path":  cleanPath,
 				"error": "Invalid content format: " + err.Error(),
 			})
 			continue
@@ -1402,12 +1460,12 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request, fp str
 
 		if err := s.Q.UpsertEntry(r.Context(), dbgen.UpsertEntryParams{
 			Fingerprint: fp,
-			Path:        e.Path,
+			Path:        cleanPath,
 			Content:     content,
 		}); err != nil {
-			slog.Error("IMPORT JSON: upsert failed", "fingerprint", fp, "path", e.Path, "error", err)
+			slog.Error("IMPORT JSON: upsert failed", "fingerprint", fp, "path", cleanPath, "error", err)
 			errors = append(errors, map[string]interface{}{
-				"path":  e.Path,
+				"path":  cleanPath,
 				"error": err.Error(),
 			})
 		} else {
@@ -1499,19 +1557,27 @@ func (s *Server) handleImportTarGz(w http.ResponseWriter, r *http.Request, fp st
 			continue
 		}
 
+		// Reject traversal / absolute / control-character paths before they are
+		// persisted. Imported paths are later written under the git repo dir.
+		cleanPath, err := validateEntryPath(path)
+		if err != nil {
+			slog.Warn("IMPORT TAR.GZ: rejected invalid path", "fingerprint", fp, "path", path, "error", err)
+			continue
+		}
+
 		content, err := io.ReadAll(io.LimitReader(tr, 1<<20))
 		if err != nil {
-			slog.Error("IMPORT TAR.GZ: read entry failed", "fingerprint", fp, "path", path, "error", err)
+			slog.Error("IMPORT TAR.GZ: read entry failed", "fingerprint", fp, "path", cleanPath, "error", err)
 			jsonError(w, "read entry failed", http.StatusBadRequest)
 			return
 		}
 
 		if err := s.Q.UpsertEntry(r.Context(), dbgen.UpsertEntryParams{
 			Fingerprint: fp,
-			Path:        path,
+			Path:        cleanPath,
 			Content:     content,
 		}); err != nil {
-			slog.Error("IMPORT TAR.GZ: upsert failed", "fingerprint", fp, "path", path, "error", err)
+			slog.Error("IMPORT TAR.GZ: upsert failed", "fingerprint", fp, "path", cleanPath, "error", err)
 			jsonError(w, "internal error", http.StatusInternalServerError)
 			return
 		}

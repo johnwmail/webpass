@@ -261,9 +261,16 @@ func (g *GitService) knownHostsCallback(ctx context.Context, fingerprint string)
 // Git Operations - One-Way Sync
 // ---------------------------------------------------------------------------
 
+// maxEntrySize bounds a single entry file read from a cloned repo during pull.
+// It mirrors the 1 MB per-entry limit enforced by the HTTP import/put handlers.
+const maxEntrySize = 1 << 20
+
 // cleanupRepoDir deletes the fingerprint directory completely
 func (g *GitService) cleanupRepoDir(fingerprint string) error {
-	repoDir := g.repoDir(fingerprint)
+	repoDir, err := g.repoDir(fingerprint)
+	if err != nil {
+		return err
+	}
 	if err := os.RemoveAll(repoDir); err != nil {
 		return fmt.Errorf("cleanup repo dir: %w", err)
 	}
@@ -289,7 +296,10 @@ func (g *GitService) Push(ctx context.Context, fingerprint, token string) (*Pull
 		return nil, fmt.Errorf("auth setup: %w", err)
 	}
 
-	repoDir := g.repoDir(fingerprint)
+	repoDir, err := g.repoDir(fingerprint)
+	if err != nil {
+		return nil, err
+	}
 
 	slog.Info("[PUSH] Starting git push", "fingerprint", fingerprint)
 	if err := g.cleanupRepoDir(fingerprint); err != nil {
@@ -441,7 +451,10 @@ func (g *GitService) Pull(ctx context.Context, fingerprint, token string) (*Pull
 		return nil, fmt.Errorf("auth setup: %w", err)
 	}
 
-	repoDir := g.repoDir(fingerprint)
+	repoDir, err := g.repoDir(fingerprint)
+	if err != nil {
+		return nil, err
+	}
 
 	slog.Info("[PULL] Starting git pull", "fingerprint", fingerprint)
 	if err := g.cleanupRepoDir(fingerprint); err != nil {
@@ -527,6 +540,17 @@ func (g *GitService) syncDatabase(ctx context.Context, fingerprint, repoDir stri
 			}
 			return nil
 		}
+		// Never read symlinks or other special files: a malicious repository
+		// could otherwise ship "x.gpg -> /etc/shadow" (or the SQLite DB) and
+		// have the server copy arbitrary local files into the user's entries.
+		if !info.Mode().IsRegular() {
+			slog.Warn("[PULL] Skipping non-regular file", "fingerprint", fingerprint, "path", path)
+			return nil
+		}
+		if info.Size() > maxEntrySize {
+			slog.Warn("[PULL] Skipping oversized entry", "fingerprint", fingerprint, "path", path, "size", info.Size())
+			return nil
+		}
 		if !strings.HasSuffix(path, ".gpg") {
 			return nil
 		}
@@ -564,8 +588,16 @@ func (g *GitService) exportPasswordStore(ctx context.Context, fingerprint, repoD
 		return 0, fmt.Errorf("list entries: %w", err)
 	}
 
+	count := 0
 	for _, entry := range entries {
-		entryPath := filepath.Join(repoDir, entry.Path+".gpg")
+		// Defense in depth: rows created by older versions (or a future bug)
+		// may contain unsafe paths. Never write outside the repo directory.
+		cleanPath, err := validateEntryPath(entry.Path)
+		if err != nil {
+			slog.Warn("[PUSH] Skipping entry with unsafe path", "fingerprint", fingerprint, "path", entry.Path, "error", err)
+			continue
+		}
+		entryPath := filepath.Join(repoDir, cleanPath+".gpg")
 		entryDir := filepath.Dir(entryPath)
 		if err := os.MkdirAll(entryDir, 0700); err != nil {
 			return 0, fmt.Errorf("create dir: %w", err)
@@ -573,10 +605,23 @@ func (g *GitService) exportPasswordStore(ctx context.Context, fingerprint, repoD
 		if err := os.WriteFile(entryPath, entry.Content, 0600); err != nil {
 			return 0, fmt.Errorf("write entry %s: %w", entry.Path, err)
 		}
+		count++
 	}
-	return len(entries), nil
+	return count, nil
 }
 
-func (g *GitService) repoDir(fingerprint string) string {
-	return filepath.Join(g.repoRoot, fingerprint)
+func (g *GitService) repoDir(fingerprint string) (string, error) {
+	if err := validateRepoFingerprint(fingerprint); err != nil {
+		return "", fmt.Errorf("invalid fingerprint for repo path: %w", err)
+	}
+	dir := filepath.Join(g.repoRoot, fingerprint)
+
+	// Defense in depth: ensure the resolved path stays directly under repoRoot
+	// even if validation rules change in the future.
+	rel, err := filepath.Rel(g.repoRoot, dir)
+	if err != nil || rel == "." || rel == ".." ||
+		strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("invalid fingerprint for repo path")
+	}
+	return dir, nil
 }

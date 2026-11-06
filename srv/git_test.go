@@ -1,7 +1,9 @@
 package srv
 
 import (
+	"bytes"
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -195,9 +197,34 @@ func TestGitServiceRepoDir(t *testing.T) {
 	fingerprint := "test-fp-6"
 	expected := filepath.Join(s.GitService.repoRoot, fingerprint)
 
-	got := s.GitService.repoDir(fingerprint)
+	got, err := s.GitService.repoDir(fingerprint)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if got != expected {
 		t.Errorf("expected repo dir %s, got %s", expected, got)
+	}
+}
+
+func TestGitServiceRepoDirRejectsTraversal(t *testing.T) {
+	s := newTestServer(t)
+
+	for _, fp := range []string{
+		"",
+		".",
+		"..",
+		"../escape",
+		"..%2fescape",
+		"a/b",
+		`a\b`,
+		"a/../b",
+		"../../data/db",
+	} {
+		t.Run(fp, func(t *testing.T) {
+			if _, err := s.GitService.repoDir(fp); err == nil {
+				t.Fatalf("expected repoDir(%q) to fail", fp)
+			}
+		})
 	}
 }
 
@@ -456,5 +483,111 @@ func TestGitServiceUpdateTrustedHostKey(t *testing.T) {
 	}
 	if hosts[0].HostKeyFingerprint != "SHA256:newfp" {
 		t.Errorf("expected updated fingerprint, got %s", hosts[0].HostKeyFingerprint)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Repository content hardening (regression: symlink file read / path escape)
+// ---------------------------------------------------------------------------
+
+func mustCreateUser(t *testing.T, s *Server, fingerprint string) {
+	t.Helper()
+	if err := s.Q.CreateUser(context.Background(), dbgen.CreateUserParams{
+		Fingerprint:  fingerprint,
+		PasswordHash: "hash",
+		PublicKey:    "pk",
+		GpgID:        &fingerprint,
+	}); err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+}
+
+func TestSyncDatabase_IgnoresSymlinksAndOversizedFiles(t *testing.T) {
+	s := newTestServer(t)
+	ctx := context.Background()
+	fp := "symlink-fp"
+	mustCreateUser(t, s, fp)
+
+	repoDir := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(repoDir, 0700); err != nil {
+		t.Fatalf("create repo dir: %v", err)
+	}
+
+	// A file outside the repo that an attacker would like the server to read.
+	secretPath := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(secretPath, []byte("top-secret"), 0600); err != nil {
+		t.Fatalf("write secret: %v", err)
+	}
+	if err := os.Symlink(secretPath, filepath.Join(repoDir, "evil.gpg")); err != nil {
+		t.Skipf("symlinks not supported on this platform: %v", err)
+	}
+
+	// A legitimate entry plus an oversized one.
+	if err := os.WriteFile(filepath.Join(repoDir, "good.gpg"), []byte("good"), 0600); err != nil {
+		t.Fatalf("write good entry: %v", err)
+	}
+	big := bytes.Repeat([]byte("x"), maxEntrySize+1)
+	if err := os.WriteFile(filepath.Join(repoDir, "big.gpg"), big, 0600); err != nil {
+		t.Fatalf("write oversized entry: %v", err)
+	}
+
+	count, err := s.GitService.syncDatabase(ctx, fp, repoDir)
+	if err != nil {
+		t.Fatalf("syncDatabase: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected only the regular in-size entry to be imported, got %d", count)
+	}
+
+	entries, err := s.Q.ListEntries(ctx, fp)
+	if err != nil {
+		t.Fatalf("list entries: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Path != "good" {
+		t.Fatalf("expected only 'good', got %+v", entries)
+	}
+
+	// The symlink target must never be stored.
+	if _, err := s.Q.GetEntry(ctx, dbgen.GetEntryParams{Fingerprint: fp, Path: "evil"}); err == nil {
+		t.Fatal("symlinked file was imported into the database")
+	}
+}
+
+func TestExportPasswordStore_SkipsUnsafePaths(t *testing.T) {
+	s := newTestServer(t)
+	ctx := context.Background()
+	fp := "export-fp"
+	mustCreateUser(t, s, fp)
+
+	// Simulate a legacy/buggy row that escaped path validation.
+	for _, p := range []string{"../escaped", "good"} {
+		if err := s.Q.UpsertEntry(ctx, dbgen.UpsertEntryParams{
+			Fingerprint: fp,
+			Path:        p,
+			Content:     []byte("data"),
+		}); err != nil {
+			t.Fatalf("upsert entry %q: %v", p, err)
+		}
+	}
+
+	root := t.TempDir()
+	repoDir := filepath.Join(root, "repo")
+	if err := os.MkdirAll(repoDir, 0700); err != nil {
+		t.Fatalf("create repo dir: %v", err)
+	}
+
+	count, err := s.GitService.exportPasswordStore(ctx, fp, repoDir)
+	if err != nil {
+		t.Fatalf("exportPasswordStore: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected only the safe entry to be exported, got %d", count)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, "escaped.gpg")); err == nil {
+		t.Fatal("unsafe entry escaped the repo directory")
+	}
+	if _, err := os.Stat(filepath.Join(repoDir, "good.gpg")); err != nil {
+		t.Fatalf("expected good.gpg to be written: %v", err)
 	}
 }
