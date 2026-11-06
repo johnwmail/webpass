@@ -115,6 +115,33 @@ func envBool(name string) bool {
 	}
 }
 
+// allowedGitHosts returns the GIT_ALLOWED_HOSTS allowlist, if configured.
+// Entries match the host itself or any subdomain (e.g. "github.com" also
+// allows "gist.github.com").
+func allowedGitHosts() []string {
+	raw := strings.TrimSpace(os.Getenv("GIT_ALLOWED_HOSTS"))
+	if raw == "" {
+		return nil
+	}
+	var hosts []string
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(entry)), ".")
+		if entry != "" {
+			hosts = append(hosts, entry)
+		}
+	}
+	return hosts
+}
+
+func hostMatchesAny(host string, allowed []string) bool {
+	for _, entry := range allowed {
+		if host == entry || strings.HasSuffix(host, "."+entry) {
+			return true
+		}
+	}
+	return false
+}
+
 // isDisallowedRepoIP reports whether an address belongs to a range that should
 // not be reachable through user-controlled git remotes (loopback, private,
 // link-local, metadata endpoints, multicast, unspecified).
@@ -127,6 +154,9 @@ func checkRepoHost(host string, allowPrivate bool) error {
 	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
 	if host == "" {
 		return fmt.Errorf("repo URL is missing a host")
+	}
+	if allowed := allowedGitHosts(); len(allowed) > 0 && !hostMatchesAny(host, allowed) {
+		return fmt.Errorf("repo host %q is not in GIT_ALLOWED_HOSTS", host)
 	}
 	if allowPrivate {
 		return nil

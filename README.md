@@ -306,6 +306,12 @@ All endpoints require JWT authentication except where noted.
 - **Rate limiting** on authentication endpoints (sliding window, 5 attempts / 15 min default)
 - **Registration protection** with TOTP-based codes (optional, configurable)
 
+### Key rotation
+
+- **JWT_SECRET**: rotating it invalidates every existing session immediately (users re-login). Generate a new value with `openssl rand -hex 32`.
+- **DATA_ENCRYPTION_KEY**: encrypts TOTP secrets at rest. Rotating it requires re-encrypting existing `totp_secret` values; there is no automatic rotation tool yet, so back up the key file (`data_encryption.key`) with the database.
+- **PGP keys**: users can export their private key from Settings and re-import it on a new account if needed.
+
 ### Reporting Vulnerabilities
 
 **Please do not open public issues for security vulnerabilities.**
@@ -331,6 +337,8 @@ See [`.env.example`](.env.example) for all available options with detailed comme
 | `TRUSTED_PROXIES` | No    | Proxy IPs/CIDRs allowed to supply `X-Forwarded-For` |
 | `MAX_REQUEST_BODY_BYTES` | No | Max request body size (default: 8 MiB) |
 | `GIT_ALLOW_PRIVATE_NETWORKS` | No | Allow git sync to private/LAN remotes (default: false) |
+| `GIT_ALLOWED_HOSTS` | No | Comma-separated git host allowlist (subdomains included) |
+| `REQUIRE_HTTPS` | No | Reject plain-HTTP API calls and redirect pages to HTTPS (localhost exempt) |
 | `DATA_ENCRYPTION_KEY` | No | Encrypts TOTP secrets at rest; auto-generated key file if unset |
 | `PORT`         | No       | HTTP listen port (default: `8080`)       |
 | `GIT_REPO_ROOT`| No       | Git repos directory (default: `/data/git-repos`) |
