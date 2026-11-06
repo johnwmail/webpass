@@ -43,6 +43,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
   const [totpCode, setTotpCode] = useState('');
   const [totpConfirmed, setTotpConfirmed] = useState(false);
   const [totpSkipped, setTotpSkipped] = useState(false);
+  const [loginExpiresAt, setLoginExpiresAt] = useState<number | null>(null);
   const [totpLoading, setTotpLoading] = useState(false);
   const qrRef = useRef<HTMLCanvasElement>(null);
 
@@ -152,7 +153,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
       const api = new ApiClient(url);
       api.fingerprint = fingerprint;
 
-      let loginResult: { token?: string; requires_2fa?: boolean } | null = null;
+      let loginResult: { token?: string; requires_2fa?: boolean; expires_at?: number } | null = null;
       let existingUser = false;
       let isNewUser = false;
 
@@ -183,6 +184,8 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
           return;
         }
       }
+
+      setLoginExpiresAt(loginResult?.expires_at ?? null);
 
       if (loginResult?.requires_2fa) {
         // 2FA required - save account to IndexedDB first (backend user already exists)
@@ -227,6 +230,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
             token: loginResult?.token || '',
             apiUrl: url,
             publicKey,
+            expiresAt: loginResult?.expires_at ?? null,
           });
           onAuthenticated();
           return;
@@ -804,6 +808,7 @@ export function Setup({ onComplete, onCancel, onAuthenticated }: Props) {
                         token: setupApi.token || '',
                         apiUrl: setupApi.baseUrl,
                         publicKey,
+                        expiresAt: loginExpiresAt,
                       });
                       // Small delay to ensure session state is saved
                       await new Promise(resolve => setTimeout(resolve, 50));

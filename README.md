@@ -294,7 +294,9 @@ All endpoints require JWT authentication except where noted.
 - **Password validates locally first** — Wrong password fails before network call
 - **5-minute sessions** — JWT expiry enforced server-side
 - **PGP key auto-lock** — Private key automatically locked after 30s of inactivity (hardcoded in `frontend/src/lib/session.ts`)
-- **CORS locked** to specific origins via `CORS_ORIGINS` env var
+- **CORS deny-by-default** — cross-origin access only for origins listed in `CORS_ORIGINS`
+- **Request limits** — 8 MiB body cap, bounded imports, and HTTP server timeouts
+- **Git remote validation** — blocks `file://` and private/loopback targets unless explicitly opted in (`GIT_ALLOW_*`)
 - **All traffic over HTTPS** required in production
 - **Rate limiting** on authentication endpoints (sliding window, 5 attempts / 15 min default)
 - **Registration protection** with TOTP-based codes (optional, configurable)
@@ -317,10 +319,13 @@ See [`.env.example`](.env.example) for all available options with detailed comme
 
 | Variable       | Required | Description                              |
 | -------------- | -------- | ---------------------------------------- |
-| `JWT_SECRET`   | Yes      | 32-byte hex string for JWT signing       |
+| `JWT_SECRET`   | Yes      | At least 32 random bytes for JWT signing (`openssl rand -hex 32`); placeholders rejected |
 | `DB_PATH`      | No       | Path to SQLite database (default: `/data/db/db.sqlite3`) |
 | `STATIC_DIR`   | No       | Serve frontend from this dir instead of embedded assets (dev only) |
-| `CORS_ORIGINS` | No       | Comma-separated allowed origins          |
+| `CORS_ORIGINS` | No       | Comma-separated allowed origins (unset = same-origin only) |
+| `TRUSTED_PROXIES` | No    | Proxy IPs/CIDRs allowed to supply `X-Forwarded-For` |
+| `MAX_REQUEST_BODY_BYTES` | No | Max request body size (default: 8 MiB) |
+| `GIT_ALLOW_PRIVATE_NETWORKS` | No | Allow git sync to private/LAN remotes (default: false) |
 | `PORT`         | No       | HTTP listen port (default: `8080`)       |
 | `GIT_REPO_ROOT`| No       | Git repos directory (default: `/data/git-repos`) |
 | `SESSION_HARDLIMIT_MINUTES` | No | JWT hard limit (max session time) in minutes (default: 30, range: 5-480) |

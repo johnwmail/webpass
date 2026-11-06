@@ -16,6 +16,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -49,6 +50,7 @@ type Server struct {
 	cookieSecure bool          // whether to set Secure flag on cookies
 	cookieDomain string        // optional cookie domain
 	bcryptCost   int           // bcrypt cost factor for password hashing
+	maxBodyBytes int64         // maximum accepted request body size in bytes
 	// Version info (set from main package)
 	Version   string
 	BuildTime string
@@ -95,6 +97,21 @@ func New(dbPath string, jwtKey []byte, hardLimitMin int, softLimitMin int) (*Ser
 		}
 	}
 
+	// Maximum request body size (default: 8 MiB, range: 1 MiB - 64 MiB)
+	const (
+		defaultMaxBodyBytes = int64(8 << 20)
+		minMaxBodyBytes     = int64(1 << 20)
+		maxMaxBodyBytes     = int64(64 << 20)
+	)
+	maxBodyBytes := defaultMaxBodyBytes
+	if raw := strings.TrimSpace(os.Getenv("MAX_REQUEST_BODY_BYTES")); raw != "" {
+		if val, err := strconv.ParseInt(raw, 10, 64); err == nil && val >= minMaxBodyBytes && val <= maxMaxBodyBytes {
+			maxBodyBytes = val
+		} else {
+			slog.Warn("Invalid MAX_REQUEST_BODY_BYTES value, using default 8 MiB", "value", raw)
+		}
+	}
+
 	s := &Server{
 		DB:           wdb,
 		Q:            dbgen.New(wdb),
@@ -103,6 +120,7 @@ func New(dbPath string, jwtKey []byte, hardLimitMin int, softLimitMin int) (*Ser
 		cookieSecure: cookieSecure,
 		cookieDomain: cookieDomain,
 		bcryptCost:   bcryptCost,
+		maxBodyBytes: maxBodyBytes,
 	}
 	s.hardLimit = time.Duration(hardLimitMin) * time.Minute
 	s.softLimit = time.Duration(softLimitMin) * time.Minute
@@ -139,7 +157,7 @@ func (s *Server) Handler() http.Handler {
 	// Public routes (no rate limiting)
 	mux.HandleFunc("GET /api/{fingerprint}", s.handleGetUser)
 	mux.HandleFunc("GET /api/registration/mode", s.handleGetRegistrationMode)
-	mux.HandleFunc("POST /api/registration/validate", s.handleValidateRegistrationCode)
+	mux.HandleFunc("POST /api/registration/validate", s.rateLimitMiddleware(s.handleValidateRegistrationCode))
 
 	// Rate-limited routes (authentication endpoints)
 	mux.HandleFunc("POST /api", s.rateLimitMiddleware(s.handleCreateUser))
@@ -216,6 +234,7 @@ func (s *Server) Handler() http.Handler {
 	// Apply middleware chain: CORS -> Security Headers -> CSRF -> Router
 	handler := http.Handler(mux)
 	handler = s.csrfMiddleware(handler)
+	handler = s.bodyLimitMiddleware(handler)
 	handler = securityHeadersMiddleware(handler)
 	handler = s.corsMiddleware(handler)
 	return handler
@@ -226,14 +245,19 @@ func (s *Server) Handler() http.Handler {
 // ---------------------------------------------------------------------------
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	// CORS is deny-by-default: only origins explicitly listed in CORS_ORIGINS
+	// may make cross-origin requests. An unset/empty value means same-origin
+	// only (the SPA is normally served by this same server).
 	allowed := parseCORSOrigins(os.Getenv("CORS_ORIGINS"))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		if origin != "" {
-			if len(allowed) == 0 || allowed[origin] {
+			// Responses vary by Origin, so caches must key on it too.
+			w.Header().Add("Vary", "Origin")
+			if allowed[origin] {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token, X-Registration-Code")
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 				w.Header().Set("Access-Control-Max-Age", "86400")
 			}
@@ -241,6 +265,27 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Request body size limits
+// ---------------------------------------------------------------------------
+
+// bodyLimitMiddleware rejects oversized requests before any handler runs and
+// caps chunked/unknown-length bodies with http.MaxBytesReader.
+func (s *Server) bodyLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.maxBodyBytes > 0 {
+			if r.ContentLength > s.maxBodyBytes {
+				jsonError(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, s.maxBodyBytes)
+			}
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -303,7 +348,7 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 					Value:    token,
 					Path:     "/",   // Must match frontend app path so document.cookie can read it
 					HttpOnly: false, // Must be readable by JavaScript
-					Secure:   s.cookieSecure,
+					Secure:   s.useSecureCookie(r),
 					SameSite: http.SameSiteStrictMode,
 					Domain:   s.cookieDomain,
 					MaxAge:   int(s.hardLimit.Seconds()),
@@ -314,8 +359,10 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Skip CSRF if request uses Bearer token auth (not susceptible to CSRF)
-		if r.Header.Get("Authorization") != "" && strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+		// Skip CSRF only in bearer-token mode. In cookie mode the browser
+		// attaches credentials automatically, so the token must be validated
+		// even if an Authorization header is also present.
+		if !s.cookieAuth && strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -439,50 +486,110 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 // rateLimitMiddleware wraps a handler, checking rate limits before processing.
-// It extracts the key (fingerprint or IP) and checks if the request is allowed.
+// It enforces both a per-fingerprint and a per-IP budget: the fingerprint limit
+// slows distributed password guessing against one account, while the IP limit
+// protects registration and prevents a single source from spraying many users.
 func (s *Server) rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Extract key: prefer fingerprint from path, fallback to IP
-		key := r.PathValue("fingerprint")
-		if key == "" {
-			// Fallback to IP address if no fingerprint in path
-			key = getClientIP(r)
+		ip := getClientIP(r)
+		scope := rateLimitScope(r.URL.Path)
+		keys := make([]string, 0, 2)
+		if fp := r.PathValue("fingerprint"); fp != "" {
+			keys = append(keys, scope+":fp:"+fp)
 		}
+		keys = append(keys, scope+":ip:"+ip)
 
-		if !s.RateLimiter.Allow(key) {
-			// Rate limiter already logs the rejection with details
-			http.Error(w, "too many attempts, please try again later", http.StatusTooManyRequests)
-			return
+		for _, key := range keys {
+			if !s.RateLimiter.Allow(key) {
+				// Rate limiter already logs the rejection with details
+				http.Error(w, "too many attempts, please try again later", http.StatusTooManyRequests)
+				return
+			}
 		}
 
 		next(w, r)
 	}
 }
 
+// rateLimitScope partitions budgets so that e.g. registration attempts do not
+// consume the login budget for the same IP address.
+func rateLimitScope(path string) string {
+	switch {
+	case path == "/api":
+		return "register"
+	case strings.HasSuffix(path, "/login/2fa"):
+		return "login2fa"
+	case strings.HasSuffix(path, "/login"):
+		return "login"
+	case path == "/api/registration/validate":
+		return "regvalidate"
+	default:
+		return "auth"
+	}
+}
+
+// ipFromAddr extracts the IP from a "host:port" RemoteAddr, handling IPv6.
+func ipFromAddr(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return strings.Trim(addr, "[]")
+	}
+	return host
+}
+
+// isTrustedProxy reports whether ip is listed in TRUSTED_PROXIES. Forwarded
+// headers are only honored when the direct peer is a configured proxy.
+func isTrustedProxy(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+	for _, raw := range strings.Split(os.Getenv("TRUSTED_PROXIES"), ",") {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		if strings.Contains(raw, "/") {
+			if _, cidr, err := net.ParseCIDR(raw); err == nil && cidr.Contains(ip) {
+				return true
+			}
+			continue
+		}
+		if proxy := net.ParseIP(raw); proxy != nil && proxy.Equal(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // getClientIP extracts the client IP address from the request.
-// It checks X-Forwarded-For and X-Real-IP headers first, then falls back to RemoteAddr.
+//
+// X-Forwarded-For / X-Real-IP are only trusted when the request comes from a
+// proxy listed in TRUSTED_PROXIES; otherwise clients could spoof the header and
+// bypass IP-based rate limiting.
 func getClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header (for reverse proxy setups)
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take the first IP in the list
-		parts := strings.Split(xff, ",")
-		if len(parts) > 0 {
-			return strings.TrimSpace(parts[0])
+	remoteIP := ipFromAddr(r.RemoteAddr)
+	if !isTrustedProxy(remoteIP) {
+		return remoteIP
+	}
+
+	// Walk the chain right-to-left, skipping known proxies. The first address
+	// that is not a trusted proxy is the real client.
+	hops := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+	for i := len(hops) - 1; i >= 0; i-- {
+		ip := strings.TrimSpace(hops[i])
+		if net.ParseIP(ip) == nil {
+			continue
+		}
+		if i == 0 || !isTrustedProxy(ip) {
+			return ip
 		}
 	}
 
-	// Check X-Real-IP header
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return strings.TrimSpace(xri)
+	if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); net.ParseIP(xri) != nil {
+		return xri
 	}
-
-	// Fallback to RemoteAddr (may include port)
-	ip := r.RemoteAddr
-	// Remove port if present
-	if colonIdx := strings.LastIndex(ip, ":"); colonIdx != -1 {
-		ip = ip[:colonIdx]
-	}
-	return ip
+	return remoteIP
 }
 
 func (s *Server) verifyToken(r *http.Request) (string, error) {
@@ -571,8 +678,24 @@ func (s *Server) checkSessionLimits(ctx context.Context, fp string) error {
 	return nil
 }
 
+// useSecureCookie reports whether cookies should carry the Secure flag.
+// Explicit COOKIE_SECURE=true always wins; otherwise HTTPS is detected from
+// the direct TLS connection or X-Forwarded-Proto (reverse proxy).
+func (s *Server) useSecureCookie(r *http.Request) bool {
+	if s.cookieSecure {
+		return true
+	}
+	if r == nil {
+		return false
+	}
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
+}
+
 // setAuthCookie sets the httpOnly authentication cookie
-func (s *Server) setAuthCookie(w http.ResponseWriter, token string) {
+func (s *Server) setAuthCookie(w http.ResponseWriter, r *http.Request, token string) {
 	if !s.cookieAuth {
 		return
 	}
@@ -582,7 +705,7 @@ func (s *Server) setAuthCookie(w http.ResponseWriter, token string) {
 		Value:    token,
 		Path:     "/api",
 		HttpOnly: true,
-		Secure:   s.cookieSecure,
+		Secure:   s.useSecureCookie(r),
 		SameSite: http.SameSiteStrictMode,
 		Domain:   s.cookieDomain,
 		MaxAge:   int(s.hardLimit.Seconds()),
@@ -591,13 +714,13 @@ func (s *Server) setAuthCookie(w http.ResponseWriter, token string) {
 }
 
 // clearAuthCookie clears the authentication cookie
-func (s *Server) clearAuthCookie(w http.ResponseWriter) {
+func (s *Server) clearAuthCookie(w http.ResponseWriter, r *http.Request) {
 	cookie := &http.Cookie{
 		Name:     "webpass_auth",
 		Value:    "",
 		Path:     "/api",
 		HttpOnly: true,
-		Secure:   s.cookieSecure,
+		Secure:   s.useSecureCookie(r),
 		SameSite: http.SameSiteStrictMode,
 		Domain:   s.cookieDomain,
 		MaxAge:   -1, // Delete immediately
@@ -877,9 +1000,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set httpOnly cookie
-	s.setAuthCookie(w, token)
+	s.setAuthCookie(w, r, token)
 
-	// Return token in response for backward compatibility (client can ignore)
+	if s.cookieAuth {
+		// Never expose the JWT to JavaScript when httpOnly cookies are in use.
+		jsonOK(w, map[string]any{"expires_at": time.Now().Add(s.hardLimit).Unix()})
+		return
+	}
+	// Bearer-token mode: return the token for the Authorization header.
 	jsonOK(w, map[string]string{"token": token})
 }
 
@@ -927,9 +1055,14 @@ func (s *Server) handleLogin2FA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set httpOnly cookie
-	s.setAuthCookie(w, token)
+	s.setAuthCookie(w, r, token)
 
-	// Return token in response for backward compatibility (client can ignore)
+	if s.cookieAuth {
+		// Never expose the JWT to JavaScript when httpOnly cookies are in use.
+		jsonOK(w, map[string]any{"expires_at": time.Now().Add(s.hardLimit).Unix()})
+		return
+	}
+	// Bearer-token mode: return the token for the Authorization header.
 	jsonOK(w, map[string]string{"token": token})
 }
 
@@ -938,7 +1071,30 @@ func (s *Server) handleLogin2FA(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	s.clearAuthCookie(w)
+	// Best-effort: drop any cached plaintext git credential for this user.
+	if fp, err := s.verifyToken(r); err == nil && s.GitService != nil {
+		s.GitService.ClearSessionToken(fp)
+	}
+
+	s.clearAuthCookie(w, r)
+
+	// Clear the CSRF cookie as well so a new one is issued on the next GET.
+	// The CSRF cookie is a double-submit token, not an authentication
+	// credential. Secure is only set when the request is HTTPS so local HTTP
+	// development keeps working; production deployments terminate TLS (or set
+	// X-Forwarded-Proto) and therefore get Secure=true.
+	// codeql[go/cookie-secure-not-set]
+	http.SetCookie(w, &http.Cookie{
+		Name:     csrfTokenCookie,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: false,
+		Secure:   s.useSecureCookie(r),
+		SameSite: http.SameSiteStrictMode,
+		Domain:   s.cookieDomain,
+		MaxAge:   -1,
+	})
+
 	jsonOK(w, map[string]string{"status": "logged out"})
 }
 
@@ -1388,6 +1544,13 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 // POST /api/{fingerprint}/import — import tar.gz or JSON batch
 // ---------------------------------------------------------------------------
 
+// Import limits: bound decompressed size and entry count to prevent gzip
+// bombs and unbounded batch imports.
+const (
+	maxImportEntries    = 10000
+	maxImportTotalBytes = int64(100 << 20) // 100 MiB decompressed
+)
+
 // handleImport supports two formats:
 // 1. Content-Type: application/gzip — binary tar.gz (legacy, for WebPass-to-WebPass)
 // 2. Content-Type: application/json — JSON array [{path, content}] (new, for import with re-encryption)
@@ -1413,8 +1576,20 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request, fp str
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&entries); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			slog.Warn("IMPORT JSON: request body too large", "fingerprint", fp)
+			jsonError(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		slog.Error("IMPORT JSON: decode failed", "fingerprint", fp, "error", err)
 		jsonError(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if len(entries) > maxImportEntries {
+		slog.Warn("IMPORT JSON: too many entries", "fingerprint", fp, "count", len(entries))
+		jsonError(w, "too many entries in import", http.StatusBadRequest)
 		return
 	}
 
@@ -1534,6 +1709,7 @@ func (s *Server) handleImportTarGz(w http.ResponseWriter, r *http.Request, fp st
 
 	tr := tar.NewReader(gr)
 	var count int
+	var totalBytes int64
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -1546,6 +1722,11 @@ func (s *Server) handleImportTarGz(w http.ResponseWriter, r *http.Request, fp st
 		}
 		if hdr.Typeflag != tar.TypeReg {
 			continue
+		}
+		if count >= maxImportEntries {
+			slog.Warn("IMPORT TAR.GZ: too many entries", "fingerprint", fp)
+			jsonError(w, "too many entries in import", http.StatusBadRequest)
+			return
 		}
 
 		// Strip .gpg suffix if present
@@ -1569,6 +1750,12 @@ func (s *Server) handleImportTarGz(w http.ResponseWriter, r *http.Request, fp st
 		if err != nil {
 			slog.Error("IMPORT TAR.GZ: read entry failed", "fingerprint", fp, "path", cleanPath, "error", err)
 			jsonError(w, "read entry failed", http.StatusBadRequest)
+			return
+		}
+		totalBytes += int64(len(content))
+		if totalBytes > maxImportTotalBytes {
+			slog.Warn("IMPORT TAR.GZ: import exceeds size limit", "fingerprint", fp, "bytes", totalBytes)
+			jsonError(w, "import too large", http.StatusRequestEntityTooLarge)
 			return
 		}
 
@@ -1680,8 +1867,8 @@ func (s *Server) handleGitConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.GitService.Configure(r.Context(), fp, body.RepoURL, body.EncryptedPAT, body.EncryptedSSHKey, authType, branch); err != nil {
-		slog.Error("GIT CONFIG: failed", "fingerprint", fp, "error", err)
-		jsonError(w, "config failed: "+err.Error(), http.StatusInternalServerError)
+		slog.Warn("GIT CONFIG: rejected", "fingerprint", fp, "error", err)
+		jsonError(w, "invalid git configuration", http.StatusBadRequest)
 		return
 	}
 

@@ -29,6 +29,8 @@ func TestGitServiceSSHIntegration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSH integration test in short mode")
 	}
+	// The test server binds to localhost, so opt in to private-network remotes.
+	t.Setenv("GIT_ALLOW_PRIVATE_NETWORKS", "true")
 
 	s := newTestServer(t)
 	ctx := context.Background()

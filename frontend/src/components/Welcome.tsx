@@ -79,6 +79,7 @@ export function Welcome({ onSetup, onLogin }: Props) {
           token: result.token || '',
           apiUrl,
           publicKey: account.publicKey,
+          expiresAt: result.expires_at ?? null,
         });
         onLogin();
       } else {
@@ -95,6 +96,7 @@ export function Welcome({ onSetup, onLogin }: Props) {
           token: result.token || '',
           apiUrl,
           publicKey: account.publicKey,
+          expiresAt: result.expires_at ?? null,
         });
         onLogin();
       }

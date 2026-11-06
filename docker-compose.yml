@@ -17,9 +17,18 @@ services:
       - BUILD_TIME=${BUILD_TIME:-unknown}
       - COMMIT=${COMMIT:-unknown}
       # Runtime configuration
-      - JWT_SECRET=${JWT_SECRET:-change-me-to-random-32-byte-hex}
+      # Required: generate with `openssl rand -hex 32`. The container refuses
+      # to start with an unset, short, or placeholder value.
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set to at least 32 random bytes (openssl rand -hex 32)}
       - DB_PATH=/data/db/db.sqlite3
       - GIT_REPO_ROOT=/data/git-repos
+      # Cross-origin access is denied unless explicitly listed.
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+      # Only set when running behind a reverse proxy (comma-separated IPs/CIDRs).
+      - TRUSTED_PROXIES=${TRUSTED_PROXIES:-}
+      - MAX_REQUEST_BODY_BYTES=${MAX_REQUEST_BODY_BYTES:-}
+      # Allow git sync to self-hosted remotes on private/LAN addresses.
+      - GIT_ALLOW_PRIVATE_NETWORKS=${GIT_ALLOW_PRIVATE_NETWORKS:-false}
       # Registration protection mode (TOTP-based)
       - REGISTRATION_ENABLED=${REGISTRATION_ENABLED:-false}
       - REGISTRATION_TOTP_SECRET=${REGISTRATION_TOTP_SECRET:-}
