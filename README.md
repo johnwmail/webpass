@@ -384,6 +384,27 @@ repo-root/
 2. If HEAD not found → try `main`
 3. If `main` not found → try `master`
 
+## 🔑 2FA / TOTP Entries
+
+Entries can store a TOTP secret alongside their password using the standard
+[pass-otp](https://github.com/tadfisher/pass-otp) `otpauth://` URI format.
+
+When creating or editing an entry, fill in the **2FA / TOTP (optional)** field:
+
+```
+otpauth://totp/AWS:user@aws.com?secret=JBSWY3DP&issuer=AWS
+```
+
+- The URI is stored as a line in the entry content and **PGP-encrypted with the
+  password** — the server only ever sees ciphertext.
+- After unlocking/decrypting the entry, WebPass shows a live 6-digit code with a
+  countdown and copy button.
+- Compatible with `pass otp`, Google Authenticator exports, import/export, and
+  Git sync. No database schema change is required.
+- Only TOTP is supported (not HOTP). Invalid URIs show a validation hint.
+- Existing entries that already have an `otpauth://` line in Notes are detected
+  automatically; the URI moves into the dedicated field when the entry is edited.
+
 ##  Theme System
 
 Auto-switching theme system with manual override:

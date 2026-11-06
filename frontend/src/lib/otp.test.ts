@@ -10,6 +10,8 @@ import {
   hasAnyOTPURI,
   findInvalidOTPUris,
   getTOTPErrorHint,
+  splitEntryContent,
+  buildEntryContent,
 } from './otp';
 
 describe('parseOTPURI', () => {
@@ -235,5 +237,73 @@ describe('getTOTPErrorHint', () => {
   it('returns hint for HOTP (not supported)', () => {
     const uri = 'otpauth://hotp/Service:user?secret=ABC123';
     expect(getTOTPErrorHint(uri)).toContain('HOTP');
+  });
+});
+
+describe('splitEntryContent', () => {
+  it('separates password, notes and the pass-otp URI', () => {
+    const content = 'secret123\nsome notes\notpauth://totp/AWS:user@aws.com?secret=JBSWY3DP';
+
+    expect(splitEntryContent(content)).toEqual({
+      password: 'secret123',
+      notes: 'some notes',
+      otpUri: 'otpauth://totp/AWS:user@aws.com?secret=JBSWY3DP',
+    });
+  });
+
+  it('keeps notes intact when there is no OTP URI', () => {
+    expect(splitEntryContent('secret123\nline one\nline two')).toEqual({
+      password: 'secret123',
+      notes: 'line one\nline two',
+      otpUri: '',
+    });
+  });
+
+  it('handles an entry containing only a password', () => {
+    expect(splitEntryContent('secret123\n')).toEqual({
+      password: 'secret123',
+      notes: '',
+      otpUri: '',
+    });
+  });
+
+  it('does not treat an invalid otpauth line as the OTP field', () => {
+    const content = 'secret123\notpauth://totp/NoSecret:user';
+
+    expect(splitEntryContent(content)).toEqual({
+      password: 'secret123',
+      notes: 'otpauth://totp/NoSecret:user',
+      otpUri: '',
+    });
+  });
+});
+
+describe('buildEntryContent', () => {
+  const otpUri = 'otpauth://totp/AWS:user@aws.com?secret=JBSWY3DP';
+
+  it('writes the pass-otp URI as its own line', () => {
+    expect(buildEntryContent('secret123', 'some notes', otpUri)).toBe(
+      `secret123\nsome notes\n${otpUri}\n`,
+    );
+  });
+
+  it('omits empty notes and OTP URI', () => {
+    expect(buildEntryContent('secret123', '', '')).toBe('secret123\n');
+  });
+
+  it('trims the notes and OTP URI', () => {
+    expect(buildEntryContent('secret123', '  notes  ', `  ${otpUri}  `)).toBe(
+      `secret123\nnotes\n${otpUri}\n`,
+    );
+  });
+
+  it('round-trips through splitEntryContent', () => {
+    const content = buildEntryContent('secret123', 'some notes', otpUri);
+
+    expect(splitEntryContent(content)).toEqual({
+      password: 'secret123',
+      notes: 'some notes',
+      otpUri,
+    });
   });
 });

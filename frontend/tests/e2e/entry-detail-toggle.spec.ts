@@ -262,6 +262,8 @@ test.describe('Entry Detail Toggle Visibility', () => {
   });
 
   test('auto-hide after 15 seconds', async ({ page }) => {
+    // Setup + decrypt + a deliberate 15.5s wait exceeds Playwright's default 30s.
+    test.setTimeout(60000);
     testUser = await generateTestUser();
     const pgpPassphrase = await registerAndLogin(page, testUser);
 

@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'preact/hooks';
 import { session } from '../lib/session';
 import { getAccount } from '../lib/storage';
 import { decryptPrivateKey, decryptBinary, encryptBinary, WrongKeyError } from '../lib/crypto';
+import { splitEntryContent } from '../lib/otp';
 import { useClipboard } from './useClipboard';
 
 export interface EntryState {
@@ -32,11 +33,9 @@ export function useEntry(path: string, onEdit: () => void, onDelete: () => void)
   const copyTimerRef = useRef<number | null>(null);
 
   const parseEntryContent = (text: string) => {
-    const lines = text.split('\n');
-    return {
-      password: lines[0] || '',
-      notes: lines.slice(1).join('\n').trim(),
-    };
+    // The pass-otp URI is rendered by OTPDisplay, not as a note.
+    const { password, notes } = splitEntryContent(text);
+    return { password, notes };
   };
 
   const handleDecrypt = useCallback(async (passphrase: string) => {

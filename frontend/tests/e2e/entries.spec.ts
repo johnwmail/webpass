@@ -48,6 +48,8 @@ async function registerAndLogin(page: any, testUser: any) {
   await page.getByPlaceholder('Enter your login password').fill(testUser.password);
   await page.getByRole('button', { name: /Login/i }).click();
   await page.getByText('Select an entry or create a new one').waitFor({ timeout: 10000 });
+
+  return pgpPassphrase;
 }
 
 test.describe('Entry Management', () => {
@@ -82,6 +84,43 @@ test.describe('Entry Management', () => {
     // Wait for TestFolder to appear in tree (PGP encryption takes time)
     await page.getByText('TestFolder', { exact: false }).waitFor({ timeout: 30000 });
     await expect(page.getByText('TestFolder', { exact: false })).toBeVisible();
+  });
+
+  test('create entry with TOTP secret', async ({ page }) => {
+    test.setTimeout(60000);
+    testUser = await generateTestUser();
+    const pgpPassphrase = await registerAndLogin(page, testUser);
+
+    const otpUri = 'otpauth://totp/AWS:user@aws.com?secret=JBSWY3DP';
+
+    await page.getByRole('button', { name: 'Entry' }).click();
+    await page.getByText('New Entry', { exact: false }).waitFor({ timeout: 10000 });
+    await page.getByPlaceholder('e.g. Email (optional)').fill('AWS');
+    await page.getByPlaceholder('Entry name').fill('aws-totp');
+    await page.getByPlaceholder('Password').fill('testpass123');
+    await page
+      .getByPlaceholder('otpauth://totp/AWS:user@aws.com?secret=...')
+      .fill(otpUri);
+    await page.getByPlaceholder('Additional notes, username, URLs...').fill('Test notes');
+    await page.getByRole('button', { name: /Save/i }).click();
+
+    // Open the entry
+    await page.getByText('AWS', { exact: false }).waitFor({ timeout: 30000 });
+    await page.getByText('AWS', { exact: false }).first().click();
+    await page.getByText('aws-totp', { exact: true }).click();
+
+    // Unlock the entry with the PGP passphrase
+    await page.getByRole('button', { name: 'Decrypt', exact: true }).click();
+    await page.getByPlaceholder('Enter your PGP passphrase').fill(pgpPassphrase);
+    await page.getByRole('button', { name: 'Unlock', exact: true }).click();
+
+    // TOTP code is generated client-side after the entry is decrypted
+    await expect(page.locator('.otp-code')).toHaveText(/^\d{6}$/);
+
+    // The pass-otp URI is rendered by OTPDisplay, not exposed in Notes
+    await page.getByTestId('notes-toggle-btn').click();
+    await expect(page.locator('.entry-detail')).toContainText('Test notes');
+    await expect(page.locator('.entry-detail')).not.toContainText('otpauth://');
   });
 
   test('create entry with generated password', async ({ page }) => {
