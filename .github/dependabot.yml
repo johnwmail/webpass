@@ -1,25 +1,50 @@
 version: 2
+
 updates:
   - package-ecosystem: gomod
     directory: "/"
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    rebase-strategy: auto
+    groups:
+      # Batch minor/patch updates; major updates stay as individual PRs.
+      go-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: npm
     directory: "/frontend"
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    rebase-strategy: auto
+    groups:
+      frontend-production:
+        dependency-type: production
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      frontend-development:
+        dependency-type: development
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    rebase-strategy: auto
+    groups:
+      actions:
+        patterns: ["*"]
 
   - package-ecosystem: docker
     directory: "/"
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    rebase-strategy: auto
+    groups:
+      docker:
+        patterns: ["*"]
