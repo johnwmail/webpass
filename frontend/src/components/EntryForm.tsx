@@ -2,6 +2,7 @@ import { useState, useEffect } from 'preact/hooks';
 import { session } from '../lib/session';
 import { getAccount } from '../lib/storage';
 import { decryptPrivateKey, decryptBinary, encryptBinary, WrongKeyError } from '../lib/crypto';
+import { parseOTPURI, getTOTPErrorHint, splitEntryContent, buildEntryContent } from '../lib/otp';
 import { PassphrasePrompt } from './PassphrasePrompt';
 import { ReencryptDialog } from './ReencryptDialog';
 import { GeneratorModal } from './GeneratorModal';
@@ -18,6 +19,7 @@ export function EntryForm({ editPath, folderPrefix, onSave, onCancel }: Props) {
   const [folder, setFolder] = useState(folderPrefix);
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
+  const [otpUri, setOtpUri] = useState('');
   const [notes, setNotes] = useState('');
   const [showGenerator, setShowGenerator] = useState(false);
   const [showPassphrasePrompt, setShowPassphrasePrompt] = useState(false);
@@ -54,9 +56,10 @@ export function EntryForm({ editPath, folderPrefix, onSave, onCancel }: Props) {
 
       const encrypted = await session.api.getEntry(editPath!);
       const decrypted = await decryptBinary(encrypted, privateKey);
-      const lines = decrypted.split('\n');
-      setPassword(lines[0] || '');
-      setNotes(lines.slice(1).join('\n').trim());
+      const parsed = splitEntryContent(decrypted);
+      setPassword(parsed.password);
+      setOtpUri(parsed.otpUri);
+      setNotes(parsed.notes);
       setNeedsDecryptForEdit(false);
     } catch (e: any) {
       if (e instanceof WrongKeyError) {
@@ -78,11 +81,16 @@ export function EntryForm({ editPath, folderPrefix, onSave, onCancel }: Props) {
       const account = await getAccount(fp);
       if (!account) throw new Error('Account not found');
 
-      let content = password;
-      if (notes.trim()) {
-        content += '\n' + notes.trim();
+      const trimmedOtpUri = otpUri.trim();
+      if (trimmedOtpUri && !parseOTPURI(trimmedOtpUri)) {
+        setError(getTOTPErrorHint(trimmedOtpUri));
+        setSaving(false);
+        return;
       }
-      content += '\n';
+
+      // The pass-otp URI is part of the encrypted entry content, so the
+      // server never sees the TOTP secret.
+      const content = buildEntryContent(password, notes, trimmedOtpUri);
 
       const encrypted = await encryptBinary(content, account.publicKey);
       const fullPath = folder ? `${folder.replace(/\/+$/, '')}/${name}` : name;
@@ -223,6 +231,22 @@ export function EntryForm({ editPath, folderPrefix, onSave, onCancel }: Props) {
                 <Sparkles size={16} />
               </button>
             </div>
+          </div>
+
+          <div class="field">
+            <label class="label">2FA / TOTP (optional)</label>
+            <input
+              class="input input-mono"
+              type="text"
+              value={otpUri}
+              onInput={(e) => setOtpUri((e.target as HTMLInputElement).value)}
+              placeholder="otpauth://totp/AWS:user@aws.com?secret=..."
+              autocomplete="off"
+              spellcheck={false}
+            />
+            <p style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-dim)', lineHeight: 1.5 }}>
+              Compatible with pass-otp / Google Authenticator. Stored as an encrypted line in this entry.
+            </p>
           </div>
 
           <div class="field">

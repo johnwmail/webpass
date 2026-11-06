@@ -1,7 +1,8 @@
 /**
  * Git Sync E2E tests.
  * Tests git sync UI behavior - configuration, push, pull, and error handling.
- * Uses real Gitea repository for testing.
+ * By default uses a local file:// bare repository created by the test script
+ * or CI workflow. Set WEBPASS_REPO_URL/WEBPASS_REPO_PAT to test a real remote.
  *
  * Environment variables (set in .env or via command line):
  *   WEBPASS_REPO_URL - Git repository URL

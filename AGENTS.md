@@ -145,6 +145,19 @@ Password and notes fields auto-hide after **15 seconds** of being visible:
 - **OTP always visible**: TOTP codes stay visible (user can manually hide)
 - **Toast notification**: "Content hidden for security" appears on auto-hide
 
+## Entry-Level 2FA (TOTP)
+
+- `EntryForm` has a dedicated **2FA / TOTP (optional)** field for a pass-otp
+  `otpauth://totp/...` URI.
+- The URI is appended to the entry content as its own line and PGP-encrypted
+  client-side with the password. There is **no database column** for it.
+- `splitEntryContent()` / `buildEntryContent()` in `frontend/src/lib/otp.ts`
+  handle parsing and serialization; `useEntry` strips the URI from Notes and
+  `OTPDisplay` renders the 6-digit code after decryption.
+- Only TOTP is supported (not HOTP). Invalid URIs show a validation hint.
+- Tests: `frontend/src/lib/otp.test.ts` (unit) and the `TOTP secret` case in
+  `frontend/tests/e2e/entries.spec.ts` (E2E).
+
 ## Git Sync
 
 Manual push/pull sync to any Git repository (GitHub, GitLab, Gitea):

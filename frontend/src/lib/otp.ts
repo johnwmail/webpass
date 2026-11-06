@@ -125,6 +125,50 @@ export function extractLastTOTPURI(content: string): string | null {
   return lastValidURI;
 }
 
+export interface EntryContentParts {
+  password: string;
+  notes: string;
+  otpUri: string;
+}
+
+/**
+ * Split password-store content into password, notes, and the pass-otp URI.
+ *
+ * The URI is removed from notes so it can be edited in a dedicated field and
+ * is not displayed or saved twice.
+ */
+export function splitEntryContent(text: string): EntryContentParts {
+  const lines = text.split('\n');
+  const otpUri = extractLastTOTPURI(text) || '';
+  const notesLines = lines.slice(1);
+
+  return {
+    password: lines[0] || '',
+    notes: (otpUri
+      ? notesLines.filter(line => line.trim() !== otpUri)
+      : notesLines
+    ).join('\n').trim(),
+    otpUri,
+  };
+}
+
+/**
+ * Build password-store content from the form fields.
+ *
+ * Keeps the pass-otp URI as its own line, using the same format as the
+ * `pass otp` extension so import/export and git sync stay compatible.
+ */
+export function buildEntryContent(password: string, notes: string, otpUri = ''): string {
+  let content = password;
+  if (notes.trim()) {
+    content += '\n' + notes.trim();
+  }
+  if (otpUri.trim()) {
+    content += '\n' + otpUri.trim();
+  }
+  return content + '\n';
+}
+
 /**
  * Check if content has any otpauth:// lines (valid or invalid)
  */
