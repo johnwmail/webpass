@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -97,6 +99,149 @@ func NewGitService(dbPath string, q *dbgen.Queries, repoRoot string) *GitService
 }
 
 // ---------------------------------------------------------------------------
+// Remote URL validation (SSRF / credential-leak protection)
+// ---------------------------------------------------------------------------
+
+var gitBranchPattern = regexp.MustCompile(`^[A-Za-z0-9._/-]{1,255}$`)
+
+func envBool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+// isDisallowedRepoIP reports whether an address belongs to a range that should
+// not be reachable through user-controlled git remotes (loopback, private,
+// link-local, metadata endpoints, multicast, unspecified).
+func isDisallowedRepoIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast()
+}
+
+func checkRepoHost(host string, allowPrivate bool) error {
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	if host == "" {
+		return fmt.Errorf("repo URL is missing a host")
+	}
+	if allowPrivate {
+		return nil
+	}
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") ||
+		strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".internal") {
+		return fmt.Errorf("repo host %q is not allowed", host)
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if isDisallowedRepoIP(ip) {
+			return fmt.Errorf("repo host %q is not allowed", host)
+		}
+		return nil
+	}
+
+	// Resolve names so that e.g. "evil.example" pointing at 127.0.0.1 is
+	// rejected too. Fail open on lookup errors: an unresolvable host cannot be
+	// cloned anyway, and this keeps tests/offline installs working.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil
+	}
+	for _, addr := range addrs {
+		if isDisallowedRepoIP(addr.IP) {
+			return fmt.Errorf("repo host %q resolves to a private address", host)
+		}
+	}
+	return nil
+}
+
+// validateRepoURL validates a git remote URL before it is stored and later
+// fetched server-side. file:// and private-network targets are opt-in via
+// GIT_ALLOW_LOCAL_REPOS / GIT_ALLOW_PRIVATE_NETWORKS so that self-hosted
+// deployments can still sync to a LAN Gitea.
+func validateRepoURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", fmt.Errorf("repo URL is required")
+	}
+
+	allowLocal := envBool("GIT_ALLOW_LOCAL_REPOS")
+	allowPrivate := envBool("GIT_ALLOW_PRIVATE_NETWORKS")
+	allowHTTP := envBool("GIT_ALLOW_INSECURE_HTTP")
+
+	// scp-like syntax: git@host:path
+	if !strings.Contains(raw, "://") {
+		at := strings.Index(raw, "@")
+		colon := strings.Index(raw, ":")
+		if at <= 0 || colon <= at+1 {
+			return "", fmt.Errorf("unsupported repo URL; use https://, ssh:// or git@host:path")
+		}
+		host := raw[at+1 : colon]
+		if err := checkRepoHost(host, allowPrivate); err != nil {
+			return "", err
+		}
+		return raw, nil
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("invalid repo URL: %w", err)
+	}
+
+	scheme := strings.ToLower(u.Scheme)
+	switch scheme {
+	case "https":
+		// Credentials belong in the (encrypted) PAT, never in the URL.
+		if u.User != nil {
+			return "", fmt.Errorf("repo URL must not contain credentials; use a token instead")
+		}
+	case "http":
+		if !allowHTTP {
+			return "", fmt.Errorf("insecure http repo URLs are not allowed; use https")
+		}
+		if u.User != nil {
+			return "", fmt.Errorf("repo URL must not contain credentials; use a token instead")
+		}
+	case "ssh", "git+ssh":
+		// ssh://git@host/... is the standard form; only a password is unsafe.
+		if u.User != nil {
+			if _, hasPassword := u.User.Password(); hasPassword {
+				return "", fmt.Errorf("repo URL must not contain a password; use an SSH key instead")
+			}
+		}
+	case "file":
+		if !allowLocal {
+			return "", fmt.Errorf("local file repo URLs are not allowed")
+		}
+		return raw, nil
+	default:
+		return "", fmt.Errorf("unsupported repo URL scheme %q", u.Scheme)
+	}
+
+	host := u.Hostname()
+	if host == "" {
+		return "", fmt.Errorf("repo URL is missing a host")
+	}
+	if err := checkRepoHost(host, allowPrivate); err != nil {
+		return "", err
+	}
+	return raw, nil
+}
+
+func validateGitBranch(branch string) error {
+	if branch == "" {
+		return fmt.Errorf("branch is required")
+	}
+	if !gitBranchPattern.MatchString(branch) || strings.Contains(branch, "..") ||
+		strings.HasPrefix(branch, "/") || strings.HasSuffix(branch, "/") {
+		return fmt.Errorf("invalid branch name")
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
@@ -104,6 +249,17 @@ func NewGitService(dbPath string, q *dbgen.Queries, repoRoot string) *GitService
 func (g *GitService) Configure(ctx context.Context, fingerprint, repoURL, encryptedPAT, encryptedSSHKey, authType, branch string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
+	repoURL, err := validateRepoURL(repoURL)
+	if err != nil {
+		return err
+	}
+	if err := validateGitBranch(branch); err != nil {
+		return err
+	}
+	if authType != "https" && authType != "ssh" {
+		return fmt.Errorf("unsupported auth type %q", authType)
+	}
 
 	if err := g.q.UpsertGitConfig(ctx, dbgen.UpsertGitConfigParams{
 		Fingerprint:     fingerprint,
@@ -124,10 +280,23 @@ func (g *GitService) Configure(ctx context.Context, fingerprint, repoURL, encryp
 func (g *GitService) SetSessionToken(fingerprint, token string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	now := time.Now()
+	for fp, st := range g.tokens {
+		if now.After(st.ExpiresAt) {
+			delete(g.tokens, fp)
+		}
+	}
 	g.tokens[fingerprint] = SessionToken{
 		Token:     token,
-		ExpiresAt: time.Now().Add(5 * time.Minute),
+		ExpiresAt: now.Add(5 * time.Minute),
 	}
+}
+
+// ClearSessionToken drops any cached token for a user (called on logout).
+func (g *GitService) ClearSessionToken(fingerprint string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.tokens, fingerprint)
 }
 
 // getSessionToken retrieves a cached token if still valid
@@ -135,7 +304,11 @@ func (g *GitService) getSessionToken(fingerprint string) (string, bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	st, ok := g.tokens[fingerprint]
-	if !ok || time.Now().After(st.ExpiresAt) {
+	if !ok {
+		return "", false
+	}
+	if time.Now().After(st.ExpiresAt) {
+		delete(g.tokens, fingerprint)
 		return "", false
 	}
 	return st.Token, true

@@ -180,7 +180,7 @@ export class ApiClient {
   /** POST /api/:fp/login */
   async login(
     password: string
-  ): Promise<{ token?: string; requires_2fa?: boolean }> {
+  ): Promise<{ token?: string; requires_2fa?: boolean; expires_at?: number }> {
     const res = await this.guardedFetch(this.url(`/api/${this.fingerprint}/login`), {
       method: 'POST',
       headers: this.headers(),
@@ -218,7 +218,7 @@ export class ApiClient {
   async login2fa(
     password: string,
     code: string
-  ): Promise<{ token: string }> {
+  ): Promise<{ token?: string; expires_at?: number }> {
     const res = await this.guardedFetch(
       this.url(`/api/${this.fingerprint}/login/2fa`),
       {

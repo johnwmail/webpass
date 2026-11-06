@@ -123,6 +123,8 @@ class Session {
     token: string;
     apiUrl: string;
     publicKey: string;
+    /** Server-provided expiry (epoch seconds), used when no JWT is exposed. */
+    expiresAt?: number | null;
   }) {
     this.fingerprint = opts.fingerprint;
     this.token = opts.token; // Keep for backward compatibility, but not stored
@@ -131,8 +133,9 @@ class Session {
     this.api.fingerprint = opts.fingerprint;
     this.api.token = opts.token; // Set token on API client for Authorization header
     this.api.authenticated = true;
-    // Parse expiry from JWT token so the timer can show countdown
-    this.expiresAt = this._parseJwtExpiry(opts.token);
+    // Prefer the server-provided expiry (cookie auth never exposes the JWT),
+    // otherwise parse it from the bearer token.
+    this.expiresAt = opts.expiresAt ?? this._parseJwtExpiry(opts.token);
     // Token is now in httpOnly cookie - don't store it in sessionStorage
     this._persist();
     this._notify();

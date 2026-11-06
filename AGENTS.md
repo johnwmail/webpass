@@ -82,12 +82,17 @@ npm run typecheck
 
 | Variable            | Description                              |
 | ----------------- | ---------------------------------------- |
-| `JWT_SECRET`      | 32-byte hex for JWT signing (required). If not set, random key generated on startup (fine for single-instance with short sessions). Set fixed value for multi-instance or long sessions. |
+| `JWT_SECRET`      | At least 32 bytes for JWT signing (required in production; placeholder/short values are rejected). If not set, a random key is generated on startup (fine for single-instance with short sessions). Set fixed value for multi-instance or long sessions. |
 | `DB_PATH`         | SQLite path (default: `/data/db/db.sqlite3`) |
 | `STATIC_DIR`      | Serve frontend from this on-disk dir instead of the embedded assets (dev only; default `frontend/dist` when it exists) |
 | `DISABLE_FRONTEND`| Disable frontend serving (`1`/`true` to disable, even if `STATIC_DIR` exists) |
 | `PORT`            | HTTP listen port (default: `8080`; Playwright E2E tests use `18080`) |
-| `CORS_ORIGINS`    | Comma-separated allowed origins          |
+| `CORS_ORIGINS`    | Comma-separated allowed origins. Unset = same-origin only (secure default) |
+| `TRUSTED_PROXIES` | Comma-separated proxy IPs/CIDRs; forwarded headers are only honored from these |
+| `MAX_REQUEST_BODY_BYTES` | Max request body size in bytes (default: 8 MiB, range: 1–64 MiB) |
+| `GIT_ALLOW_LOCAL_REPOS` | Allow `file://` git remotes (default: false; tests/dev only) |
+| `GIT_ALLOW_PRIVATE_NETWORKS` | Allow git remotes on private/LAN addresses (default: false) |
+| `GIT_ALLOW_INSECURE_HTTP` | Allow `http://` git remotes (default: false) |
 | `GIT_REPO_ROOT`   | Git repos directory (default: `/data/git-repos`) |
 | `SESSION_HARDLIMIT_MINUTES` | JWT hard limit (max session time) in minutes (default: 30, range: 5-480) |
 | `SESSION_SOFTLIMIT_MINUTES` | JWT soft limit (browser close detection) in minutes (default: 5, range: 1-60) |

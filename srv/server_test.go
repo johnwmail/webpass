@@ -647,18 +647,55 @@ func TestCORSHeaders(t *testing.T) {
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
-	// With no CORS_ORIGINS env, all origins should be allowed (dev mode)
+	// With no CORS_ORIGINS, cross-origin requests are denied by default, but
+	// preflight still completes without granting access.
 	req, _ := http.NewRequest("OPTIONS", ts.URL+"/api", nil)
 	req.Header.Set("Origin", "http://localhost:3000")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("options request: %v", err)
 	}
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("expected 204 for OPTIONS, got %d", resp.StatusCode)
 	}
-	if resp.Header.Get("Access-Control-Allow-Origin") != "http://localhost:3000" {
-		t.Fatalf("expected CORS origin header, got %q", resp.Header.Get("Access-Control-Allow-Origin"))
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("expected no CORS origin header by default, got %q", got)
+	}
+	if got := resp.Header.Get("Vary"); !strings.Contains(got, "Origin") {
+		t.Fatalf("expected Vary: Origin, got %q", got)
+	}
+}
+
+func TestCORSAllowedOrigin(t *testing.T) {
+	t.Setenv("CORS_ORIGINS", "https://app.example.com")
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/health", nil)
+	req.Header.Set("Origin", "https://app.example.com")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	_ = resp.Body.Close()
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "https://app.example.com" {
+		t.Fatalf("expected allowed origin, got %q", got)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Credentials"); got != "true" {
+		t.Fatalf("expected credentials header, got %q", got)
+	}
+
+	req, _ = http.NewRequest("GET", ts.URL+"/api/health", nil)
+	req.Header.Set("Origin", "https://evil.example")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	_ = resp.Body.Close()
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("expected unlisted origin to be denied, got %q", got)
 	}
 }
 
@@ -1734,4 +1771,232 @@ func decodeJSON(t *testing.T, resp *http.Response, v any) {
 		t.Fatalf("decode json: %v", err)
 	}
 	_ = resp.Body.Close()
+}
+
+// ---------------------------------------------------------------------------
+// Client IP / trusted proxy handling (#7)
+// ---------------------------------------------------------------------------
+
+func TestGetClientIP(t *testing.T) {
+	tests := []struct {
+		name    string
+		remote  string
+		xff     string
+		xri     string
+		trusted string
+		want    string
+	}{
+		{
+			name:   "spoofed XFF is ignored without trusted proxy",
+			remote: "192.0.2.10:1234",
+			xff:    "203.0.113.9",
+			want:   "192.0.2.10",
+		},
+		{
+			name:    "XFF is used when the peer is a trusted proxy",
+			remote:  "127.0.0.1:1234",
+			xff:     "203.0.113.9, 10.0.0.1",
+			trusted: "127.0.0.1,10.0.0.0/8",
+			want:    "203.0.113.9",
+		},
+		{
+			name:   "IPv6 RemoteAddr is parsed correctly",
+			remote: "[2001:db8::1]:443",
+			want:   "2001:db8::1",
+		},
+		{
+			name:    "X-Real-IP is used from a trusted CIDR",
+			remote:  "127.0.0.1:1",
+			xri:     "198.51.100.7",
+			trusted: "127.0.0.0/8",
+			want:    "198.51.100.7",
+		},
+		{
+			name:    "invalid XFF falls back to remote",
+			remote:  "127.0.0.1:1",
+			xff:     "not-an-ip",
+			trusted: "127.0.0.1",
+			want:    "127.0.0.1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("TRUSTED_PROXIES", tt.trusted)
+			req := httptest.NewRequest("POST", "/", nil)
+			req.RemoteAddr = tt.remote
+			if tt.xff != "" {
+				req.Header.Set("X-Forwarded-For", tt.xff)
+			}
+			if tt.xri != "" {
+				req.Header.Set("X-Real-IP", tt.xri)
+			}
+			if got := getClientIP(req); got != tt.want {
+				t.Fatalf("expected %q, got %q", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestRateLimit_RegistrationValidate(t *testing.T) {
+	t.Setenv("RATE_LIMIT_ATTEMPTS", "2")
+	t.Setenv("RATE_LIMIT_WINDOW_MINUTES", "1")
+	t.Setenv("REGISTRATION_ENABLED", "true")
+	t.Setenv("REGISTRATION_TOTP_SECRET", "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP")
+	t.Setenv("GIT_REPO_ROOT", filepath.Join(t.TempDir(), "git-repos"))
+
+	dbPath := filepath.Join(t.TempDir(), "test.sqlite3")
+	s, err := New(dbPath, []byte("test-secret-key-32-bytes-long!!!"), 5, 5)
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+	t.Cleanup(func() { _ = s.DB.Close() })
+
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	for i := 0; i < 2; i++ {
+		resp := doReq(t, ts, "POST", "/api/registration/validate", `{"code":"000000"}`, "")
+		expectStatus(t, resp, http.StatusUnauthorized)
+		_ = resp.Body.Close()
+	}
+	resp := doReq(t, ts, "POST", "/api/registration/validate", `{"code":"000000"}`, "")
+	expectStatus(t, resp, http.StatusTooManyRequests)
+	_ = resp.Body.Close()
+}
+
+// ---------------------------------------------------------------------------
+// Request body limits (#8)
+// ---------------------------------------------------------------------------
+
+func TestBodyLimit_RejectsOversizedBody(t *testing.T) {
+	t.Setenv("MAX_REQUEST_BODY_BYTES", "1048576")
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	big := `{"password":"` + strings.Repeat("a", 1<<20) + `"}`
+	resp := doReq(t, ts, "POST", "/api", big, "")
+	expectStatus(t, resp, http.StatusRequestEntityTooLarge)
+	_ = resp.Body.Close()
+}
+
+func TestBodyLimit_AllowsNormalBody(t *testing.T) {
+	t.Setenv("MAX_REQUEST_BODY_BYTES", "1048576")
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"bodylimit1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
+}
+
+// ---------------------------------------------------------------------------
+// Cookie / CSRF consistency (#9)
+// ---------------------------------------------------------------------------
+
+func TestCookieAuth_DoesNotExposeJWT(t *testing.T) {
+	t.Setenv("COOKIE_AUTH_ENABLED", "true")
+	t.Setenv("COOKIE_SECURE", "false")
+
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookiejwt1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
+
+	resp = doReq(t, ts, "POST", "/api/cookiejwt1/login", `{"password":"pw"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+
+	var body map[string]any
+	decodeJSON(t, resp, &body)
+	if _, ok := body["token"]; ok {
+		t.Fatal("cookie auth must not return the JWT in the response body")
+	}
+	if exp, ok := body["expires_at"].(float64); !ok || exp <= float64(time.Now().Unix()) {
+		t.Fatalf("expected a future expires_at, got %v", body["expires_at"])
+	}
+}
+
+func TestCookieAuth_CSRFNotBypassedByBearerHeader(t *testing.T) {
+	t.Setenv("COOKIE_AUTH_ENABLED", "true")
+	t.Setenv("COOKIE_SECURE", "false")
+
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"cookiessrf1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
+
+	loginResp := doReq(t, ts, "POST", "/api/cookiessrf1/login", `{"password":"pw"}`, "")
+	expectStatus(t, loginResp, http.StatusOK)
+	var authCookie *http.Cookie
+	for _, c := range loginResp.Cookies() {
+		if c.Name == "webpass_auth" {
+			authCookie = c
+		}
+	}
+	_ = loginResp.Body.Close()
+	if authCookie == nil {
+		t.Fatal("expected auth cookie")
+	}
+
+	// Cookie mode + a bogus Authorization header must NOT skip CSRF.
+	req, _ := http.NewRequest("POST", ts.URL+"/api/cookiessrf1/totp/setup", nil)
+	req.AddCookie(authCookie)
+	req.Header.Set("Authorization", "Bearer bogus")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	expectStatus(t, resp, http.StatusForbidden)
+	_ = resp.Body.Close()
+}
+
+func TestLogout_ClearsGitSessionToken(t *testing.T) {
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	resp := doReq(t, ts, "POST", "/api", `{"password":"pw","public_key":"pk","fingerprint":"logoutgit1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
+
+	resp = doReq(t, ts, "POST", "/api/logoutgit1/login", `{"password":"pw"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	var lr map[string]string
+	decodeJSON(t, resp, &lr)
+	token := lr["token"]
+
+	s.GitService.SetSessionToken("logoutgit1", "plaintext-pat")
+	if _, ok := s.GitService.getSessionToken("logoutgit1"); !ok {
+		t.Fatal("expected cached git token before logout")
+	}
+
+	resp = doReq(t, ts, "POST", "/api/logout", "", token)
+	expectStatus(t, resp, http.StatusOK)
+	_ = resp.Body.Close()
+
+	if _, ok := s.GitService.getSessionToken("logoutgit1"); ok {
+		t.Fatal("cached git token should be cleared on logout")
+	}
+}
+
+func TestUseSecureCookie(t *testing.T) {
+	s := newTestServer(t)
+
+	r := httptest.NewRequest("GET", "/", nil)
+	if s.useSecureCookie(r) {
+		t.Fatal("plain HTTP should not set Secure by default")
+	}
+
+	r.Header.Set("X-Forwarded-Proto", "https")
+	if !s.useSecureCookie(r) {
+		t.Fatal("X-Forwarded-Proto=https should enable Secure")
+	}
 }

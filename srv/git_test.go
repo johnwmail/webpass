@@ -591,3 +591,120 @@ func TestExportPasswordStore_SkipsUnsafePaths(t *testing.T) {
 		t.Fatalf("expected good.gpg to be written: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Git remote URL validation (#6)
+// ---------------------------------------------------------------------------
+
+func TestValidateRepoURL(t *testing.T) {
+	t.Setenv("GIT_ALLOW_LOCAL_REPOS", "false")
+	t.Setenv("GIT_ALLOW_PRIVATE_NETWORKS", "false")
+	t.Setenv("GIT_ALLOW_INSECURE_HTTP", "false")
+
+	valid := []string{
+		"https://203.0.113.10/user/repo.git",
+		"https://github.com/user/repo.git",
+		"ssh://git@203.0.113.10/user/repo.git",
+		"git@203.0.113.10:user/repo.git",
+	}
+	for _, raw := range valid {
+		if _, err := validateRepoURL(raw); err != nil {
+			t.Errorf("expected %q to be valid, got %v", raw, err)
+		}
+	}
+
+	invalid := []string{
+		"",
+		"file:///tmp/repo.git",
+		"http://203.0.113.10/repo.git",
+		"ftp://203.0.113.10/repo.git",
+		"https://user:pass@203.0.113.10/repo.git",
+		"https://127.0.0.1/repo.git",
+		"https://localhost/repo.git",
+		"https://10.1.2.3/repo.git",
+		"https://169.254.169.254/latest/meta-data",
+		"https://[::1]/repo.git",
+		"ssh://git@127.0.0.1/repo.git",
+		"git@127.0.0.1:repo.git",
+		"not a url",
+	}
+	for _, raw := range invalid {
+		if _, err := validateRepoURL(raw); err == nil {
+			t.Errorf("expected %q to be rejected", raw)
+		}
+	}
+}
+
+func TestValidateRepoURLOptIns(t *testing.T) {
+	t.Run("file remotes", func(t *testing.T) {
+		t.Setenv("GIT_ALLOW_LOCAL_REPOS", "true")
+		if _, err := validateRepoURL("file:///tmp/repo.git"); err != nil {
+			t.Fatalf("expected file:// to be allowed, got %v", err)
+		}
+	})
+
+	t.Run("private networks", func(t *testing.T) {
+		t.Setenv("GIT_ALLOW_PRIVATE_NETWORKS", "true")
+		for _, raw := range []string{
+			"https://127.0.0.1/repo.git",
+			"https://10.1.2.3/repo.git",
+			"git@192.168.1.10:repo.git",
+		} {
+			if _, err := validateRepoURL(raw); err != nil {
+				t.Fatalf("expected %q to be allowed, got %v", raw, err)
+			}
+		}
+	})
+
+	t.Run("insecure http", func(t *testing.T) {
+		t.Setenv("GIT_ALLOW_INSECURE_HTTP", "true")
+		if _, err := validateRepoURL("http://203.0.113.10/repo.git"); err != nil {
+			t.Fatalf("expected http:// to be allowed, got %v", err)
+		}
+	})
+}
+
+func TestValidateGitBranch(t *testing.T) {
+	for _, branch := range []string{"HEAD", "main", "feature/x", "release-1.0"} {
+		if err := validateGitBranch(branch); err != nil {
+			t.Errorf("expected %q to be valid, got %v", branch, err)
+		}
+	}
+	for _, branch := range []string{"", "../x", "a..b", "/main", "main/", "a b", "a;b", "a\nb"} {
+		if err := validateGitBranch(branch); err == nil {
+			t.Errorf("expected %q to be rejected", branch)
+		}
+	}
+}
+
+func TestGitServiceConfigureRejectsUnsafeURL(t *testing.T) {
+	t.Setenv("GIT_ALLOW_LOCAL_REPOS", "false")
+	t.Setenv("GIT_ALLOW_PRIVATE_NETWORKS", "false")
+
+	s := newTestServer(t)
+	fp := "cfg-reject-fp"
+	mustCreateUser(t, s, fp)
+
+	for _, raw := range []string{
+		"file:///etc/passwd",
+		"https://127.0.0.1/repo.git",
+		"https://user:pass@203.0.113.10/repo.git",
+	} {
+		if err := s.GitService.Configure(context.Background(), fp, raw, "", "", "https", "HEAD"); err == nil {
+			t.Errorf("expected Configure(%q) to fail", raw)
+		}
+	}
+}
+
+func TestGitServiceClearSessionToken(t *testing.T) {
+	s := newTestServer(t)
+	fp := "clear-token-fp"
+	s.GitService.SetSessionToken(fp, "plaintext-pat")
+	if _, ok := s.GitService.getSessionToken(fp); !ok {
+		t.Fatal("expected token to be cached")
+	}
+	s.GitService.ClearSessionToken(fp)
+	if _, ok := s.GitService.getSessionToken(fp); ok {
+		t.Fatal("expected token to be cleared")
+	}
+}

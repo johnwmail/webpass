@@ -173,6 +173,7 @@ if [ -z "$WEBPASS_REPO_URL" ]; then
     git -C "$WEBPASS_GIT_TEST_REPO" symbolic-ref HEAD refs/heads/master
     export WEBPASS_REPO_URL="file://$WEBPASS_GIT_TEST_REPO"
     export WEBPASS_REPO_PAT="ci-dummy-token"
+    export GIT_ALLOW_LOCAL_REPOS=true
     log_info "Using local Git test repository: $WEBPASS_REPO_URL"
 fi
 

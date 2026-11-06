@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -27,6 +28,55 @@ var (
 )
 
 var flagListenAddr = flag.String("listen", ":8080", "address to listen on")
+
+// minJWTSecretBytes is the minimum accepted length for a configured JWT_SECRET.
+const minJWTSecretBytes = 32
+
+// insecureJWTSecrets are well-known example values that must never be used.
+var insecureJWTSecrets = map[string]bool{
+	"change-me-to-random-32-byte-hex":     true,
+	"your-random-32-byte-hex-string-here": true,
+	"your-secret-key":                     true,
+	"test":                                true,
+	"secret":                              true,
+	"changeme":                            true,
+}
+
+// loadJWTSecret validates a configured JWT secret, or generates an ephemeral
+// random key when none is configured (suitable for single-instance dev).
+func loadJWTSecret(raw string) ([]byte, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		key := make([]byte, minJWTSecretBytes)
+		if _, err := rand.Read(key); err != nil {
+			return nil, fmt.Errorf("generate jwt key: %w", err)
+		}
+		slog.Warn("JWT_SECRET is not set; using an ephemeral random key. " +
+			"Sessions will be invalidated on restart and multi-instance deployments will not share sessions.")
+		return key, nil
+	}
+	if len(raw) < minJWTSecretBytes {
+		return nil, fmt.Errorf("JWT_SECRET must be at least %d bytes (got %d); generate one with: openssl rand -hex 32",
+			minJWTSecretBytes, len(raw))
+	}
+	if insecureJWTSecrets[strings.ToLower(raw)] {
+		return nil, fmt.Errorf("JWT_SECRET is set to an example/placeholder value; generate one with: openssl rand -hex 32")
+	}
+	return []byte(raw), nil
+}
+
+// newHTTPServer builds the HTTP server with Slowloris/DoS-safe timeouts.
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      10 * time.Minute, // git push/pull and exports can be slow
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -122,13 +172,9 @@ func run() error {
 	fmt.Printf("  Soft Limit:      %d minutes (SESSION_SOFTLIMIT_MINUTES)\n", softLimitMin)
 	fmt.Println()
 
-	jwtKey := make([]byte, 32)
-	if key := os.Getenv("JWT_SECRET"); key != "" {
-		jwtKey = []byte(key)
-	} else {
-		if _, err := rand.Read(jwtKey); err != nil {
-			return fmt.Errorf("generate jwt key: %w", err)
-		}
+	jwtKey, err := loadJWTSecret(os.Getenv("JWT_SECRET"))
+	if err != nil {
+		return err
 	}
 
 	server, err := srv.New(dbPath, jwtKey, hardLimitMin, softLimitMin)
@@ -163,10 +209,7 @@ func run() error {
 	}
 
 	// Create HTTP server
-	httpServer := &http.Server{
-		Addr:    listenAddr,
-		Handler: server.Handler(),
-	}
+	httpServer := newHTTPServer(listenAddr, server.Handler())
 
 	// Start server in goroutine
 	go func() {
