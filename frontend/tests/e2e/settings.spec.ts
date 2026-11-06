@@ -200,7 +200,8 @@ test.describe('Settings', () => {
     await page.getByRole('button', { name: /Settings/i }).click();
     await page.getByText('Settings', { exact: false }).waitFor({ timeout: 10000 });
 
-    // Click enable 2FA button
+    // Click enable 2FA button (requires the login password for re-auth)
+    await page.getByPlaceholder('Enter login password').fill(testUser.password);
     await page.getByRole('button', { name: /2FA/i }).click();
 
     // Wait for 2FA setup dialog
@@ -644,6 +645,8 @@ test.describe('Settings', () => {
 
     // Enter the PGP passphrase
     await page.getByPlaceholder('Enter your PGP passphrase').fill(pgpPassphrase);
+    // Deletion also requires the login password (server-side re-auth)
+    await page.getByPlaceholder('Enter your login password').fill(testUser.password);
 
     // Click confirm delete button
     await page.getByRole('button', { name: /Confirm|Delete/i }).last().click();

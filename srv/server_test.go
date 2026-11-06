@@ -277,6 +277,15 @@ func TestRateLimit_Login2FA(t *testing.T) {
 // newTestServer creates a Server backed by a temp SQLite DB.
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
+	// bcrypt cost 10 keeps the suite fast; the production default (12) and
+	// configurable costs are covered by TestBcryptCost_*.
+	t.Setenv("BCRYPT_COST", "10")
+	return newTestServerRaw(t)
+}
+
+// newTestServerRaw is like newTestServer but leaves BCRYPT_COST untouched.
+func newTestServerRaw(t *testing.T) *Server {
+	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.sqlite3")
 	t.Cleanup(func() { _ = os.Remove(dbPath) })
 
@@ -294,6 +303,7 @@ func newTestServer(t *testing.T) *Server {
 		t.Fatalf("new server: %v", err)
 	}
 	t.Cleanup(func() { _ = srv.DB.Close() })
+	t.Cleanup(func() { srv.RateLimiter.Stop() })
 	return srv
 }
 
@@ -1429,7 +1439,8 @@ func getCSRFToken(t *testing.T, ts *httptest.Server) string {
 
 func TestBcryptCost_Default(t *testing.T) {
 	// When BCRYPT_COST is not set, should default to 12
-	s := newTestServer(t)
+	t.Setenv("BCRYPT_COST", "")
+	s := newTestServerRaw(t)
 	if s.bcryptCost != 12 {
 		t.Fatalf("expected default bcrypt cost 12, got %d", s.bcryptCost)
 	}
@@ -1437,7 +1448,7 @@ func TestBcryptCost_Default(t *testing.T) {
 
 func TestBcryptCost_Custom(t *testing.T) {
 	t.Setenv("BCRYPT_COST", "14")
-	s := newTestServer(t)
+	s := newTestServerRaw(t)
 	if s.bcryptCost != 14 {
 		t.Fatalf("expected bcrypt cost 14, got %d", s.bcryptCost)
 	}
@@ -1460,7 +1471,7 @@ func TestBcryptCost_InvalidValues(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("BCRYPT_COST", tt.envValue)
-			s := newTestServer(t)
+			s := newTestServerRaw(t)
 			if s.bcryptCost != tt.expected {
 				t.Errorf("env=%q: expected cost %d, got %d", tt.envValue, tt.expected, s.bcryptCost)
 			}
