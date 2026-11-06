@@ -29,7 +29,7 @@
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@preact/preset-vite": "^2.10.6",
-    "@types/node": "^22.20.4",
+    "@types/node": "^26.6.6",
     "@types/qrcode": "^1.5.6",
     "@types/tar-stream": "^3.1.4",
     "esbuild": "^0.28.2",
