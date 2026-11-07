@@ -866,11 +866,11 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
 
       {/* Delete Passphrase Prompt Modal */}
       {showDeletePrompt && (
-        <div class="modal-overlay" onClick={() => { setShowDeletePrompt(null); setDeletePassphrase(''); setDeletePassword(''); }}>
+        <div class="modal-overlay" onClick={(e) => { e.stopPropagation(); setShowDeletePrompt(null); setDeletePassphrase(''); setDeletePassword(''); }}>
           <div class="modal" style="max-width: 400px;" onClick={(e) => e.stopPropagation()}>
             <div class="modal-header">
               <h3>{showDeletePrompt === 'local' ? '🗑️ Clear Local Data' : '☠️ Delete Account'}</h3>
-              <button class="btn btn-ghost btn-icon" onClick={() => { setShowDeletePrompt(null); setDeletePassphrase(''); setDeletePassword(''); }}>✕</button>
+              <button class="btn btn-ghost btn-icon" onClick={(e) => { e.stopPropagation(); setShowDeletePrompt(null); setDeletePassphrase(''); setDeletePassword(''); }}>✕</button>
             </div>
             <div class="modal-body">
               <p style="margin-bottom: 16px; font-size: 13px; color: var(--text-muted);">
@@ -918,7 +918,7 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
               <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 16px;">
                 <button
                   class="btn btn-ghost"
-                  onClick={() => { setShowDeletePrompt(null); setDeletePassphrase(''); setDeletePassword(''); }}
+                  onClick={(e) => { e.stopPropagation(); setShowDeletePrompt(null); setDeletePassphrase(''); setDeletePassword(''); }}
                   disabled={deleteLoading}
                 >
                   Cancel
@@ -938,11 +938,11 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
 
       {/* PAT Passphrase Prompt Modal */}
       {showPassphrasePrompt && (
-        <div class="modal-overlay" onClick={() => { setShowPassphrasePrompt(false); setPatPassphrase(''); setPatAction(null); }}>
+        <div class="modal-overlay" onClick={(e) => { e.stopPropagation(); setShowPassphrasePrompt(false); setPatPassphrase(''); setPatAction(null); }}>
           <div class="modal" style="max-width: 400px;" onClick={(e) => e.stopPropagation()}>
             <div class="modal-header">
               <h3>🔐 {patAction === 'push' ? 'Push to Git' : 'Pull from Git'}</h3>
-              <button class="btn btn-ghost btn-icon" onClick={() => { setShowPassphrasePrompt(false); setPatPassphrase(''); setPatAction(null); }}>✕</button>
+              <button class="btn btn-ghost btn-icon" onClick={(e) => { e.stopPropagation(); setShowPassphrasePrompt(false); setPatPassphrase(''); setPatAction(null); }}>✕</button>
             </div>
             <div class="modal-body">
               <p style="margin-bottom: 16px; font-size: 13px; color: var(--text-muted);">
@@ -974,7 +974,7 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
               <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 16px;">
                 <button
                   class="btn btn-ghost"
-                  onClick={() => { setShowPassphrasePrompt(false); setPatPassphrase(''); setPatAction(null); }}
+                  onClick={(e) => { e.stopPropagation(); setShowPassphrasePrompt(false); setPatPassphrase(''); setPatAction(null); }}
                   disabled={patLoading}
                 >
                   Cancel

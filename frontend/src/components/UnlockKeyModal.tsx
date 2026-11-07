@@ -63,21 +63,39 @@ export function UnlockKeyModal({ onClose, onUnlocked }: Props) {
           <div class="field">
             <label class="label">PGP Passphrase</label>
             <div class="input-with-icon">
-              <input
-                ref={inputRef}
-                class="input"
-                type={showPassphrase ? 'text' : 'password'}
-                value={passphrase}
-                onInput={(e) => { setPassphrase((e.target as HTMLInputElement).value); setError(''); }}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleUnlock(); }}
-                placeholder="Enter your PGP passphrase"
-                autocomplete="one-time-code"
-                name="pgp-passphrase-unlock"
-                data-lpignore="true"
-                data-bwignore="true"
-                data-1p-ignore="true"
-                style={{ paddingRight: '40px' }}
-              />
+              {showPassphrase ? (
+                <input
+                  ref={inputRef}
+                  class="input"
+                  type="text"
+                  value={passphrase}
+                  onInput={(e) => { setPassphrase((e.target as HTMLInputElement).value); setError(''); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleUnlock(); }}
+                  placeholder="Enter your PGP passphrase"
+                  autocomplete="one-time-code"
+                  name="pgp-passphrase-unlock"
+                  data-lpignore="true"
+                  data-bwignore="true"
+                  data-1p-ignore="true"
+                  style={{ paddingRight: '40px' }}
+                />
+              ) : (
+                <input
+                  ref={inputRef}
+                  class="input"
+                  type="password"
+                  value={passphrase}
+                  onInput={(e) => { setPassphrase((e.target as HTMLInputElement).value); setError(''); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleUnlock(); }}
+                  placeholder="Enter your PGP passphrase"
+                  autocomplete="one-time-code"
+                  name="pgp-passphrase-unlock"
+                  data-lpignore="true"
+                  data-bwignore="true"
+                  data-1p-ignore="true"
+                  style={{ paddingRight: '40px' }}
+                />
+              )}
               <button
                 type="button"
                 class="btn btn-ghost btn-icon"
