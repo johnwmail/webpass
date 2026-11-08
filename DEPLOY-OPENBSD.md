@@ -139,32 +139,44 @@ restart the service. WebPass does not do its own TLS.
 ### OpenBSD sandbox (pledge/unveil)
 
 On OpenBSD the server applies `unveil(2)` and then `pledge(2)` before opening the
-database or listening on the network:
+database or listening on the network.
 
-- Unveiled: the database directory/WAL files, `GIT_REPO_ROOT`,
-  `data_encryption.key`, the registration code file, an optional `STATIC_DIR`,
-  `/etc/{resolv.conf,hosts,services,ssl,localtime}`, `/dev/{urandom,null}`, and
-  `/tmp`.
-- Pledge promises: `stdio rpath wpath cpath inet dns unix flock fattr tmppath`.
+Default settings (no configuration required):
 
-If you change paths (custom `TMPDIR`, a `STATIC_DIR` outside the defaults, a
-different database location, etc.), verify startup after the change. For
-debugging only, set `DISABLE_SANDBOX=1` in `/etc/webpass.env` to skip the
-sandbox.
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DISABLE_SANDBOX` | unset (sandbox enabled) | `1`/`true` disables unveil/pledge. Debug only. |
+| `OPENBSD_PLEDGE_PROMISES` | `stdio rpath wpath cpath inet dns unix flock fattr` | Overrides the pledge promise set. Invalid promises make startup fail closed with `EINVAL`. |
+| `OPENBSD_UNVEIL_EXTRA_PATHS` | empty | Comma-separated extra paths in `path[:flags]` form. `flags` is a subset of `r`/`w`/`c` (default `r`). Paths with `w`/`c` also unveil their parent directory. |
 
-The Linux/macOS build is unaffected; CI cross-compiles the OpenBSD binary to
-catch build-tag regressions, but the actual pledge/unveil calls must be tested
-on OpenBSD.
+Automatically unveiled paths:
 
+- the database directory plus WAL/SHM files, and `data_encryption.key`
+  (unless `DATA_ENCRYPTION_KEY` is set)
+- `GIT_REPO_ROOT`
+- the registration code file
+- an optional `STATIC_DIR`
+- `os.TempDir()` (`TMPDIR`, default `/tmp`) and `/tmp`
+- `SSL_CERT_FILE` / `SSL_CERT_DIR` when set
+- `/etc/{resolv.conf,hosts,services,ssl,localtime}`
+- `/dev/{urandom,null}`
 
-- The binary is built with `CGO_ENABLED=0`: it has no libc dependency and only
-  relies on the OpenBSD runtime loader, so OpenBSD W^X is satisfied.
-- DNS for outbound git sync uses Go's built-in resolver.
-- Do not place `/var/webpass` on a filesystem without POSIX file locking
-  (e.g. NFS); SQLite requires working `fcntl` locks.
-- If you prefer to serve the SPA from disk instead of the embedded copy, set
-  `STATIC_DIR` in `/etc/webpass.env` and make the directory readable by
-  `_webpass`.
+Example for a custom CA bundle and cache directory:
+
+```sh
+OPENBSD_PLEDGE_PROMISES="stdio rpath wpath cpath inet dns unix flock fattr"
+OPENBSD_UNVEIL_EXTRA_PATHS="/etc/custom-certs:r,/var/cache/webpass:rwc"
+```
+
+Opening up promises or unveiling extra paths weakens the sandbox; only do it
+when a deployment genuinely needs additional syscall families or paths. If the
+server fails at startup with `pledge ... invalid argument` or an unveil-related
+error, fix the configuration rather than disabling the sandbox; use
+`DISABLE_SANDBOX=1` only temporarily while debugging.
+
+The Linux/macOS build is unaffected; CI cross-compiles the OpenBSD binary and
+runs an OpenBSD 8.0 VM smoke test (`.github/workflows/openbsd.yml`) that
+exercises registration, login and an entry round-trip with the sandbox active.
 
 ## 8. Uninstall
 
