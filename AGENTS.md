@@ -98,6 +98,9 @@ npm run typecheck
 | `OPENBSD_PLEDGE_PROMISES` | OpenBSD only: override pledge promises (default `stdio rpath wpath cpath inet dns unix flock fattr`) |
 | `OPENBSD_UNVEIL_EXTRA_PATHS` | OpenBSD only: extra unveil paths (`path[:rwc]`, comma-separated) |
 | `DISABLE_SANDBOX` | OpenBSD only: disable unveil/pledge (debug only) |
+| `WEBAUTHN_RP_ID` | Enable passkeys (WebAuthn); relying-party ID (domain, no scheme/port) |
+| `WEBAUTHN_RP_NAME` | Passkey display name (default: `WebPass`) |
+| `WEBAUTHN_RP_ORIGINS` | Comma-separated allowed origins (default: `https://<RP_ID>`) |
 | `GIT_REPO_ROOT`   | Git repos directory (default: `/data/git-repos`) |
 | `DATA_ENCRYPTION_KEY` | Encrypts TOTP secrets at rest (optional; auto-generated as `data_encryption.key` next to the DB). Back it up with the DB. |
 | `SESSION_HARDLIMIT_MINUTES` | JWT hard limit (max session time) in minutes (default: 30, range: 5-480) |

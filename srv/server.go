@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
@@ -43,16 +44,17 @@ type Server struct {
 	StaticFS     fs.FS  // embedded frontend filesystem (optional; preferred over StaticDir)
 	GitService   *GitService
 	Registration *RegistrationService
-	RateLimiter  *RateLimiter  // rate limiter for auth endpoints
-	hardLimit    time.Duration // hard limit (max session time)
-	softLimit    time.Duration // soft limit (browser closed detection)
-	cookieAuth   bool          // whether to use httpOnly cookies instead of localStorage
-	cookieSecure bool          // whether to set Secure flag on cookies
-	cookieDomain string        // optional cookie domain
-	bcryptCost   int           // bcrypt cost factor for password hashing
-	maxBodyBytes int64         // maximum accepted request body size in bytes
-	Secrets      *SecretBox    // encrypts secrets stored at rest (TOTP)
-	dummyHash    []byte        // bcrypt hash used for timing-equalised login failures
+	RateLimiter  *RateLimiter       // rate limiter for auth endpoints
+	hardLimit    time.Duration      // hard limit (max session time)
+	softLimit    time.Duration      // soft limit (browser closed detection)
+	cookieAuth   bool               // whether to use httpOnly cookies instead of localStorage
+	cookieSecure bool               // whether to set Secure flag on cookies
+	cookieDomain string             // optional cookie domain
+	bcryptCost   int                // bcrypt cost factor for password hashing
+	maxBodyBytes int64              // maximum accepted request body size in bytes
+	Secrets      *SecretBox         // encrypts secrets stored at rest (TOTP)
+	WebAuthn     *webauthn.WebAuthn // passkey relying party (nil when disabled)
+	dummyHash    []byte             // bcrypt hash used for timing-equalised login failures
 	// Version info (set from main package)
 	Version   string
 	BuildTime string
@@ -140,6 +142,13 @@ func New(dbPath string, jwtKey []byte, hardLimitMin int, softLimitMin int) (*Ser
 		return nil, fmt.Errorf("generate dummy password hash: %w", err)
 	}
 	s.dummyHash = dummyHash
+
+	wa, err := newWebAuthn()
+	if err != nil {
+		_ = wdb.Close()
+		return nil, err
+	}
+	s.WebAuthn = wa
 	s.hardLimit = time.Duration(hardLimitMin) * time.Minute
 	s.softLimit = time.Duration(softLimitMin) * time.Minute
 
@@ -181,12 +190,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api", s.rateLimitMiddleware(s.handleCreateUser))
 	mux.HandleFunc("POST /api/{fingerprint}/login", s.rateLimitMiddleware(s.handleLogin))
 	mux.HandleFunc("POST /api/{fingerprint}/login/2fa", s.rateLimitMiddleware(s.handleLogin2FA))
+	mux.HandleFunc("POST /api/{fingerprint}/login/webauthn/begin", s.rateLimitMiddleware(s.handleLoginWebAuthnBegin))
+	mux.HandleFunc("POST /api/{fingerprint}/login/webauthn/finish", s.rateLimitMiddleware(s.handleLoginWebAuthnFinish))
 	mux.HandleFunc("POST /api/{fingerprint}/login/recovery", s.rateLimitMiddleware(s.handleLoginRecovery))
 	mux.HandleFunc("POST /api/logout", s.handleLogout)
 
 	// Authenticated routes (no rate limiting - already protected by JWT)
 	mux.HandleFunc("POST /api/{fingerprint}/totp/setup", s.requireAuth(s.handleTOTPSetup))
 	mux.HandleFunc("POST /api/{fingerprint}/totp/confirm", s.requireAuth(s.handleTOTPConfirm))
+	mux.HandleFunc("POST /api/{fingerprint}/webauthn/register/begin", s.requireAuth(s.handleWebAuthnRegisterBegin))
+	mux.HandleFunc("POST /api/{fingerprint}/webauthn/register/finish", s.requireAuth(s.handleWebAuthnRegisterFinish))
+	mux.HandleFunc("GET /api/{fingerprint}/webauthn/credentials", s.requireAuth(s.handleListWebAuthnCredentials))
+	mux.HandleFunc("DELETE /api/{fingerprint}/webauthn/credentials/{id}", s.requireAuth(s.handleDeleteWebAuthnCredential))
 	mux.HandleFunc("GET /api/{fingerprint}/entries", s.requireAuth(s.handleListEntries))
 	mux.HandleFunc("POST /api/{fingerprint}/entries/move", s.requireAuth(s.handleMoveEntry))
 	mux.HandleFunc("GET /api/{fingerprint}/export", s.requireAuth(s.handleExport))
@@ -444,7 +459,9 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 			path == "/api/registration/validate" || // POST /api/registration/validate
 			strings.HasSuffix(path, "/login") || // POST /api/{fingerprint}/login
 			strings.HasSuffix(path, "/login/2fa") || // POST /api/{fingerprint}/login/2fa
-			strings.HasSuffix(path, "/login/recovery") { // POST /api/{fingerprint}/login/recovery
+			strings.HasSuffix(path, "/login/recovery") || // POST /api/{fingerprint}/login/recovery
+			strings.HasSuffix(path, "/login/webauthn/begin") || // POST /api/{fingerprint}/login/webauthn/begin
+			strings.HasSuffix(path, "/login/webauthn/finish") { // POST /api/{fingerprint}/login/webauthn/finish
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -608,6 +625,8 @@ func rateLimitScope(path string) string {
 		return "login2fa"
 	case strings.HasSuffix(path, "/login/recovery"):
 		return "recovery"
+	case strings.HasSuffix(path, "/login/webauthn/begin"), strings.HasSuffix(path, "/login/webauthn/finish"):
+		return "webauthn"
 	case strings.HasSuffix(path, "/login"):
 		return "login"
 	case path == "/api/registration/validate":
@@ -1113,8 +1132,22 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if user.TotpEnabled != nil && *user.TotpEnabled == 1 {
-		jsonOK(w, map[string]bool{"requires_2fa": true})
+	totpEnabled := user.TotpEnabled != nil && *user.TotpEnabled == 1
+	webauthnEnabled := false
+	if s.WebAuthn != nil {
+		count, err := s.Q.CountWebAuthnCredentials(r.Context(), fp)
+		if err != nil {
+			slog.Error("count webauthn credentials", "error", err)
+		} else {
+			webauthnEnabled = count > 0
+		}
+	}
+	if totpEnabled || webauthnEnabled {
+		jsonOK(w, map[string]any{
+			"requires_2fa": true,
+			"totp":         totpEnabled,
+			"webauthn":     webauthnEnabled,
+		})
 		return
 	}
 
@@ -1703,6 +1736,18 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	if err := qtx.DeleteRecoveryCodes(ctx, fp); err != nil {
 		_ = tx.Rollback()
 		slog.Error("delete account: purge recovery codes", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := qtx.DeleteWebAuthnCredentialsForUser(ctx, fp); err != nil {
+		_ = tx.Rollback()
+		slog.Error("delete account: purge passkeys", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := qtx.DeleteWebAuthnChallengesForUser(ctx, fp); err != nil {
+		_ = tx.Rollback()
+		slog.Error("delete account: purge webauthn challenges", "error", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}

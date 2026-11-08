@@ -19,8 +19,9 @@
     "lint": "echo 'No linter configured'"
   },
   "dependencies": {
+    "@simplewebauthn/browser": "^14.0.0",
     "fflate": "^0.8.3",
-"lucide-preact": "^1.67.0",
+    "lucide-preact": "^1.67.0",
     "openpgp": "^6.3.2",
     "otpauth": "^9.6.0",
     "preact": "^11.1.1",

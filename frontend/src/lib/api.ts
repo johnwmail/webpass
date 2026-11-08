@@ -180,7 +180,13 @@ export class ApiClient {
   /** POST /api/:fp/login */
   async login(
     password: string
-  ): Promise<{ token?: string; requires_2fa?: boolean; expires_at?: number }> {
+  ): Promise<{
+    token?: string;
+    requires_2fa?: boolean;
+    totp?: boolean;
+    webauthn?: boolean;
+    expires_at?: number;
+  }> {
     const res = await this.guardedFetch(this.url(`/api/${this.fingerprint}/login`), {
       method: 'POST',
       headers: this.headers(),
@@ -279,6 +285,119 @@ export class ApiClient {
     }
     this.refreshCsrfToken();
     return res.json();
+  }
+
+  /** POST /api/:fp/login/webauthn/begin — start passkey 2FA */
+  async webauthnLoginBegin(password: string): Promise<{ challenge_id: string; options: unknown }> {
+    const res = await this.guardedFetch(
+      this.url(`/api/${this.fingerprint}/login/webauthn/begin`),
+      {
+        method: 'POST',
+        headers: this.headers(),
+        credentials: 'include',
+        body: JSON.stringify({ password }),
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `Passkey login failed (${res.status})` }));
+      throw new Error(err.error || `Passkey login failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  /** POST /api/:fp/login/webauthn/finish — finish passkey 2FA */
+  async webauthnLoginFinish(
+    challengeId: string,
+    credential: unknown
+  ): Promise<{ token?: string; expires_at?: number }> {
+    const res = await this.guardedFetch(
+      this.url(`/api/${this.fingerprint}/login/webauthn/finish`),
+      {
+        method: 'POST',
+        headers: this.headers(),
+        credentials: 'include',
+        body: JSON.stringify({ challenge_id: challengeId, credential }),
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `Passkey login failed (${res.status})` }));
+      throw new Error(err.error || `Passkey login failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  /** POST /api/:fp/webauthn/register/begin — start adding a passkey */
+  async webauthnRegisterBegin(password: string): Promise<{ challenge_id: string; options: unknown }> {
+    const res = await this.guardedFetch(
+      this.url(`/api/${this.fingerprint}/webauthn/register/begin`),
+      {
+        method: 'POST',
+        headers: this.headers(),
+        credentials: 'include',
+        body: JSON.stringify({ current_password: password }),
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `Passkey registration failed (${res.status})` }));
+      throw new Error(err.error || `Passkey registration failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  /** POST /api/:fp/webauthn/register/finish — finish adding a passkey */
+  async webauthnRegisterFinish(
+    challengeId: string,
+    credential: unknown,
+    name?: string
+  ): Promise<{ status: string }> {
+    const res = await this.guardedFetch(
+      this.url(`/api/${this.fingerprint}/webauthn/register/finish`),
+      {
+        method: 'POST',
+        headers: this.headers(),
+        credentials: 'include',
+        body: JSON.stringify({ challenge_id: challengeId, credential, name: name || '' }),
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `Passkey registration failed (${res.status})` }));
+      throw new Error(err.error || `Passkey registration failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  /** GET /api/:fp/webauthn/credentials */
+  async listPasskeys(): Promise<{
+    credentials: Array<{
+      id: number;
+      name: string;
+      created_at: string;
+      last_used_at: string | null;
+    }>;
+  }> {
+    const res = await fetch(this.url(`/api/${this.fingerprint}/webauthn/credentials`), {
+      headers: this.headers(),
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error(`Passkey list failed (${res.status})`);
+    return res.json();
+  }
+
+  /** DELETE /api/:fp/webauthn/credentials/:id */
+  async deletePasskey(id: number, password: string): Promise<void> {
+    const res = await this.guardedFetch(
+      this.url(`/api/${this.fingerprint}/webauthn/credentials/${id}`),
+      {
+        method: 'DELETE',
+        headers: this.headers(),
+        credentials: 'include',
+        body: JSON.stringify({ current_password: password }),
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `Remove passkey failed (${res.status})` }));
+      throw new Error(err.error || `Remove passkey failed (${res.status})`);
+    }
   }
 
   /** POST /api/logout — clear auth cookie */

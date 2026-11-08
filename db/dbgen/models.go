@@ -89,3 +89,21 @@ type Visitor struct {
 	CreatedAt time.Time `json:"created_at"`
 	LastSeen  time.Time `json:"last_seen"`
 }
+
+type WebauthnChallenge struct {
+	ID          string    `json:"id"`
+	Fingerprint string    `json:"fingerprint"`
+	Purpose     string    `json:"purpose"`
+	SessionJson []byte    `json:"session_json"`
+	ExpiresAt   time.Time `json:"expires_at"`
+}
+
+type WebauthnCredential struct {
+	ID             int64      `json:"id"`
+	Fingerprint    string     `json:"fingerprint"`
+	CredentialID   []byte     `json:"credential_id"`
+	CredentialJson []byte     `json:"credential_json"`
+	Name           string     `json:"name"`
+	CreatedAt      time.Time  `json:"created_at"`
+	LastUsedAt     *time.Time `json:"last_used_at"`
+}

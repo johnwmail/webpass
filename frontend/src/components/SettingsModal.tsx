@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'preact/hooks';
 import { session } from '../lib/session';
 import { getAccount, deleteAccount as deleteAccountFromDB, saveAccount, aesDecryptWithFallback, aesEncrypt } from '../lib/storage';
 import { decryptPAT, decryptPrivateKey } from '../lib/crypto';
+import { startRegistration } from '@simplewebauthn/browser';
 import QRCode from 'qrcode';
 import { GitSync } from './GitSync';
 import { ImportDialog } from './ImportDialog';
@@ -45,6 +46,19 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
   const [reauthPassword, setReauthPassword] = useState('');
   const qrRef = useRef<HTMLCanvasElement>(null);
 
+  // Passkey state
+  const [passkeys, setPasskeys] = useState<Array<{
+    id: number;
+    name: string;
+    created_at: string;
+    last_used_at: string | null;
+  }>>([]);
+  const [passkeysAvailable, setPasskeysAvailable] = useState(false);
+  const [passkeyPassword, setPasskeyPassword] = useState('');
+  const [passkeyName, setPasskeyName] = useState('');
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
+  const [passkeyError, setPasskeyError] = useState('');
+
   // Import state
   const [showImport, setShowImport] = useState(false);
 
@@ -72,6 +86,21 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
   const apiUrl = session.api?.baseUrl || '';
 
   const formatFp = (f: string) => f.toUpperCase().replace(/(.{4})/g, '$1 ').trim();
+
+  const refreshPasskeys = async () => {
+    if (!session.api) return;
+    try {
+      const res = await session.api.listPasskeys();
+      setPasskeys(res.credentials || []);
+      setPasskeysAvailable(true);
+    } catch {
+      setPasskeysAvailable(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshPasskeys();
+  }, []);
 
   // Fetch backend version
   useEffect(() => {
@@ -271,6 +300,43 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
       setError(e.message || 'Invalid code');
     }
     setTotpLoading(false);
+  };
+
+  const addPasskey = async () => {
+    if (!session.api || !passkeyPassword) return;
+    setPasskeyLoading(true);
+    setPasskeyError('');
+    try {
+      const begin = await session.api.webauthnRegisterBegin(passkeyPassword);
+      const credential = await startRegistration({ optionsJSON: begin.options as any });
+      await session.api.webauthnRegisterFinish(begin.challenge_id, credential, passkeyName);
+      setPasskeyName('');
+      setPasskeyPassword('');
+      setSuccess('Passkey added');
+      setTimeout(() => setSuccess(''), 3000);
+      await refreshPasskeys();
+    } catch (e: any) {
+      setPasskeyError(e.message || 'Failed to add passkey');
+    }
+    setPasskeyLoading(false);
+  };
+
+  const removePasskey = async (id: number) => {
+    if (!session.api || !passkeyPassword) {
+      setPasskeyError('Enter your login password to remove a passkey');
+      return;
+    }
+    setPasskeyLoading(true);
+    setPasskeyError('');
+    try {
+      await session.api.deletePasskey(id, passkeyPassword);
+      setSuccess('Passkey removed');
+      setTimeout(() => setSuccess(''), 3000);
+      await refreshPasskeys();
+    } catch (e: any) {
+      setPasskeyError(e.message || 'Failed to remove passkey');
+    }
+    setPasskeyLoading(false);
   };
 
   // Change password
@@ -739,6 +805,73 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
               </>
             )}
           </div>
+
+          {/* Passkeys */}
+          {passkeysAvailable && (
+            <div class="settings-section">
+              <h3>🔐 Passkeys</h3>
+              <p class="help-text" style="margin-bottom: 12px; font-size: 12px;">
+                Use Face ID, Touch ID or a security key as a second factor.
+              </p>
+              {passkeys.length === 0 ? (
+                <p class="help-text" style="margin-bottom: 12px; font-size: 12px;">
+                  No passkeys registered.
+                </p>
+              ) : (
+                <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
+                  {passkeys.map((pk) => (
+                    <div key={pk.id} style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                      <div>
+                        <div style="font-size: 13px;">{pk.name}</div>
+                        <div class="help-text" style="font-size: 11px;">
+                          Added {new Date(pk.created_at).toLocaleDateString()}
+                          {pk.last_used_at ? ` · Last used ${new Date(pk.last_used_at).toLocaleDateString()}` : ''}
+                        </div>
+                      </div>
+                      <button
+                        class="btn btn-sm btn-danger"
+                        onClick={() => removePasskey(pk.id)}
+                        disabled={passkeyLoading}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div class="field">
+                <label class="label">Login Password</label>
+                <input
+                  class="input"
+                  type="password"
+                  value={passkeyPassword}
+                  onInput={(e) => setPasskeyPassword((e.target as HTMLInputElement).value)}
+                  placeholder="Required to add or remove passkeys"
+                  autocomplete="current-password"
+                  disabled={passkeyLoading}
+                />
+              </div>
+              <div class="field">
+                <label class="label">Passkey Name (optional)</label>
+                <input
+                  class="input"
+                  type="text"
+                  value={passkeyName}
+                  onInput={(e) => setPasskeyName((e.target as HTMLInputElement).value)}
+                  placeholder="e.g. iPhone"
+                  disabled={passkeyLoading}
+                />
+              </div>
+              <button
+                class="btn btn-sm btn-primary"
+                onClick={addPasskey}
+                disabled={!passkeyPassword || passkeyLoading}
+              >
+                {passkeyLoading ? <><span class="spinner" /> Working...</> : '+ Add passkey'}
+              </button>
+              {passkeyError && <p class="error-msg" style="margin-top: 8px;">{passkeyError}</p>}
+            </div>
+          )}
 
           {/* Security - Change Password */}
           <div class="settings-section">
