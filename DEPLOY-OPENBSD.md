@@ -136,6 +136,27 @@ restart the service. WebPass does not do its own TLS.
 
 ## 7. Notes and caveats
 
+### OpenBSD sandbox (pledge/unveil)
+
+On OpenBSD the server applies `unveil(2)` and then `pledge(2)` before opening the
+database or listening on the network:
+
+- Unveiled: the database directory/WAL files, `GIT_REPO_ROOT`,
+  `data_encryption.key`, the registration code file, an optional `STATIC_DIR`,
+  `/etc/{resolv.conf,hosts,services,ssl,localtime}`, `/dev/{urandom,null}`, and
+  `/tmp`.
+- Pledge promises: `stdio rpath wpath cpath inet dns unix flock fattr tmppath`.
+
+If you change paths (custom `TMPDIR`, a `STATIC_DIR` outside the defaults, a
+different database location, etc.), verify startup after the change. For
+debugging only, set `DISABLE_SANDBOX=1` in `/etc/webpass.env` to skip the
+sandbox.
+
+The Linux/macOS build is unaffected; CI cross-compiles the OpenBSD binary to
+catch build-tag regressions, but the actual pledge/unveil calls must be tested
+on OpenBSD.
+
+
 - The binary is built with `CGO_ENABLED=0`: it has no libc dependency and only
   relies on the OpenBSD runtime loader, so OpenBSD W^X is satisfied.
 - DNS for outbound git sync uses Go's built-in resolver.

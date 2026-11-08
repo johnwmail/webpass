@@ -177,6 +177,23 @@ func run() error {
 		return err
 	}
 
+	// On OpenBSD, restrict the filesystem view and syscall surface before the
+	// database and network are opened. No-op on other platforms.
+	registrationCodeFile := strings.TrimSpace(os.Getenv("REGISTRATION_CODE_FILE"))
+	if registrationCodeFile == "" {
+		registrationCodeFile = srv.DefaultCodeFile()
+	}
+	sandboxPaths := srv.SandboxPaths{
+		DBPath:               dbPath,
+		RepoRoot:             gitRepoRoot,
+		DataKeyPath:          srv.DataEncryptionKeyPath(dbPath),
+		RegistrationCodeFile: registrationCodeFile,
+		StaticDir:            staticDir,
+	}
+	if err := srv.HardenProcess(sandboxPaths); err != nil {
+		return fmt.Errorf("apply OpenBSD sandbox: %w", err)
+	}
+
 	server, err := srv.New(dbPath, jwtKey, hardLimitMin, softLimitMin)
 	if err != nil {
 		return fmt.Errorf("create server: %w", err)

@@ -49,6 +49,9 @@ jobs:
       - name: Run Go tests
         run: go test -race -timeout 20m -coverprofile=coverage.out ./...
 
+      - name: Cross-compile OpenBSD (pledge/unveil build check)
+        run: GOOS=openbsd GOARCH=amd64 go build -o /tmp/webpass-openbsd-check ./cmd/srv
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
         with:

@@ -104,3 +104,21 @@ func TestParseEncryptionKey(t *testing.T) {
 		t.Fatal("expected short key to be rejected")
 	}
 }
+
+func TestDataEncryptionKeyPath(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "db.sqlite3")
+
+	t.Setenv("DATA_ENCRYPTION_KEY", "")
+	if got := DataEncryptionKeyPath(dbPath); got != filepath.Join(dir, "data_encryption.key") {
+		t.Fatalf("unexpected key path: %q", got)
+	}
+	if got := DataEncryptionKeyPath(":memory:"); got != "" {
+		t.Fatalf("expected no key path for in-memory db, got %q", got)
+	}
+
+	t.Setenv("DATA_ENCRYPTION_KEY", "some-configured-key")
+	if got := DataEncryptionKeyPath(dbPath); got != "" {
+		t.Fatalf("expected no file path when DATA_ENCRYPTION_KEY is set, got %q", got)
+	}
+}
