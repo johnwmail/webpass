@@ -30,6 +30,10 @@ services:
       # Optional: encrypts TOTP secrets at rest. If unset, a key file is
       # generated under /data (back it up with the database).
       - DATA_ENCRYPTION_KEY=${DATA_ENCRYPTION_KEY:-}
+      # Optional passkeys (WebAuthn). Leave WEBAUTHN_RP_ID unset to disable.
+      - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID:-}
+      - WEBAUTHN_RP_NAME=${WEBAUTHN_RP_NAME:-WebPass}
+      - WEBAUTHN_RP_ORIGINS=${WEBAUTHN_RP_ORIGINS:-}
       # Allow git sync to self-hosted remotes on private/LAN addresses.
       - GIT_ALLOW_PRIVATE_NETWORKS=${GIT_ALLOW_PRIVATE_NETWORKS:-false}
       # Registration protection mode (TOTP-based)

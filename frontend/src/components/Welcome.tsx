@@ -5,6 +5,7 @@ import { ApiClient } from '../lib/api';
 import { session } from '../lib/session';
 import { Footer } from './Footer';
 import { Lock, Key, Shield } from 'lucide-preact';
+import { startAuthentication } from '@simplewebauthn/browser';
 
 interface Props {
   onSetup: () => void;
@@ -17,6 +18,9 @@ export function Welcome({ onSetup, onLogin }: Props) {
   const [password, setPassword] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [needs2fa, setNeeds2fa] = useState(false);
+  const [totpEnabled, setTotpEnabled] = useState(true);
+  const [webauthnEnabled, setWebauthnEnabled] = useState(false);
+  const [pendingApiUrl, setPendingApiUrl] = useState<string | null>(null);
   const [useRecovery, setUseRecovery] = useState(false);
   const [recoveryCode, setRecoveryCode] = useState('');
   const [error, setError] = useState('');
@@ -41,6 +45,31 @@ export function Welcome({ onSetup, onLogin }: Props) {
   const formatFpShort = (fp: string) => {
     const upper = fp.toUpperCase();
     return upper.slice(0, 8);
+  };
+
+  const handlePasskeyLogin = async () => {
+    if (!selectedFp || !password || !pendingApiUrl) return;
+    setLoading(true);
+    setError('');
+    try {
+      const api = new ApiClient(pendingApiUrl);
+      api.fingerprint = selectedFp;
+      const begin = await api.webauthnLoginBegin(password);
+      const assertion = await startAuthentication({ optionsJSON: begin.options as any });
+      const result = await api.webauthnLoginFinish(begin.challenge_id, assertion);
+      const account = await getAccount(selectedFp);
+      session.activate({
+        fingerprint: selectedFp,
+        token: result.token || '',
+        apiUrl: pendingApiUrl,
+        publicKey: account?.publicKey || '',
+        expiresAt: result.expires_at ?? null,
+      });
+      onLogin();
+    } catch (e: any) {
+      setError(e.message || 'Passkey login failed');
+    }
+    setLoading(false);
   };
 
   const handleLogin = async (e: Event) => {
@@ -111,6 +140,9 @@ export function Welcome({ onSetup, onLogin }: Props) {
         const result = await api.login(password);
         if (result.requires_2fa) {
           setNeeds2fa(true);
+          setTotpEnabled(result.totp !== false);
+          setWebauthnEnabled(!!result.webauthn);
+          setPendingApiUrl(apiUrl);
           setLoading(false);
           return;
         }
@@ -172,6 +204,9 @@ export function Welcome({ onSetup, onLogin }: Props) {
                       setTotpCode('');
                       setUseRecovery(false);
                       setRecoveryCode('');
+                      setPendingApiUrl(null);
+                      setWebauthnEnabled(false);
+                      setTotpEnabled(true);
                       setError('');
                     }}
                   >
@@ -225,46 +260,67 @@ export function Welcome({ onSetup, onLogin }: Props) {
 
                 {needs2fa && (
                   <div class="field">
-                    <label class="label">{useRecovery ? 'Recovery Code' : '2FA Code'}</label>
-                    {useRecovery ? (
-                      <input
-                        class="input input-mono"
-                        type="text"
-                        value={recoveryCode}
-                        onInput={(e) => {
-                          setRecoveryCode((e.target as HTMLInputElement).value);
-                          setError('');
-                        }}
-                        placeholder="XXXX-XXXX-XXXX-XXXX"
-                        autocomplete="one-time-code"
-                      />
-                    ) : (
-                      <input
-                        class="input input-mono"
-                        type="text"
-                        value={totpCode}
-                        onInput={(e) => {
-                          setTotpCode((e.target as HTMLInputElement).value);
-                          setError('');
-                        }}
-                        placeholder="6-digit code"
-                        autocomplete="one-time-code"
-                        maxLength={6}
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                      />
+                    {webauthnEnabled && (
+                      <>
+                        <button
+                          type="button"
+                          class="btn btn-primary btn-block"
+                          onClick={handlePasskeyLogin}
+                          disabled={loading}
+                        >
+                          {loading ? 'Waiting for passkey...' : '🔐 Use Face ID / passkey'}
+                        </button>
+                        {totpEnabled && (
+                          <p style="text-align: center; color: var(--text-muted); font-size: 12px; margin: 10px 0;">
+                            or enter your authenticator code
+                          </p>
+                        )}
+                      </>
                     )}
-                    <button
-                      type="button"
-                      class="btn btn-ghost btn-sm"
-                      style="margin-top: 8px;"
-                      onClick={() => {
-                        setUseRecovery(!useRecovery);
-                        setError('');
-                      }}
-                    >
-                      {useRecovery ? 'Use authenticator code' : 'Use a recovery code'}
-                    </button>
+                    {totpEnabled && (
+                      <>
+                        <label class="label">{useRecovery ? 'Recovery Code' : '2FA Code'}</label>
+                        {useRecovery ? (
+                          <input
+                            class="input input-mono"
+                            type="text"
+                            value={recoveryCode}
+                            onInput={(e) => {
+                              setRecoveryCode((e.target as HTMLInputElement).value);
+                              setError('');
+                            }}
+                            placeholder="XXXX-XXXX-XXXX-XXXX"
+                            autocomplete="one-time-code"
+                          />
+                        ) : (
+                          <input
+                            class="input input-mono"
+                            type="text"
+                            value={totpCode}
+                            onInput={(e) => {
+                              setTotpCode((e.target as HTMLInputElement).value);
+                              setError('');
+                            }}
+                            placeholder="6-digit code"
+                            autocomplete="one-time-code"
+                            maxLength={6}
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                          />
+                        )}
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-sm"
+                          style="margin-top: 8px;"
+                          onClick={() => {
+                            setUseRecovery(!useRecovery);
+                            setError('');
+                          }}
+                        >
+                          {useRecovery ? 'Use authenticator code' : 'Use a recovery code'}
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -275,7 +331,7 @@ export function Welcome({ onSetup, onLogin }: Props) {
                     type="submit"
                     class="btn btn-primary"
                     style="flex: 1;"
-                    disabled={!selectedFp || !password || loading || (needs2fa && (useRecovery ? !recoveryCode : !totpCode))}
+                    disabled={!selectedFp || !password || loading || (needs2fa && (!totpEnabled || (useRecovery ? !recoveryCode : !totpCode)))}
                   >
                     {loading ? (
                       <><span class="spinner" /> Logging in...</>

@@ -39,6 +39,8 @@ export default defineConfig({
       COOKIE_AUTH_ENABLED: process.env.COOKIE_AUTH_ENABLED || 'true',
       REGISTRATION_ENABLED: process.env.REGISTRATION_ENABLED || 'true',
       REGISTRATION_TOTP_SECRET: process.env.REGISTRATION_TOTP_SECRET || '',
+      WEBAUTHN_RP_ID: process.env.WEBAUTHN_RP_ID || 'localhost',
+      WEBAUTHN_RP_ORIGINS: process.env.WEBAUTHN_RP_ORIGINS || 'http://localhost:18080',
       ...(process.env.RATE_LIMIT_ATTEMPTS ? { RATE_LIMIT_ATTEMPTS: process.env.RATE_LIMIT_ATTEMPTS } : {}),
       ...(process.env.RATE_LIMIT_WINDOW_MINUTES ? { RATE_LIMIT_WINDOW_MINUTES: process.env.RATE_LIMIT_WINDOW_MINUTES } : {}),
     },

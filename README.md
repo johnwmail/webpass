@@ -303,6 +303,7 @@ All endpoints require JWT authentication except where noted.
 - **Session revocation** — password/2FA changes bump a session version; `POST /api/{fp}/sessions/revoke` logs out everywhere
 - **Security audit log** — login/2FA/password/session/git events with IP and user agent (`GET /api/{fp}/audit`); account deletion purges prior entries
 - **2FA recovery codes** — 10 one-time codes generated when 2FA is enabled; hashes stored, reusable codes consumed atomically
+- **Passkeys / WebAuthn** — Face ID, Touch ID and security keys as a second factor; password is still required first, TOTP and recovery codes remain as fallback
 - **TOTP secrets encrypted at rest** — AES-256-GCM via `DATA_ENCRYPTION_KEY` (or an auto-generated key file), with replay protection
 - **Password policy** — minimum 12 characters, max 72 bytes (bcrypt limit), enforced server-side
 - **Local key derivation** — PBKDF2-HMAC-SHA256 with 600k iterations; legacy 100k records are transparently upgraded on login
@@ -347,6 +348,9 @@ See [`.env.example`](.env.example) for all available options with detailed comme
 | `OPENBSD_PLEDGE_PROMISES` | No | OpenBSD only: override pledge promises (default `stdio rpath wpath cpath inet dns unix flock fattr`) |
 | `OPENBSD_UNVEIL_EXTRA_PATHS` | No | OpenBSD only: extra unveil paths (`path[:rwc]`, comma-separated) |
 | `DISABLE_SANDBOX` | No | OpenBSD only: disable unveil/pledge (debug only) |
+| `WEBAUTHN_RP_ID` | No | Enable passkeys; relying-party ID (registrable domain, no scheme/port) |
+| `WEBAUTHN_RP_NAME` | No | Passkey display name (default: `WebPass`) |
+| `WEBAUTHN_RP_ORIGINS` | No | Comma-separated allowed origins (default: `https://<RP_ID>`) |
 | `DATA_ENCRYPTION_KEY` | No | Encrypts TOTP secrets at rest; auto-generated key file if unset |
 | `PORT`         | No       | HTTP listen port (default: `8080`)       |
 | `GIT_REPO_ROOT`| No       | Git repos directory (default: `/data/git-repos`) |
