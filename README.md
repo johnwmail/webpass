@@ -344,6 +344,9 @@ See [`.env.example`](.env.example) for all available options with detailed comme
 | `GIT_ALLOW_PRIVATE_NETWORKS` | No | Allow git sync to private/LAN remotes (default: false) |
 | `GIT_ALLOWED_HOSTS` | No | Comma-separated git host allowlist (subdomains included) |
 | `REQUIRE_HTTPS` | No | Reject plain-HTTP API calls and redirect pages to HTTPS (localhost exempt) |
+| `OPENBSD_PLEDGE_PROMISES` | No | OpenBSD only: override pledge promises (default `stdio rpath wpath cpath inet dns unix flock fattr`) |
+| `OPENBSD_UNVEIL_EXTRA_PATHS` | No | OpenBSD only: extra unveil paths (`path[:rwc]`, comma-separated) |
+| `DISABLE_SANDBOX` | No | OpenBSD only: disable unveil/pledge (debug only) |
 | `DATA_ENCRYPTION_KEY` | No | Encrypts TOTP secrets at rest; auto-generated key file if unset |
 | `PORT`         | No       | HTTP listen port (default: `8080`)       |
 | `GIT_REPO_ROOT`| No       | Git repos directory (default: `/data/git-repos`) |
