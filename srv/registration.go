@@ -144,6 +144,10 @@ func (rs *RegistrationService) getCurrentCode() (string, error) {
 	return code, nil
 }
 
+// DefaultCodeFile exposes the default registration code path to deployment
+// tooling (used when REGISTRATION_CODE_FILE is unset).
+func DefaultCodeFile() string { return defaultCodeFile() }
+
 // defaultCodeFile picks where the registration code is written when
 // REGISTRATION_CODE_FILE is not set. Prefer /data when writable (container /
 // production), otherwise fall back to /tmp (local dev / tests).

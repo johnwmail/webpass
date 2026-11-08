@@ -1,0 +1,86 @@
+name: OpenBSD Smoke Test
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "srv/**"
+      - "cmd/**"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/openbsd.yml"
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  openbsd-smoke:
+    name: OpenBSD 8.0 smoke (pledge/unveil)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Build and run smoke test in OpenBSD
+        uses: vmactions/openbsd-vm@f1ca8bc8ecc5b6ef7218e5b914836e067e1546d3 # v1.4.9
+        with:
+          release: "8.0"
+          arch: x86_64
+          usesh: true
+          cache-after-prepare: true
+          prepare: |
+            pkg_add go curl jq
+          run: |
+            set -eu
+            export PATH="/usr/local/bin:/usr/local/go/bin:$PATH"
+            go version
+            CGO_ENABLED=0 go build -o /tmp/webpass-server ./cmd/srv
+
+            WORK=/tmp/webpass-smoke
+            rm -rf "$WORK"
+            mkdir -p "$WORK"
+            JWT_SECRET=$(openssl rand -hex 32)
+            DB_PATH="$WORK/db.sqlite3" \
+            GIT_REPO_ROOT="$WORK/git-repos" \
+            REGISTRATION_ENABLED=true \
+            REGISTRATION_TOTP_SECRET="" \
+            REGISTRATION_CODE_FILE="$WORK/registration_code.txt" \
+            PORT=18080 \
+            /tmp/webpass-server >"$WORK/server.log" 2>&1 &
+            PID=$!
+            trap 'kill $PID 2>/dev/null || true' EXIT
+
+            i=0
+            until curl -fsS http://127.0.0.1:18080/api/health >/dev/null 2>&1; do
+              i=$((i + 1))
+              if [ "$i" -gt 60 ]; then
+                echo "server did not become healthy"
+                cat "$WORK/server.log"
+                exit 1
+              fi
+              sleep 1
+            done
+            curl -fsS http://127.0.0.1:18080/api/health
+
+            # Registration + login + entry round-trip exercise SQLite/WAL,
+            # bcrypt, JSON and the pledged network/filesystem paths.
+            curl -fsS -X POST http://127.0.0.1:18080/api \
+              -H 'Content-Type: application/json' \
+              -d '{"password":"password1234","public_key":"smoke","fingerprint":"SMOKE01"}' >/dev/null
+
+            TOKEN=$(curl -fsS -X POST http://127.0.0.1:18080/api/SMOKE01/login \
+              -H 'Content-Type: application/json' \
+              -d '{"password":"password1234"}' | jq -r '.token')
+            [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ] || { cat "$WORK/server.log"; exit 1; }
+
+            curl -fsS -X PUT http://127.0.0.1:18080/api/SMOKE01/entries/smoke \
+              -H "Authorization: Bearer $TOKEN" \
+              --data-binary 'encrypted-smoke-blob' >/dev/null
+            curl -fsS http://127.0.0.1:18080/api/SMOKE01/entries/smoke \
+              -H "Authorization: Bearer $TOKEN" | grep -q 'encrypted-smoke-blob'
+
+            echo "OpenBSD pledge/unveil smoke test passed"
