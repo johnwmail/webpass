@@ -64,7 +64,7 @@ func HardenProcess(p SandboxPaths) error {
 	unix.UnveilBlock()
 
 	promises := "stdio rpath wpath cpath inet dns unix flock fattr tmppath"
-	if err := unix.Pledge(promises, ""); err != nil {
+	if err := unix.PledgePromises(promises); err != nil {
 		return fmt.Errorf("pledge(%q): %w", promises, err)
 	}
 	return nil
