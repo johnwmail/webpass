@@ -2,6 +2,7 @@ package srv
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/rand"
@@ -13,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -263,11 +265,16 @@ func (s *Server) Handler() http.Handler {
 				http.NotFound(w, r)
 				return
 			}
+			if name == "index.html" {
+				s.serveIndexHTML(w, r, staticFS)
+				return
+			}
 			if _, err := fs.Stat(staticFS, name); err == nil {
 				fileServer.ServeHTTP(w, r)
 				return
 			}
-			http.ServeFileFS(w, r, staticFS, "index.html")
+			// SPA fallback for client-side routes.
+			s.serveIndexHTML(w, r, staticFS)
 		})
 	}
 
@@ -279,6 +286,47 @@ func (s *Server) Handler() http.Handler {
 	handler = s.corsMiddleware(handler)
 	handler = s.httpsRedirectMiddleware(handler)
 	return handler
+}
+
+// Build metadata tags written by frontend/index.html. The SPA falls back to
+// these values when its bundle was compiled without FRONTEND_VERSION (for
+// example a plain `npm run build`), which previously made a release report
+// "vdev" in the UI even though the server knew its real version.
+var (
+	buildVersionMetaPattern = regexp.MustCompile(`(<meta name="build-version" content=")[^"]*(")`)
+	buildCommitMetaPattern  = regexp.MustCompile(`(<meta name="build-commit" content=")[^"]*(")`)
+	buildTimeMetaPattern    = regexp.MustCompile(`(<meta name="build-time" content=")[^"]*(")`)
+)
+
+// injectBuildMeta replaces the build metadata meta tags in index.html.
+func injectBuildMeta(data []byte, version, commit, buildTime string) []byte {
+	page := string(data)
+	replace := func(re *regexp.Regexp, value string) {
+		if value == "" {
+			return
+		}
+		page = re.ReplaceAllString(page, "${1}"+html.EscapeString(value)+"${2}")
+	}
+	replace(buildVersionMetaPattern, version)
+	replace(buildCommitMetaPattern, commit)
+	replace(buildTimeMetaPattern, buildTime)
+	return []byte(page)
+}
+
+// serveIndexHTML serves index.html with the server's build metadata injected.
+func (s *Server) serveIndexHTML(w http.ResponseWriter, r *http.Request, staticFS fs.FS) {
+	data, err := fs.ReadFile(staticFS, "index.html")
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	var modTime time.Time
+	if info, statErr := fs.Stat(staticFS, "index.html"); statErr == nil {
+		modTime = info.ModTime()
+	}
+	data = injectBuildMeta(data, s.Version, s.Commit, s.BuildTime)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	http.ServeContent(w, r, "index.html", modTime, bytes.NewReader(data))
 }
 
 // ---------------------------------------------------------------------------
