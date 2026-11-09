@@ -105,25 +105,51 @@ Server listens on `:8080` by default.
 ### Create an account from the CLI
 
 The web UI normally creates the account because it generates the OpenPGP
-keypair in the browser. For headless setups, `scripts/create-account.sh`
-generates a compatible keypair with GnuPG, registers the account and writes the
-armored keys to disk:
+keypair in the browser. For headless setups, `scripts/create-account.sh` can
+register an account with **your existing key** or generate a new one:
 
 ```bash
-./scripts/create-account.sh --url https://webpass.example.com
+# Use an existing key from the local GnuPG keyring
+./scripts/create-account.sh --url https://webpass.example.com \
+    --gpg-key you@example.com --pgp-passphrase 'key-passphrase'
 
-# Non-interactive
-WEBPASS_URL=https://webpass.example.com \
-WEBPASS_PASSWORD='login-password-12+' \
-WEBPASS_PGP_PASSPHRASE='private-key-passphrase' \
-  ./scripts/create-account.sh --out-dir ./keys
+# Use an existing private key file
+./scripts/create-account.sh --url https://webpass.example.com \
+    --private-key ~/my-key.private.asc
+
+# Generate a new keypair
+./scripts/create-account.sh --url https://webpass.example.com
 ```
 
-Import the generated `*.private.asc` into the web UI (Setup → Import key) to
-use the same account there. Keep the private key and its passphrase backed up:
-without them the encrypted vault cannot be recovered. Run
-`./scripts/create-account.sh --help` for all options and requirements
-(`bash`, `curl`, `gpg` >= 2.2, `jq`).
+The script writes the armored public/private keys next to the current directory
+(or `--out-dir`). Import the private key into the web UI (Setup → Import key)
+to use the same account there. Keep the private key and its passphrase backed
+up: without them the encrypted vault cannot be recovered. Run
+`./scripts/create-account.sh --help` for all options (`bash`, `curl`,
+`gpg` >= 2.2, `jq`).
+
+### Import a pass(1) password store
+
+WebPass entry content is pass-compatible. If the account uses the **same key**
+as your `pass` store, import the encrypted entries directly:
+
+```bash
+./scripts/import-passstore.sh --url https://webpass.example.com \
+    --fingerprint <PGP-FPR> --store ~/.password-store
+```
+
+The script verifies that the store's recipients match the account key and
+uploads the `.gpg` files through `POST /api/{fingerprint}/import`. It supports
+`--totp CODE` / `--recovery-code CODE` when 2FA is enabled and `--dry-run` to
+preview the paths.
+
+If the account key differs from the store key, use the web UI import
+(Settings → Import), which decrypts and re-encrypts each entry with the
+account key. Create the archive with:
+
+```bash
+tar -czf passstore.tar.gz -C ~/.password-store .
+```
 
 ##  Deployment
 
