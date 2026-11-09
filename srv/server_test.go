@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -917,6 +918,70 @@ func TestChangePasswordWrongCurrent(t *testing.T) {
 	changeBody := `{"current_password":"wrongpassword","new_password":"newpass45678"}`
 	resp = doReqWithCSRF(t, ts, "POST", "/api/"+fp+"/password", changeBody, token, csrf)
 	expectStatus(t, resp, http.StatusUnauthorized)
+}
+
+func TestChangePasswordLogsAttempts(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	csrf := getCSRFToken(t, ts)
+
+	resp := doReq(t, ts, "POST", "/api", `{"password":"original1234","public_key":"pk","fingerprint":"pwlog1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
+
+	resp = doReq(t, ts, "POST", "/api/pwlog1/login", `{"password":"original1234"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	var lr map[string]string
+	decodeJSON(t, resp, &lr)
+	token := lr["token"]
+
+	// Policy failure (password too short).
+	resp = doReqWithCSRF(t, ts, "POST", "/api/pwlog1/password", `{"current_password":"original1234","new_password":"short"}`, token, csrf)
+	expectStatus(t, resp, http.StatusBadRequest)
+	_ = resp.Body.Close()
+
+	// Wrong current password.
+	resp = doReqWithCSRF(t, ts, "POST", "/api/pwlog1/password", `{"current_password":"wrongpassword","new_password":"newpass45678"}`, token, csrf)
+	expectStatus(t, resp, http.StatusUnauthorized)
+	_ = resp.Body.Close()
+
+	// Successful change.
+	resp = doReqWithCSRF(t, ts, "POST", "/api/pwlog1/password", `{"current_password":"original1234","new_password":"newpass45678"}`, token, csrf)
+	expectStatus(t, resp, http.StatusOK)
+	_ = resp.Body.Close()
+
+	logs := buf.String()
+	for _, want := range []string{"password change failed", "password_policy", "invalid_current_password", "password change succeeded"} {
+		if !strings.Contains(logs, want) {
+			t.Errorf("log missing %q:\n%s", want, logs)
+		}
+	}
+	for _, secret := range []string{"original1234", "wrongpassword", "newpass45678"} {
+		if strings.Contains(logs, secret) {
+			t.Fatalf("logs leaked password material %q:\n%s", secret, logs)
+		}
+	}
+
+	var failed, changed int
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE fingerprint = ? AND event = 'password_change_failed'`, "pwlog1").Scan(&failed); err != nil {
+		t.Fatalf("count failed audit rows: %v", err)
+	}
+	if failed != 2 {
+		t.Errorf("expected 2 password_change_failed audit rows, got %d", failed)
+	}
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE fingerprint = ? AND event = 'password_change'`, "pwlog1").Scan(&changed); err != nil {
+		t.Fatalf("count success audit rows: %v", err)
+	}
+	if changed != 1 {
+		t.Errorf("expected 1 password_change audit row, got %d", changed)
+	}
 }
 
 func TestChangePasswordWith2FA(t *testing.T) {

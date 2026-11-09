@@ -1845,7 +1845,15 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
+
+	// Log every attempt, successful or not. Never include password material.
+	logFailure := func(reason string) {
+		s.audit(r, fp, "password_change_failed", reason)
+		slog.Warn("password change failed", "fingerprint", fp, "reason", reason, "ip", getClientIP(r))
+	}
+
 	if fp == "" {
+		logFailure("missing_fingerprint")
 		jsonError(w, "fingerprint required", http.StatusBadRequest)
 		return
 	}
@@ -1855,15 +1863,18 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		NewPassword     string `json:"new_password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		logFailure("invalid_json")
 		jsonError(w, "invalid json", http.StatusBadRequest)
 		return
 	}
 
 	if body.CurrentPassword == "" || body.NewPassword == "" {
+		logFailure("missing_fields")
 		jsonError(w, "current_password and new_password required", http.StatusBadRequest)
 		return
 	}
 	if err := validatePassword(body.NewPassword); err != nil {
+		logFailure("password_policy: " + err.Error())
 		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -1871,12 +1882,14 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	// Get user to verify current password
 	user, err := s.Q.GetUser(r.Context(), fp)
 	if err != nil {
+		logFailure("unknown_account")
 		jsonError(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
 	// Verify current password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(body.CurrentPassword)); err != nil {
+		logFailure("invalid_current_password")
 		jsonError(w, "invalid current password", http.StatusUnauthorized)
 		return
 	}
@@ -1884,7 +1897,8 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	// Generate new password hash
 	newHash, err := bcrypt.GenerateFromPassword([]byte(body.NewPassword), s.bcryptCost)
 	if err != nil {
-		slog.Error("bcrypt hash", "error", err)
+		slog.Error("password change: bcrypt hash failed", "fingerprint", fp, "error", err)
+		logFailure("hash_error")
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -1894,14 +1908,16 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		PasswordHash: string(newHash),
 		Fingerprint:  fp,
 	}); err != nil {
-		slog.Error("update password", "error", err)
+		slog.Error("password change: update failed", "fingerprint", fp, "error", err)
+		logFailure("update_error")
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
 	// Revoke every session issued with the old password.
 	if err := s.Q.BumpSessionVersion(r.Context(), fp); err != nil {
-		slog.Error("bump session version", "error", err)
+		slog.Error("password change: session revoke failed", "fingerprint", fp, "error", err)
+		logFailure("session_revoke_error")
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -1911,7 +1927,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	s.clearAuthCookie(w, r)
 
 	s.audit(r, fp, "password_change", "")
-	slog.Info("password changed successfully", "fingerprint", fp)
+	slog.Info("password change succeeded", "fingerprint", fp, "ip", getClientIP(r))
 	jsonOK(w, map[string]any{"status": "success", "reauth": true})
 }
 
