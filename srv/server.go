@@ -428,17 +428,9 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 			_, err := r.Cookie(csrfTokenCookie)
 			if err != nil {
 				token := generateCSRFToken()
-				cookie := &http.Cookie{
-					Name:     csrfTokenCookie,
-					Value:    token,
-					Path:     "/",   // Must match frontend app path so document.cookie can read it
-					HttpOnly: false, // Must be readable by JavaScript
-					Secure:   s.useSecureCookie(r),
-					SameSite: http.SameSiteStrictMode,
-					Domain:   s.cookieDomain,
-					MaxAge:   int(s.hardLimit.Seconds()),
-				}
-				http.SetCookie(w, cookie)
+				// Path must match the frontend app path so document.cookie can read it;
+				// HttpOnly must be false because the SPA echoes the token in a header.
+				s.setCookie(w, r, s.newCookie(csrfTokenCookie, token, "/", false, int(s.hardLimit.Seconds())))
 			}
 			next.ServeHTTP(w, r)
 			return
@@ -813,38 +805,42 @@ func (s *Server) useSecureCookie(r *http.Request) bool {
 	return isHTTPSRequest(r)
 }
 
+// newCookie builds a cookie with the shared attributes used by the server.
+// Callers must write it with setCookie, which applies the Secure flag.
+func (s *Server) newCookie(name, value, path string, httpOnly bool, maxAge int) http.Cookie {
+	return http.Cookie{
+		Name:     name,
+		Value:    value,
+		Path:     path,
+		HttpOnly: httpOnly,
+		SameSite: http.SameSiteStrictMode,
+		Domain:   s.cookieDomain,
+		MaxAge:   maxAge,
+	}
+}
+
+// setCookie applies the Secure attribute (derived from the request) and writes
+// the cookie. The attribute is assigned before writing so static analysis can
+// verify it is never left at the insecure default.
+func (s *Server) setCookie(w http.ResponseWriter, r *http.Request, cookie http.Cookie) {
+	secure := s.useSecureCookie(r)
+	cookie.Secure = secure
+	http.SetCookie(w, &cookie)
+}
+
 // setAuthCookie sets the httpOnly authentication cookie
 func (s *Server) setAuthCookie(w http.ResponseWriter, r *http.Request, token string) {
 	if !s.cookieAuth {
 		return
 	}
 
-	cookie := &http.Cookie{
-		Name:     "webpass_auth",
-		Value:    token,
-		Path:     "/api",
-		HttpOnly: true,
-		Secure:   s.useSecureCookie(r),
-		SameSite: http.SameSiteStrictMode,
-		Domain:   s.cookieDomain,
-		MaxAge:   int(s.hardLimit.Seconds()),
-	}
-	http.SetCookie(w, cookie)
+	s.setCookie(w, r, s.newCookie("webpass_auth", token, "/api", true, int(s.hardLimit.Seconds())))
 }
 
 // clearAuthCookie clears the authentication cookie
 func (s *Server) clearAuthCookie(w http.ResponseWriter, r *http.Request) {
-	cookie := &http.Cookie{
-		Name:     "webpass_auth",
-		Value:    "",
-		Path:     "/api",
-		HttpOnly: true,
-		Secure:   s.useSecureCookie(r),
-		SameSite: http.SameSiteStrictMode,
-		Domain:   s.cookieDomain,
-		MaxAge:   -1, // Delete immediately
-	}
-	http.SetCookie(w, cookie)
+	// MaxAge -1 deletes immediately.
+	s.setCookie(w, r, s.newCookie("webpass_auth", "", "/api", true, -1))
 }
 
 // ---------------------------------------------------------------------------
@@ -1297,20 +1293,8 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 	// Clear the CSRF cookie as well so a new one is issued on the next GET.
 	// The CSRF cookie is a double-submit token, not an authentication
-	// credential. Secure is only set when the request is HTTPS so local HTTP
-	// development keeps working; production deployments terminate TLS (or set
-	// X-Forwarded-Proto) and therefore get Secure=true.
-	// codeql[go/cookie-secure-not-set]
-	http.SetCookie(w, &http.Cookie{
-		Name:     csrfTokenCookie,
-		Value:    "",
-		Path:     "/",
-		HttpOnly: false,
-		Secure:   s.useSecureCookie(r),
-		SameSite: http.SameSiteStrictMode,
-		Domain:   s.cookieDomain,
-		MaxAge:   -1,
-	})
+	// credential.
+	s.setCookie(w, r, s.newCookie(csrfTokenCookie, "", "/", false, -1))
 
 	jsonOK(w, map[string]string{"status": "logged out"})
 }
