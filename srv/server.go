@@ -646,11 +646,14 @@ func (s *Server) rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ip := getClientIP(r)
 		scope := rateLimitScope(r.URL.Path)
+		var fpKey string
 		keys := make([]string, 0, 2)
 		if fp := r.PathValue("fingerprint"); fp != "" {
-			keys = append(keys, scope+":fp:"+fp)
+			fpKey = scope + ":fp:" + fp
+			keys = append(keys, fpKey)
 		}
-		keys = append(keys, scope+":ip:"+ip)
+		ipKey := scope + ":ip:" + ip
+		keys = append(keys, ipKey)
 
 		for _, key := range keys {
 			if !s.RateLimiter.Allow(key) {
@@ -660,7 +663,57 @@ func (s *Server) rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 
-		next(w, r)
+		rec := &statusRecorder{ResponseWriter: w}
+		next(rec, r)
+
+		// A completed login clears the per-account failure budget. The per-IP
+		// budget is only refunded for this request: clearing it on success
+		// would let an attacker with one valid account spray others from the
+		// same address.
+		if rec.status >= 200 && rec.status < 300 && isLoginCompletion(r.URL.Path) {
+			if fpKey != "" {
+				s.RateLimiter.Reset(fpKey)
+			}
+			s.RateLimiter.Release(ipKey)
+		}
+	}
+}
+
+// statusRecorder captures the response status code so the rate limiter can
+// distinguish successful logins from failures.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusRecorder) WriteHeader(code int) {
+	if w.status == 0 {
+		w.status = code
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusRecorder) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+// isLoginCompletion reports whether a 2xx response on this path means a login
+// was actually completed. A WebAuthn begin response is not an authentication,
+// and registration responses must not clear any budget.
+func isLoginCompletion(path string) bool {
+	switch {
+	case strings.HasSuffix(path, "/login/webauthn/begin"):
+		return false
+	case strings.HasSuffix(path, "/login/webauthn/finish"),
+		strings.HasSuffix(path, "/login/2fa"),
+		strings.HasSuffix(path, "/login/recovery"),
+		strings.HasSuffix(path, "/login"):
+		return true
+	default:
+		return false
 	}
 }
 

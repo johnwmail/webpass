@@ -160,6 +160,33 @@ func (rl *RateLimiter) Allow(key string) bool {
 	return true
 }
 
+// Reset clears all recorded attempts for key. It is called after a successful
+// authentication so earlier failures do not keep a legitimate user locked out.
+func (rl *RateLimiter) Reset(key string) {
+	rl.mu.Lock()
+	delete(rl.requests, key)
+	rl.mu.Unlock()
+}
+
+// Release removes the most recent recorded attempt for key. It refunds a
+// request that turned out to be successful so successful logins do not consume
+// the per-IP budget.
+func (rl *RateLimiter) Release(key string) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	timestamps := rl.requests[key]
+	if len(timestamps) == 0 {
+		return
+	}
+	timestamps = timestamps[:len(timestamps)-1]
+	if len(timestamps) == 0 {
+		delete(rl.requests, key)
+		return
+	}
+	rl.requests[key] = timestamps
+}
+
 // IsAllowed checks if a request would be allowed without recording it.
 // This is useful for checking rate limit status without side effects.
 func (rl *RateLimiter) IsAllowed(key string) bool {

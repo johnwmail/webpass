@@ -123,6 +123,13 @@ marked `Secure`, so cookie-based auth requires HTTPS; set `CORS_ORIGINS` in
 `/etc/webpass.env` if needed and restart the service. WebPass does not do its
 own TLS.
 
+Passkeys (Face ID / Touch ID / security keys) also need HTTPS. To enable them,
+set `WEBAUTHN_RP_ID` to the public registrable domain (no scheme or port) and
+optionally `WEBAUTHN_RP_ORIGINS` to the exact `https://` origin(s) in
+`/etc/webpass.env`, then `rcctl restart webpass`. See
+[`openbsd/webpass.env.example`](openbsd/webpass.env.example) for the commented
+example. Leave `WEBAUTHN_RP_ID` unset to keep passkeys disabled.
+
 ## 6. Backups and upgrades
 
 - **Database**: stop the service (or use `.backup`) and copy
