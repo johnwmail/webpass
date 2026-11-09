@@ -988,7 +988,6 @@ func TestChangePasswordWith2FA(t *testing.T) {
 func TestCookieAuth_LoginSetsCookie(t *testing.T) {
 	// Enable cookie auth
 	t.Setenv("COOKIE_AUTH_ENABLED", "true")
-	t.Setenv("COOKIE_SECURE", "false")
 
 	s := newTestServer(t)
 	ts := httptest.NewServer(s.Handler())
@@ -1020,8 +1019,8 @@ func TestCookieAuth_LoginSetsCookie(t *testing.T) {
 	if !authCookie.HttpOnly {
 		t.Fatal("cookie should be HttpOnly")
 	}
-	if authCookie.Secure {
-		t.Fatal("cookie should not be Secure when COOKIE_SECURE=false")
+	if !authCookie.Secure {
+		t.Fatal("cookie should always be Secure")
 	}
 	if authCookie.SameSite != http.SameSiteStrictMode {
 		t.Fatalf("expected SameSite=Strict, got %v", authCookie.SameSite)
@@ -1033,7 +1032,6 @@ func TestCookieAuth_LoginSetsCookie(t *testing.T) {
 
 func TestCookieAuth_Login2FA_SetsCookie(t *testing.T) {
 	t.Setenv("COOKIE_AUTH_ENABLED", "true")
-	t.Setenv("COOKIE_SECURE", "false")
 
 	s := newTestServer(t)
 	ts := httptest.NewServer(s.Handler())
@@ -1121,7 +1119,6 @@ func TestCookieAuth_Login2FA_SetsCookie(t *testing.T) {
 
 func TestCookieAuth_AuthenticatedRequest(t *testing.T) {
 	t.Setenv("COOKIE_AUTH_ENABLED", "true")
-	t.Setenv("COOKIE_SECURE", "false")
 
 	s := newTestServer(t)
 	ts := httptest.NewServer(s.Handler())
@@ -1166,7 +1163,6 @@ func TestCookieAuth_AuthenticatedRequest(t *testing.T) {
 
 func TestCookieAuth_LogoutClearsCookie(t *testing.T) {
 	t.Setenv("COOKIE_AUTH_ENABLED", "true")
-	t.Setenv("COOKIE_SECURE", "false")
 
 	s := newTestServer(t)
 	ts := httptest.NewServer(s.Handler())
@@ -1236,7 +1232,6 @@ func TestCookieAuth_WithoutCookie_ReturnsUnauthorized(t *testing.T) {
 
 func TestCookieAuth_SecureFlag(t *testing.T) {
 	t.Setenv("COOKIE_AUTH_ENABLED", "true")
-	t.Setenv("COOKIE_SECURE", "true")
 
 	s := newTestServer(t)
 	ts := httptest.NewServer(s.Handler())
@@ -1262,7 +1257,7 @@ func TestCookieAuth_SecureFlag(t *testing.T) {
 		t.Fatal("expected webpass_auth cookie")
 	}
 	if !authCookie.Secure {
-		t.Fatal("cookie should have Secure flag when COOKIE_SECURE=true")
+		t.Fatal("cookie should have the Secure flag")
 	}
 }
 
@@ -1301,7 +1296,6 @@ func TestCookieAuth_Disabled_FallsBackToBearer(t *testing.T) {
 
 func TestCookieAuth_CookieDomain(t *testing.T) {
 	t.Setenv("COOKIE_AUTH_ENABLED", "true")
-	t.Setenv("COOKIE_SECURE", "false")
 	t.Setenv("COOKIE_DOMAIN", ".example.com")
 
 	s := newTestServer(t)
@@ -1922,7 +1916,6 @@ func TestBodyLimit_AllowsNormalBody(t *testing.T) {
 
 func TestCookieAuth_DoesNotExposeJWT(t *testing.T) {
 	t.Setenv("COOKIE_AUTH_ENABLED", "true")
-	t.Setenv("COOKIE_SECURE", "false")
 
 	s := newTestServer(t)
 	ts := httptest.NewServer(s.Handler())
@@ -1947,7 +1940,6 @@ func TestCookieAuth_DoesNotExposeJWT(t *testing.T) {
 
 func TestCookieAuth_CSRFNotBypassedByBearerHeader(t *testing.T) {
 	t.Setenv("COOKIE_AUTH_ENABLED", "true")
-	t.Setenv("COOKIE_SECURE", "false")
 
 	s := newTestServer(t)
 	ts := httptest.NewServer(s.Handler())
@@ -2011,23 +2003,8 @@ func TestLogout_ClearsGitSessionToken(t *testing.T) {
 	}
 }
 
-func TestUseSecureCookie(t *testing.T) {
-	s := newTestServer(t)
-
-	r := httptest.NewRequest("GET", "/", nil)
-	if s.useSecureCookie(r) {
-		t.Fatal("plain HTTP should not set Secure by default")
-	}
-
-	r.Header.Set("X-Forwarded-Proto", "https")
-	if !s.useSecureCookie(r) {
-		t.Fatal("X-Forwarded-Proto=https should enable Secure")
-	}
-}
-
 func TestCookieAuth_SecureDetectedFromForwardedProto(t *testing.T) {
 	t.Setenv("COOKIE_AUTH_ENABLED", "true")
-	t.Setenv("COOKIE_SECURE", "") // rely on per-request HTTPS detection
 
 	s := newTestServer(t)
 	ts := httptest.NewServer(s.Handler())
