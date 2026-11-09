@@ -164,6 +164,89 @@ func TestRateLimiter_WindowExpiry(t *testing.T) {
 	}
 }
 
+func TestRateLimiter_Reset(t *testing.T) {
+	t.Setenv("RATE_LIMIT_ATTEMPTS", "2")
+	t.Setenv("RATE_LIMIT_WINDOW_MINUTES", "1")
+
+	rl := NewRateLimiter()
+	defer rl.Stop()
+
+	key := "login:fp:reset"
+	rl.Allow(key)
+	rl.Allow(key)
+	if rl.Allow(key) {
+		t.Fatal("expected the key to be rate limited")
+	}
+
+	rl.Reset(key)
+	if rem := rl.Remaining(key); rem != 2 {
+		t.Fatalf("expected full budget after reset, got %d", rem)
+	}
+	if !rl.Allow(key) {
+		t.Fatal("expected a request to be allowed after reset")
+	}
+}
+
+func TestRateLimiter_Release(t *testing.T) {
+	t.Setenv("RATE_LIMIT_ATTEMPTS", "2")
+	t.Setenv("RATE_LIMIT_WINDOW_MINUTES", "1")
+
+	rl := NewRateLimiter()
+	defer rl.Stop()
+
+	key := "login:ip:release"
+	rl.Allow(key)
+	rl.Allow(key)
+	if rl.Allow(key) {
+		t.Fatal("expected the key to be rate limited")
+	}
+
+	rl.Release(key)
+	if rem := rl.Remaining(key); rem != 1 {
+		t.Fatalf("expected one remaining after release, got %d", rem)
+	}
+	if !rl.Allow(key) {
+		t.Fatal("expected a request to be allowed after release")
+	}
+	if rl.Allow(key) {
+		t.Fatal("expected the key to be rate limited again")
+	}
+}
+
+func TestLoginRateLimitResetsAfterSuccess(t *testing.T) {
+	t.Setenv("RATE_LIMIT_ATTEMPTS", "3")
+	t.Setenv("RATE_LIMIT_WINDOW_MINUTES", "15")
+
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"rlfp1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
+
+	for i := 0; i < 2; i++ {
+		resp = doReq(t, ts, "POST", "/api/rlfp1/login", `{"password":"wrongpassword"}`, "")
+		expectStatus(t, resp, http.StatusUnauthorized)
+		_ = resp.Body.Close()
+	}
+
+	resp = doReq(t, ts, "POST", "/api/rlfp1/login", `{"password":"password1234"}`, "")
+	expectStatus(t, resp, http.StatusOK)
+	_ = resp.Body.Close()
+
+	// The per-account budget is cleared, so earlier mistakes do not count.
+	if rem := s.RateLimiter.Remaining("login:fp:rlfp1"); rem != 3 {
+		t.Fatalf("expected account budget reset to 3, got %d", rem)
+	}
+	// The per-IP budget keeps the two failures and only refunds the successful
+	// attempt, so a valid account cannot be used to clear IP-level spraying
+	// protection.
+	if rem := s.RateLimiter.Remaining("login:ip:127.0.0.1"); rem != 1 {
+		t.Fatalf("expected IP budget to keep 2 failures and refund the success, got %d remaining", rem)
+	}
+}
+
 func TestRateLimiter_EnvConfig(t *testing.T) {
 	// Test custom configuration via environment
 	t.Setenv("RATE_LIMIT_ATTEMPTS", "10")
@@ -246,7 +329,7 @@ func TestRateLimit_Registration(t *testing.T) {
 	expectStatus(t, resp, http.StatusTooManyRequests)
 }
 
-func TestRateLimit_Login2FA(t *testing.T) {
+func TestRateLimit_LoginFailures(t *testing.T) {
 	t.Setenv("RATE_LIMIT_ATTEMPTS", "2")
 	t.Setenv("RATE_LIMIT_WINDOW_MINUTES", "1")
 
@@ -257,18 +340,19 @@ func TestRateLimit_Login2FA(t *testing.T) {
 	// Create user
 	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"fp2fa"}`, "")
 	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
 
-	// First 2 login attempts (password check, will get requires_2fa or proceed)
+	// Two failed password checks exhaust the budget.
 	for i := 0; i < 2; i++ {
-		resp := doReq(t, ts, "POST", "/api/fp2fa/login", `{"password":"password1234"}`, "")
-		if resp.StatusCode == http.StatusTooManyRequests {
-			t.Fatalf("login attempt %d should not be rate limited", i+1)
-		}
+		resp = doReq(t, ts, "POST", "/api/fp2fa/login", `{"password":"wrongpassword"}`, "")
+		expectStatus(t, resp, http.StatusUnauthorized)
+		_ = resp.Body.Close()
 	}
 
-	// 3rd login should be rate limited
+	// The next attempt is blocked before the password is even checked.
 	resp = doReq(t, ts, "POST", "/api/fp2fa/login", `{"password":"password1234"}`, "")
 	expectStatus(t, resp, http.StatusTooManyRequests)
+	_ = resp.Body.Close()
 }
 
 // ---------------------------------------------------------------------------
