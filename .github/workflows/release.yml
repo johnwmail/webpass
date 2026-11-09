@@ -36,9 +36,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-
 
-      - name: Build frontend
-        run: cd frontend && npm ci && npm run build
-
       - name: Determine version
         id: version
         run: |
@@ -47,6 +44,14 @@ jobs:
           else
             echo "version=sha-$(echo '${{ github.sha }}' | cut -c1-7)" >> $GITHUB_OUTPUT
           fi
+          echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+
+      - name: Build frontend
+        env:
+          FRONTEND_VERSION: ${{ steps.version.outputs.version }}
+          FRONTEND_COMMIT: ${{ github.sha }}
+          FRONTEND_BUILD_TIME: ${{ steps.version.outputs.build_time }}
+        run: cd frontend && npm ci && npm run build
 
       - name: Build binaries
         env:
@@ -58,7 +63,7 @@ jobs:
             arch="${target#*/}"
             echo "Building ${os}/${arch}"
             GOOS="${os}" GOARCH="${arch}" go build \
-              -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }} -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ) -X main.Commit=${{ github.sha }}" \
+              -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }} -X main.BuildTime=${{ steps.version.outputs.build_time }} -X main.Commit=${{ github.sha }}" \
               -o "webpass-server-${os}-${arch}" \
               ./cmd/srv
           done
