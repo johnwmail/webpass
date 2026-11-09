@@ -102,6 +102,29 @@ go run ./cmd/srv
 
 Server listens on `:8080` by default.
 
+### Create an account from the CLI
+
+The web UI normally creates the account because it generates the OpenPGP
+keypair in the browser. For headless setups, `scripts/create-account.sh`
+generates a compatible keypair with GnuPG, registers the account and writes the
+armored keys to disk:
+
+```bash
+./scripts/create-account.sh --url https://webpass.example.com
+
+# Non-interactive
+WEBPASS_URL=https://webpass.example.com \
+WEBPASS_PASSWORD='login-password-12+' \
+WEBPASS_PGP_PASSPHRASE='private-key-passphrase' \
+  ./scripts/create-account.sh --out-dir ./keys
+```
+
+Import the generated `*.private.asc` into the web UI (Setup → Import key) to
+use the same account there. Keep the private key and its passphrase backed up:
+without them the encrypted vault cannot be recovered. Run
+`./scripts/create-account.sh --help` for all options and requirements
+(`bash`, `curl`, `gpg` >= 2.2, `jq`).
+
 ##  Deployment
 
 ### Docker
