@@ -118,9 +118,10 @@ table <webpass> { 127.0.0.1 }
 ```
 
 Enable it with `rcctl enable relayd && rcctl start relayd` (TLS certificates are
-provisioned separately, e.g. with `acme-client`), then set
-`COOKIE_SECURE=true` (and optionally `CORS_ORIGINS`) in `/etc/webpass.env` and
-restart the service. WebPass does not do its own TLS.
+provisioned separately, e.g. with `acme-client`). Session cookies are always
+marked `Secure`, so cookie-based auth requires HTTPS; set `CORS_ORIGINS` in
+`/etc/webpass.env` if needed and restart the service. WebPass does not do its
+own TLS.
 
 ## 6. Backups and upgrades
 

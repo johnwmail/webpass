@@ -50,7 +50,6 @@ type Server struct {
 	hardLimit    time.Duration      // hard limit (max session time)
 	softLimit    time.Duration      // soft limit (browser closed detection)
 	cookieAuth   bool               // whether to use httpOnly cookies instead of localStorage
-	cookieSecure bool               // whether to set Secure flag on cookies
 	cookieDomain string             // optional cookie domain
 	bcryptCost   int                // bcrypt cost factor for password hashing
 	maxBodyBytes int64              // maximum accepted request body size in bytes
@@ -84,10 +83,11 @@ func New(dbPath string, jwtKey []byte, hardLimitMin int, softLimitMin int) (*Ser
 	// Check if cookie-based auth is enabled (default: false for local dev without HTTPS)
 	cookieAuthEnv := strings.TrimSpace(os.Getenv("COOKIE_AUTH_ENABLED"))
 	cookieAuth := cookieAuthEnv == "1" || strings.EqualFold(cookieAuthEnv, "true")
-
-	// Cookie Secure flag: set to true if running on HTTPS (check HTTPS environment or addr)
-	cookieSecureEnv := strings.TrimSpace(os.Getenv("COOKIE_SECURE"))
-	cookieSecure := cookieSecureEnv == "1" || strings.EqualFold(cookieSecureEnv, "true")
+	if cookieAuth {
+		// Cookies are always Secure; browsers accept them on loopback HTTP but
+		// reject them on plain-HTTP non-loopback origins.
+		slog.Info("cookie auth enabled; session cookies are Secure and require HTTPS (localhost is exempt)")
+	}
 
 	// Cookie domain (optional)
 	cookieDomain := strings.TrimSpace(os.Getenv("COOKIE_DOMAIN"))
@@ -123,7 +123,6 @@ func New(dbPath string, jwtKey []byte, hardLimitMin int, softLimitMin int) (*Ser
 		Q:            dbgen.New(wdb),
 		JWTKey:       jwtKey,
 		cookieAuth:   cookieAuth,
-		cookieSecure: cookieSecure,
 		cookieDomain: cookieDomain,
 		bcryptCost:   bcryptCost,
 		maxBodyBytes: maxBodyBytes,
@@ -478,13 +477,12 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 				token := generateCSRFToken()
 				// Path must match the frontend app path so document.cookie can read it;
 				// HttpOnly must be false because the SPA echoes the token in a header.
-				secure := s.useSecureCookie(r)
 				cookie := http.Cookie{
 					Name:     csrfTokenCookie,
 					Value:    token,
 					Path:     "/",
 					HttpOnly: false,
-					Secure:   secure,
+					Secure:   true,
 					SameSite: http.SameSiteStrictMode,
 					Domain:   s.cookieDomain,
 					MaxAge:   int(s.hardLimit.Seconds()),
@@ -854,29 +852,18 @@ func isHTTPSRequest(r *http.Request) bool {
 	return strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
 }
 
-// useSecureCookie reports whether cookies should carry the Secure flag.
-// Explicit COOKIE_SECURE=true always wins; otherwise HTTPS is detected from
-// the direct TLS connection or X-Forwarded-Proto (reverse proxy).
-func (s *Server) useSecureCookie(r *http.Request) bool {
-	if s.cookieSecure {
-		return true
-	}
-	return isHTTPSRequest(r)
-}
-
 // setAuthCookie sets the httpOnly authentication cookie
 func (s *Server) setAuthCookie(w http.ResponseWriter, r *http.Request, token string) {
 	if !s.cookieAuth {
 		return
 	}
 
-	secure := s.useSecureCookie(r)
 	cookie := http.Cookie{
 		Name:     "webpass_auth",
 		Value:    token,
 		Path:     "/api",
 		HttpOnly: true,
-		Secure:   secure,
+		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 		Domain:   s.cookieDomain,
 		MaxAge:   int(s.hardLimit.Seconds()),
@@ -886,13 +873,12 @@ func (s *Server) setAuthCookie(w http.ResponseWriter, r *http.Request, token str
 
 // clearAuthCookie clears the authentication cookie
 func (s *Server) clearAuthCookie(w http.ResponseWriter, r *http.Request) {
-	secure := s.useSecureCookie(r)
 	cookie := http.Cookie{
 		Name:     "webpass_auth",
 		Value:    "",
 		Path:     "/api",
 		HttpOnly: true,
-		Secure:   secure,
+		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 		Domain:   s.cookieDomain,
 		MaxAge:   -1, // Delete immediately
@@ -1351,13 +1337,12 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	// Clear the CSRF cookie as well so a new one is issued on the next GET.
 	// The CSRF cookie is a double-submit token, not an authentication
 	// credential.
-	secure := s.useSecureCookie(r)
 	cookie := http.Cookie{
 		Name:     csrfTokenCookie,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: false,
-		Secure:   secure,
+		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 		Domain:   s.cookieDomain,
 		MaxAge:   -1,
