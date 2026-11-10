@@ -1,6 +1,7 @@
 package srv
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -41,14 +42,42 @@ func TestInjectBuildMetaLeavesEmptyValues(t *testing.T) {
 }
 
 func TestInjectPGPKeyTimeout(t *testing.T) {
-	out := string(injectPGPKeyTimeout([]byte(testIndexHTML), 45))
-	if !strings.Contains(out, `<meta name="pgp-key-timeout-seconds" content="45" />`) {
-		t.Errorf("missing injected timeout in output:\n%s", out)
+	for _, seconds := range []int{45, 0} {
+		out := string(injectPGPKeyTimeout([]byte(testIndexHTML), seconds))
+		want := fmt.Sprintf(`<meta name="pgp-key-timeout-seconds" content="%d" />`, seconds)
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in output:\n%s", want, out)
+		}
 	}
 
-	unchanged := string(injectPGPKeyTimeout([]byte(testIndexHTML), 0))
+	unchanged := string(injectPGPKeyTimeout([]byte(testIndexHTML), -1))
 	if unchanged != testIndexHTML {
-		t.Errorf("expected no change for a zero timeout, got:\n%s", unchanged)
+		t.Errorf("expected no change for an unset timeout, got:\n%s", unchanged)
+	}
+}
+
+func TestPGPKeyTimeoutConfig(t *testing.T) {
+	cases := []struct {
+		env  string
+		want int
+	}{
+		{"", 30},
+		{"0", 0},
+		{"45", 45},
+		{"5", 5},
+		{"3600", 3600},
+		{"4", 30},
+		{"3601", 30},
+		{"nope", 30},
+	}
+	for _, tc := range cases {
+		t.Run("env="+tc.env, func(t *testing.T) {
+			t.Setenv("PGP_KEY_TIMEOUT_SECONDS", tc.env)
+			s := newTestServer(t)
+			if s.PGPKeyTimeoutSeconds != tc.want {
+				t.Fatalf("PGPKeyTimeoutSeconds = %d, want %d", s.PGPKeyTimeoutSeconds, tc.want)
+			}
+		})
 	}
 }
 

@@ -10,8 +10,11 @@ const MAX_KEY_TIMEOUT_SECONDS = 3600;
 /** Parse the server-configured PGP key auto-lock timeout (seconds). */
 export function parseKeyTimeoutSeconds(raw: string | null | undefined): number {
   const seconds = raw ? Number.parseInt(raw, 10) : NaN;
-  if (!Number.isFinite(seconds) || seconds <= 0) {
+  if (!Number.isFinite(seconds) || seconds < 0) {
     return DEFAULT_KEY_TIMEOUT_SECONDS;
+  }
+  if (seconds === 0) {
+    return 0; // caching disabled
   }
   return Math.min(Math.max(seconds, MIN_KEY_TIMEOUT_SECONDS), MAX_KEY_TIMEOUT_SECONDS);
 }
@@ -42,9 +45,9 @@ class Session {
     this._restore();
   }
 
-  /** Configured auto-lock timeout in seconds. */
+  /** Configured auto-lock timeout in seconds (0 = caching disabled). */
   keyTimeoutSeconds(): number {
-    return Math.max(1, Math.round(this._keyTimeoutMs / 1000));
+    return Math.max(0, Math.round(this._keyTimeoutMs / 1000));
   }
 
   /** Override auto-lock timeout (for testing). Resets current timer if key is unlocked. */
@@ -188,6 +191,14 @@ class Session {
   }
 
   setCachedPrivateKey(key: PrivateKey): void {
+    if (this._keyTimeoutMs <= 0) {
+      // Caching disabled: callers keep the key for their current operation,
+      // but it must not be retained for later ones.
+      this._privateKey = null;
+      this._clearKeyTimer();
+      this._notify();
+      return;
+    }
     this._privateKey = key;
     this._resetKeyTimer();
     this._notify();

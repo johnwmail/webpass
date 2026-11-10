@@ -27,7 +27,8 @@ services:
       # Only set when running behind a reverse proxy (comma-separated IPs/CIDRs).
       - TRUSTED_PROXIES=${TRUSTED_PROXIES:-}
       - MAX_REQUEST_BODY_BYTES=${MAX_REQUEST_BODY_BYTES:-}
-      # Browser PGP key auto-lock after inactivity (seconds, default 30).
+      # Browser PGP key auto-lock after inactivity (seconds, default 30;
+      # 0 disables caching).
       - PGP_KEY_TIMEOUT_SECONDS=${PGP_KEY_TIMEOUT_SECONDS:-30}
       # Optional: encrypts TOTP secrets at rest. If unset, a key file is
       # generated under /data (back it up with the database).

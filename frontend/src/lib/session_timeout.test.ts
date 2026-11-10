@@ -20,4 +20,19 @@ describe('Session PGP key timeout from index.html meta tag', () => {
     const s = new Session();
     expect(s.keyTimeoutSeconds()).toBe(30);
   });
+
+  it('disables caching when set to 0', () => {
+    const meta = document.createElement('meta');
+    meta.setAttribute('name', 'pgp-key-timeout-seconds');
+    meta.setAttribute('content', '0');
+    document.head.appendChild(meta);
+    try {
+      const s = new Session();
+      expect(s.keyTimeoutSeconds()).toBe(0);
+      s.setCachedPrivateKey({} as any);
+      expect(s.getCachedPrivateKey()).toBeNull();
+    } finally {
+      meta.remove();
+    }
+  });
 });

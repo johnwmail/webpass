@@ -65,6 +65,7 @@ export function MainApp({ onLock }: Props) {
   const [showUnlockKey, setShowUnlockKey] = useState(false);
   const [, setKeyUnlocked] = useState(false);
   const [keyRemaining, setKeyRemaining] = useState(0);
+  const keyCachingDisabled = session.keyTimeoutSeconds() === 0;
 
   const [renameTarget, setRenameTarget] = useState<string | null>(null);
   const [renameTo, setRenameTo] = useState('');
@@ -257,7 +258,12 @@ export function MainApp({ onLock }: Props) {
           <button
             class="btn btn-ghost btn-sm"
             onClick={() => keyRemaining > 0 ? session.clearPrivateKey() : setShowUnlockKey(true)}
-            title={keyRemaining > 0 ? `PGP key unlocked — auto-lock in ${keyRemaining}s — click to lock` : 'PGP key locked — click to unlock'}
+            disabled={keyCachingDisabled}
+            title={keyCachingDisabled
+              ? 'PGP key caching disabled — passphrase is requested for each operation'
+              : keyRemaining > 0
+                ? `PGP key unlocked — auto-lock in ${keyRemaining}s — click to lock`
+                : 'PGP key locked — click to unlock'}
             style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
           >
             {keyRemaining > 0 ? (

@@ -124,7 +124,7 @@ func New(dbPath string, jwtKey []byte, hardLimitMin int, softLimitMin int) (*Ser
 	const defaultPGPKeyTimeout = 30
 	pgpKeyTimeout := defaultPGPKeyTimeout
 	if raw := strings.TrimSpace(os.Getenv("PGP_KEY_TIMEOUT_SECONDS")); raw != "" {
-		if val, err := strconv.Atoi(raw); err == nil && val >= 5 && val <= 3600 {
+		if val, err := strconv.Atoi(raw); err == nil && (val == 0 || (val >= 5 && val <= 3600)) {
 			pgpKeyTimeout = val
 		} else {
 			slog.Warn("Invalid PGP_KEY_TIMEOUT_SECONDS value, using default 30", "value", raw)
@@ -329,7 +329,7 @@ func injectBuildMeta(data []byte, version, commit, buildTime string) []byte {
 
 // injectPGPKeyTimeout replaces the frontend PGP key auto-lock timeout meta tag.
 func injectPGPKeyTimeout(data []byte, seconds int) []byte {
-	if seconds <= 0 {
+	if seconds < 0 {
 		return data
 	}
 	page := pgpKeyTimeoutMetaPattern.ReplaceAllString(string(data), "${1}"+strconv.Itoa(seconds)+"${2}")

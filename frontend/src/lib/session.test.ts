@@ -111,7 +111,8 @@ describe('parseKeyTimeoutSeconds', () => {
     expect(parseKeyTimeoutSeconds(undefined)).toBe(30);
     expect(parseKeyTimeoutSeconds('')).toBe(30);
     expect(parseKeyTimeoutSeconds('nope')).toBe(30);
-    expect(parseKeyTimeoutSeconds('0')).toBe(30);
+    expect(parseKeyTimeoutSeconds('0')).toBe(0); // 0 disables caching
+    expect(parseKeyTimeoutSeconds('-1')).toBe(30);
   });
 
   it('accepts configured values', () => {
@@ -122,5 +123,32 @@ describe('parseKeyTimeoutSeconds', () => {
   it('clamps to the supported range', () => {
     expect(parseKeyTimeoutSeconds('1')).toBe(5);
     expect(parseKeyTimeoutSeconds('999999')).toBe(3600);
+  });
+});
+
+describe('Session PGP key caching disabled', () => {
+  let s: Session;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    s = new Session();
+    s.setKeyTimeout(0);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('does not retain the private key', () => {
+    s.setCachedPrivateKey({} as any);
+    expect(s.getCachedPrivateKey()).toBeNull();
+    expect(s.keyRemainingSeconds()).toBe(0);
+    expect(s.keyTimeoutSeconds()).toBe(0);
+  });
+
+  it('never exposes a cached key to later operations', () => {
+    s.setCachedPrivateKey({} as any);
+    vi.advanceTimersByTime(60_000);
+    expect(s.getCachedPrivateKey()).toBeNull();
   });
 });
