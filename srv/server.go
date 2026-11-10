@@ -46,16 +46,18 @@ type Server struct {
 	StaticFS     fs.FS  // embedded frontend filesystem (optional; preferred over StaticDir)
 	GitService   *GitService
 	Registration *RegistrationService
-	RateLimiter  *RateLimiter       // rate limiter for auth endpoints
-	hardLimit    time.Duration      // hard limit (max session time)
-	softLimit    time.Duration      // soft limit (browser closed detection)
-	cookieAuth   bool               // whether to use httpOnly cookies instead of localStorage
-	cookieDomain string             // optional cookie domain
-	bcryptCost   int                // bcrypt cost factor for password hashing
-	maxBodyBytes int64              // maximum accepted request body size in bytes
-	Secrets      *SecretBox         // encrypts secrets stored at rest (TOTP)
-	WebAuthn     *webauthn.WebAuthn // passkey relying party (nil when disabled)
-	dummyHash    []byte             // bcrypt hash used for timing-equalised login failures
+	RateLimiter  *RateLimiter  // rate limiter for auth endpoints
+	hardLimit    time.Duration // hard limit (max session time)
+	softLimit    time.Duration // soft limit (browser closed detection)
+	cookieAuth   bool          // whether to use httpOnly cookies instead of localStorage
+	cookieDomain string        // optional cookie domain
+	bcryptCost   int           // bcrypt cost factor for password hashing
+	maxBodyBytes int64         // maximum accepted request body size in bytes
+	// PGPKeyTimeoutSeconds is the frontend PGP key auto-lock timeout.
+	PGPKeyTimeoutSeconds int
+	Secrets              *SecretBox         // encrypts secrets stored at rest (TOTP)
+	WebAuthn             *webauthn.WebAuthn // passkey relying party (nil when disabled)
+	dummyHash            []byte             // bcrypt hash used for timing-equalised login failures
 	// Version info (set from main package)
 	Version   string
 	BuildTime string
@@ -118,14 +120,26 @@ func New(dbPath string, jwtKey []byte, hardLimitMin int, softLimitMin int) (*Ser
 		}
 	}
 
+	// Frontend PGP key auto-lock timeout (seconds).
+	const defaultPGPKeyTimeout = 30
+	pgpKeyTimeout := defaultPGPKeyTimeout
+	if raw := strings.TrimSpace(os.Getenv("PGP_KEY_TIMEOUT_SECONDS")); raw != "" {
+		if val, err := strconv.Atoi(raw); err == nil && val >= 5 && val <= 3600 {
+			pgpKeyTimeout = val
+		} else {
+			slog.Warn("Invalid PGP_KEY_TIMEOUT_SECONDS value, using default 30", "value", raw)
+		}
+	}
+
 	s := &Server{
-		DB:           wdb,
-		Q:            dbgen.New(wdb),
-		JWTKey:       jwtKey,
-		cookieAuth:   cookieAuth,
-		cookieDomain: cookieDomain,
-		bcryptCost:   bcryptCost,
-		maxBodyBytes: maxBodyBytes,
+		DB:                   wdb,
+		Q:                    dbgen.New(wdb),
+		JWTKey:               jwtKey,
+		cookieAuth:           cookieAuth,
+		cookieDomain:         cookieDomain,
+		bcryptCost:           bcryptCost,
+		maxBodyBytes:         maxBodyBytes,
+		PGPKeyTimeoutSeconds: pgpKeyTimeout,
 	}
 
 	secrets, err := loadSecretBox(dbPath, jwtKey)
@@ -292,9 +306,10 @@ func (s *Server) Handler() http.Handler {
 // example a plain `npm run build`), which previously made a release report
 // "vdev" in the UI even though the server knew its real version.
 var (
-	buildVersionMetaPattern = regexp.MustCompile(`(<meta name="build-version" content=")[^"]*(")`)
-	buildCommitMetaPattern  = regexp.MustCompile(`(<meta name="build-commit" content=")[^"]*(")`)
-	buildTimeMetaPattern    = regexp.MustCompile(`(<meta name="build-time" content=")[^"]*(")`)
+	buildVersionMetaPattern  = regexp.MustCompile(`(<meta name="build-version" content=")[^"]*(")`)
+	buildCommitMetaPattern   = regexp.MustCompile(`(<meta name="build-commit" content=")[^"]*(")`)
+	buildTimeMetaPattern     = regexp.MustCompile(`(<meta name="build-time" content=")[^"]*(")`)
+	pgpKeyTimeoutMetaPattern = regexp.MustCompile(`(<meta name="pgp-key-timeout-seconds" content=")[^"]*(")`)
 )
 
 // injectBuildMeta replaces the build metadata meta tags in index.html.
@@ -312,6 +327,15 @@ func injectBuildMeta(data []byte, version, commit, buildTime string) []byte {
 	return []byte(page)
 }
 
+// injectPGPKeyTimeout replaces the frontend PGP key auto-lock timeout meta tag.
+func injectPGPKeyTimeout(data []byte, seconds int) []byte {
+	if seconds <= 0 {
+		return data
+	}
+	page := pgpKeyTimeoutMetaPattern.ReplaceAllString(string(data), "${1}"+strconv.Itoa(seconds)+"${2}")
+	return []byte(page)
+}
+
 // serveIndexHTML serves index.html with the server's build metadata injected.
 func (s *Server) serveIndexHTML(w http.ResponseWriter, r *http.Request, staticFS fs.FS) {
 	data, err := fs.ReadFile(staticFS, "index.html")
@@ -324,6 +348,7 @@ func (s *Server) serveIndexHTML(w http.ResponseWriter, r *http.Request, staticFS
 		modTime = info.ModTime()
 	}
 	data = injectBuildMeta(data, s.Version, s.Commit, s.BuildTime)
+	data = injectPGPKeyTimeout(data, s.PGPKeyTimeoutSeconds)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	http.ServeContent(w, r, "index.html", modTime, bytes.NewReader(data))
 }

@@ -58,7 +58,8 @@ export function UnlockKeyModal({ onClose, onUnlocked }: Props) {
         </div>
         <div class="modal-body">
           <p style="margin-bottom: 16px; font-size: 14px; color: var(--text-muted);">
-            Enter your PGP passphrase to decrypt your private key. The key will stay in memory until you lock it or the session expires.
+            Enter your PGP passphrase to decrypt your private key. The key stays unlocked for
+            {' '}{session.keyTimeoutSeconds()} seconds after the last use, or until you lock it.
           </p>
           <div class="field">
             <label class="label">PGP Passphrase</label>

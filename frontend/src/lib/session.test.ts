@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Session } from './session';
+import { Session, parseKeyTimeoutSeconds } from './session';
 
 describe('Session PGP key auto-lock', () => {
   let s: Session;
@@ -102,5 +102,25 @@ describe('Session PGP key auto-lock', () => {
 
     s.setCachedPrivateKey({} as any);
     expect(s.keyRemainingSeconds()).toBe(60);
+  });
+});
+
+describe('parseKeyTimeoutSeconds', () => {
+  it('defaults to 30 seconds', () => {
+    expect(parseKeyTimeoutSeconds(null)).toBe(30);
+    expect(parseKeyTimeoutSeconds(undefined)).toBe(30);
+    expect(parseKeyTimeoutSeconds('')).toBe(30);
+    expect(parseKeyTimeoutSeconds('nope')).toBe(30);
+    expect(parseKeyTimeoutSeconds('0')).toBe(30);
+  });
+
+  it('accepts configured values', () => {
+    expect(parseKeyTimeoutSeconds('60')).toBe(60);
+    expect(parseKeyTimeoutSeconds('300')).toBe(300);
+  });
+
+  it('clamps to the supported range', () => {
+    expect(parseKeyTimeoutSeconds('1')).toBe(5);
+    expect(parseKeyTimeoutSeconds('999999')).toBe(3600);
   });
 });

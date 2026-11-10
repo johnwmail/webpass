@@ -3,6 +3,27 @@ import type { SessionState } from '../types';
 import type { PrivateKey } from 'openpgp';
 
 const STORAGE_KEY = 'webpass_session';
+const DEFAULT_KEY_TIMEOUT_SECONDS = 30;
+const MIN_KEY_TIMEOUT_SECONDS = 5;
+const MAX_KEY_TIMEOUT_SECONDS = 3600;
+
+/** Parse the server-configured PGP key auto-lock timeout (seconds). */
+export function parseKeyTimeoutSeconds(raw: string | null | undefined): number {
+  const seconds = raw ? Number.parseInt(raw, 10) : NaN;
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return DEFAULT_KEY_TIMEOUT_SECONDS;
+  }
+  return Math.min(Math.max(seconds, MIN_KEY_TIMEOUT_SECONDS), MAX_KEY_TIMEOUT_SECONDS);
+}
+
+function readKeyTimeoutSeconds(): number {
+  if (typeof document === 'undefined') return DEFAULT_KEY_TIMEOUT_SECONDS;
+  return parseKeyTimeoutSeconds(
+    document
+      .querySelector('meta[name="pgp-key-timeout-seconds"]')
+      ?.getAttribute('content')
+  );
+}
 
 class Session {
   fingerprint: string | null = null;
@@ -12,12 +33,18 @@ class Session {
   publicKey: string | null = null;
   private _privateKey: PrivateKey | null = null;
   private _listeners: Set<() => void> = new Set();
-  private _keyTimeoutMs: number = 30000; // default 30s
+  private _keyTimeoutMs: number;
   private _keyTimer: ReturnType<typeof setTimeout> | null = null;
   private _keyExpiresAt: number | null = null; // epoch ms when key auto-lock fires
 
   constructor() {
+    this._keyTimeoutMs = readKeyTimeoutSeconds() * 1000;
     this._restore();
+  }
+
+  /** Configured auto-lock timeout in seconds. */
+  keyTimeoutSeconds(): number {
+    return Math.max(1, Math.round(this._keyTimeoutMs / 1000));
   }
 
   /** Override auto-lock timeout (for testing). Resets current timer if key is unlocked. */

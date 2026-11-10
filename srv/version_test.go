@@ -15,6 +15,7 @@ const testIndexHTML = `<!doctype html>
     <meta name="build-version" content="vdev" />
     <meta name="build-time" content="unknown" />
     <meta name="build-commit" content="unknown" />
+    <meta name="pgp-key-timeout-seconds" content="30" />
   </head>
   <body></body>
 </html>`
@@ -39,8 +40,20 @@ func TestInjectBuildMetaLeavesEmptyValues(t *testing.T) {
 	}
 }
 
+func TestInjectPGPKeyTimeout(t *testing.T) {
+	out := string(injectPGPKeyTimeout([]byte(testIndexHTML), 45))
+	if !strings.Contains(out, `<meta name="pgp-key-timeout-seconds" content="45" />`) {
+		t.Errorf("missing injected timeout in output:\n%s", out)
+	}
+
+	unchanged := string(injectPGPKeyTimeout([]byte(testIndexHTML), 0))
+	if unchanged != testIndexHTML {
+		t.Errorf("expected no change for a zero timeout, got:\n%s", unchanged)
+	}
+}
+
 func TestServeIndexHTMLInjectsVersion(t *testing.T) {
-	s := &Server{Version: "v0.7.1", Commit: "abc1234", BuildTime: "2026-11-09T00:00:00Z"}
+	s := &Server{Version: "v0.7.1", Commit: "abc1234", BuildTime: "2026-11-09T00:00:00Z", PGPKeyTimeoutSeconds: 45}
 	staticFS := fstest.MapFS{
 		"index.html": &fstest.MapFile{Data: []byte(testIndexHTML), ModTime: time.Unix(0, 0)},
 	}
@@ -58,5 +71,8 @@ func TestServeIndexHTMLInjectsVersion(t *testing.T) {
 	body := rec.Body.String()
 	if !strings.Contains(body, `content="v0.7.1"`) {
 		t.Errorf("served index missing injected version:\n%s", body)
+	}
+	if !strings.Contains(body, `content="45"`) {
+		t.Errorf("served index missing injected PGP key timeout:\n%s", body)
 	}
 }

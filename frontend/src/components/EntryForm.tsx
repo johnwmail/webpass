@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect, useCallback } from 'preact/hooks';
 import { session } from '../lib/session';
 import { getAccount } from '../lib/storage';
 import { decryptPrivateKey, decryptBinary, encryptBinary, WrongKeyError } from '../lib/crypto';
@@ -29,16 +29,7 @@ export function EntryForm({ editPath, folderPrefix, onSave, onCancel }: Props) {
   const [error, setError] = useState('');
   const [needsDecryptForEdit, setNeedsDecryptForEdit] = useState(!!editPath);
 
-  useEffect(() => {
-    if (editPath) {
-      const parts = editPath.split('/');
-      setName(parts[parts.length - 1]);
-      setFolder(parts.slice(0, -1).join('/'));
-      setNeedsDecryptForEdit(true);
-    }
-  }, [editPath]);
-
-  const handleDecryptForEdit = async (passphrase: string) => {
+  const handleDecryptForEdit = useCallback(async (passphrase: string) => {
     setShowPassphrasePrompt(false);
     setLoading(true);
     setError('');
@@ -70,7 +61,21 @@ export function EntryForm({ editPath, folderPrefix, onSave, onCancel }: Props) {
       }
     }
     setLoading(false);
-  };
+  }, [editPath]);
+
+  useEffect(() => {
+    if (editPath) {
+      const parts = editPath.split('/');
+      setName(parts[parts.length - 1]);
+      setFolder(parts.slice(0, -1).join('/'));
+      setNeedsDecryptForEdit(true);
+      // If the PGP key is still unlocked, decrypt right away instead of asking
+      // for the passphrase again.
+      if (session.getCachedPrivateKey()) {
+        void handleDecryptForEdit('');
+      }
+    }
+  }, [editPath, handleDecryptForEdit]);
 
   const handleSave = async () => {
     setSaving(true);
