@@ -1,6 +1,7 @@
 package srv
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +16,7 @@ const testIndexHTML = `<!doctype html>
     <meta name="build-version" content="vdev" />
     <meta name="build-time" content="unknown" />
     <meta name="build-commit" content="unknown" />
+    <meta name="pgp-key-timeout-seconds" content="30" />
   </head>
   <body></body>
 </html>`
@@ -39,8 +41,48 @@ func TestInjectBuildMetaLeavesEmptyValues(t *testing.T) {
 	}
 }
 
+func TestInjectPGPKeyTimeout(t *testing.T) {
+	for _, seconds := range []int{45, 0} {
+		out := string(injectPGPKeyTimeout([]byte(testIndexHTML), seconds))
+		want := fmt.Sprintf(`<meta name="pgp-key-timeout-seconds" content="%d" />`, seconds)
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in output:\n%s", want, out)
+		}
+	}
+
+	unchanged := string(injectPGPKeyTimeout([]byte(testIndexHTML), -1))
+	if unchanged != testIndexHTML {
+		t.Errorf("expected no change for an unset timeout, got:\n%s", unchanged)
+	}
+}
+
+func TestPGPKeyTimeoutConfig(t *testing.T) {
+	cases := []struct {
+		env  string
+		want int
+	}{
+		{"", 30},
+		{"0", 0},
+		{"45", 45},
+		{"5", 5},
+		{"3600", 3600},
+		{"4", 30},
+		{"3601", 30},
+		{"nope", 30},
+	}
+	for _, tc := range cases {
+		t.Run("env="+tc.env, func(t *testing.T) {
+			t.Setenv("PGP_KEY_TIMEOUT_SECONDS", tc.env)
+			s := newTestServer(t)
+			if s.PGPKeyTimeoutSeconds != tc.want {
+				t.Fatalf("PGPKeyTimeoutSeconds = %d, want %d", s.PGPKeyTimeoutSeconds, tc.want)
+			}
+		})
+	}
+}
+
 func TestServeIndexHTMLInjectsVersion(t *testing.T) {
-	s := &Server{Version: "v0.7.1", Commit: "abc1234", BuildTime: "2026-11-09T00:00:00Z"}
+	s := &Server{Version: "v0.7.1", Commit: "abc1234", BuildTime: "2026-11-09T00:00:00Z", PGPKeyTimeoutSeconds: 45}
 	staticFS := fstest.MapFS{
 		"index.html": &fstest.MapFile{Data: []byte(testIndexHTML), ModTime: time.Unix(0, 0)},
 	}
@@ -58,5 +100,8 @@ func TestServeIndexHTMLInjectsVersion(t *testing.T) {
 	body := rec.Body.String()
 	if !strings.Contains(body, `content="v0.7.1"`) {
 		t.Errorf("served index missing injected version:\n%s", body)
+	}
+	if !strings.Contains(body, `content="45"`) {
+		t.Errorf("served index missing injected PGP key timeout:\n%s", body)
 	}
 }

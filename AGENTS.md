@@ -105,6 +105,7 @@ npm run typecheck
 | `DATA_ENCRYPTION_KEY` | Encrypts TOTP secrets at rest (optional; auto-generated as `data_encryption.key` next to the DB). Back it up with the DB. |
 | `SESSION_HARDLIMIT_MINUTES` | JWT hard limit (max session time) in minutes (default: 30, range: 5-480) |
 | `SESSION_SOFTLIMIT_MINUTES` | JWT soft limit (browser close detection) in minutes (default: 5, range: 1-60) |
+| `PGP_KEY_TIMEOUT_SECONDS` | Browser PGP key auto-lock after inactivity in seconds (default: 30; `0` disables caching, otherwise range 5-3600) |
 
 ## Database
 

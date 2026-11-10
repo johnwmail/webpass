@@ -345,7 +345,7 @@ All endpoints require JWT authentication except where noted.
 - **Server stores only PGP-encrypted blobs** — Database leak reveals nothing
 - **Password validates locally first** — Wrong password fails before network call
 - **5-minute sessions** — JWT expiry enforced server-side
-- **PGP key auto-lock** — Private key automatically locked after 30s of inactivity (hardcoded in `frontend/src/lib/session.ts`)
+- **PGP key auto-lock** — Private key automatically locked after `PGP_KEY_TIMEOUT_SECONDS` seconds of inactivity (default 30; `0` disables caching entirely); the decrypted key is only kept in memory
 - **CORS deny-by-default** — cross-origin access only for origins listed in `CORS_ORIGINS`
 - **Request limits** — 8 MiB body cap, bounded imports, and HTTP server timeouts
 - **Git remote validation** — blocks `file://` and private/loopback targets unless explicitly opted in (`GIT_ALLOW_*`)
@@ -405,6 +405,7 @@ See [`.env.example`](.env.example) for all available options with detailed comme
 | `GIT_REPO_ROOT`| No       | Git repos directory (default: `/data/git-repos`) |
 | `SESSION_HARDLIMIT_MINUTES` | No | JWT hard limit (max session time) in minutes (default: 30, range: 5-480) |
 | `SESSION_SOFTLIMIT_MINUTES` | No | JWT soft limit (browser close detection) in minutes (default: 5, range: 1-60) |
+| `PGP_KEY_TIMEOUT_SECONDS` | No | Browser PGP key auto-lock after inactivity in seconds (default: 30; `0` disables caching, otherwise range 5-3600) |
 | `DISABLE_FRONTEND` | No   | Disable frontend (`1` or `true`)         |
 | `BCRYPT_COST`  | No       | Password hashing cost factor (default: 12, range: 10-15) |
 | `RATE_LIMIT_ATTEMPTS` | No | Max requests per window (default: 5)    |
