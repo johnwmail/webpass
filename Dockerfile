@@ -47,7 +47,7 @@ RUN sed -i "s|content=\"vdev\"|content=\"$FRONTEND_VERSION\"|g" /app/frontend/di
 # ============================================
 # Stage 2: Build Backend
 # ============================================
-FROM golang:1.26-alpine AS backend-builder
+FROM golang:1.26.11-alpine AS backend-builder
 
 WORKDIR /app
 
