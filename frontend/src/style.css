@@ -550,9 +550,13 @@ body {
 .welcome-page {
   display: flex;
   align-items: center;
+  align-items: safe center;
   justify-content: center;
   min-height: 100vh;
+  min-height: 100dvh;
   padding: 20px;
+  padding-top: max(20px, env(safe-area-inset-top, 0px));
+  padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px));
   position: relative;
 }
 
@@ -625,9 +629,13 @@ body {
 .setup-page {
   display: flex;
   align-items: center;
+  align-items: safe center;
   justify-content: center;
   min-height: 100vh;
+  min-height: 100dvh;
   padding: 20px;
+  padding-top: max(20px, env(safe-area-inset-top, 0px));
+  padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px));
   position: relative;
 }
 
@@ -723,6 +731,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
 
@@ -775,7 +784,8 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 0 20px;
-  height: 36px;
+  height: calc(36px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   border-top: var(--glass-border);
   background: var(--glass-bg);
   backdrop-filter: var(--backdrop-blur-sm);
@@ -1754,6 +1764,7 @@ body {
 
 .route-loading {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1890,8 +1901,10 @@ body {
   .welcome-page,
   .setup-page {
     padding: 16px;
-    align-items: flex-start;
-    padding-top: 48px;
+    align-items: center;
+    align-items: safe center;
+    padding-top: max(24px, env(safe-area-inset-top, 0px));
+    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
   }
 
   .welcome-container,
@@ -2096,9 +2109,11 @@ body {
   }
 
   .app-footer {
-    height: 44px;
+    height: calc(44px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
     font-size: 12px;
-    padding: 0 16px;
+    padding-left: 16px;
+    padding-right: 16px;
     flex-wrap: wrap;
   }
 
