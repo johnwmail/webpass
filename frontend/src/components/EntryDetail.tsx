@@ -6,6 +6,7 @@ import { OTPDisplay } from './OTPDisplay';
 import { session } from '../lib/session';
 import { Lock, Eye, EyeOff, Copy, Check, Edit2, Trash2 } from 'lucide-preact';
 import { useAutoHide } from '../hooks/useAutoHide';
+import { useKeyLock } from '../hooks/useKeyLock';
 
 interface Props {
   path: string;
@@ -27,6 +28,11 @@ export function EntryDetail({ path, onEdit, onDelete }: Props) {
   
   const passwordVisibility = useAutoHide(15);
   const notesVisibility = useAutoHide(15);
+
+  useKeyLock(() => {
+    passwordVisibility.hide();
+    notesVisibility.hide();
+  });
 
   useEffect(() => {
     if (!state.content && !state.decrypting && session.getCachedPrivateKey()) {

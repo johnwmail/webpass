@@ -7,6 +7,7 @@ import { PassphrasePrompt } from './PassphrasePrompt';
 import { ReencryptDialog } from './ReencryptDialog';
 import { GeneratorModal } from './GeneratorModal';
 import { Lock, Sparkles, Save, X } from 'lucide-preact';
+import { useKeyLock } from '../hooks/useKeyLock';
 
 interface Props {
   editPath: string | null;
@@ -28,6 +29,17 @@ export function EntryForm({ editPath, folderPrefix, onSave, onCancel }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [needsDecryptForEdit, setNeedsDecryptForEdit] = useState(!!editPath);
+
+  useKeyLock(() => {
+    if (!editPath) return;
+    setPassword('');
+    setOtpUri('');
+    setNotes('');
+    setNeedsDecryptForEdit(true);
+    setShowPassphrasePrompt(false);
+    setShowReencryptDialog(false);
+    setError('');
+  });
 
   const handleDecryptForEdit = useCallback(async (passphrase: string) => {
     setShowPassphrasePrompt(false);

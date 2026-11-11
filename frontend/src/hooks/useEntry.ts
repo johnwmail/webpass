@@ -4,6 +4,7 @@ import { getAccount } from '../lib/storage';
 import { decryptPrivateKey, decryptBinary, encryptBinary, WrongKeyError } from '../lib/crypto';
 import { splitEntryContent } from '../lib/otp';
 import { useClipboard } from './useClipboard';
+import { useKeyLock } from './useKeyLock';
 
 export interface EntryState {
   content: { password: string; notes: string } | null;
@@ -79,6 +80,14 @@ export function useEntry(path: string, onEdit: () => void, onDelete: () => void)
       error: '',
     }));
   }, []);
+
+  // Drop the decrypted entry from memory as soon as the PGP key locks.
+  useKeyLock(() => {
+    setState(s => {
+      if (!s.content && !s.rawContent) return s;
+      return { ...s, content: null, rawContent: '', autoHidden: false };
+    });
+  });
 
   const { copied: clipboardCopied, copyToClipboard } = useClipboard({ clearAfterMs: 45000 });
 

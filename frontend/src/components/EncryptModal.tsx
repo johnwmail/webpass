@@ -3,6 +3,7 @@ import { encryptText, decryptMessage, decryptPrivateKey } from '../lib/crypto';
 import { session } from '../lib/session';
 import { getAccount } from '../lib/storage';
 import { Lock, Unlock, Copy, Check, Shield, User } from 'lucide-preact';
+import { useKeyLock } from '../hooks/useKeyLock';
 interface Props {
   onClose: () => void;
 }
@@ -25,6 +26,12 @@ export function EncryptModal({ onClose }: Props) {
   const [needsPassphrase, setNeedsPassphrase] = useState(false);
 
   const [copied, setCopied] = useState(false);
+
+  useKeyLock(() => {
+    setDecryptedOutput('');
+    setNeedsPassphrase(false);
+    setPassphrase('');
+  });
 
   const handleEncrypt = async () => {
     setEncryptError('');
