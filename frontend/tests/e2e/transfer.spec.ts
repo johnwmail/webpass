@@ -87,9 +87,17 @@ test.describe('Device transfer', () => {
 
       await pageB.getByPlaceholder('Enter the pairing code').waitFor({ timeout: 15000 });
       await pageB.getByPlaceholder('Enter the pairing code').fill(pairingCode);
-      await pageB.getByRole('button', { name: 'Restore key' }).click();
+      await pageB.getByRole('button', { name: 'Verify & request approval' }).click();
 
-      await pageB.getByText('Select an entry or create a new one').waitFor({ timeout: 20000 });
+      // Device A must see the request (IP/UA) and explicitly approve it.
+      await page.getByText('A new device is requesting your key').waitFor({ timeout: 20000 });
+      await page.getByText(/127\.0\.0\.1|::1/).waitFor({ timeout: 10000 });
+      await page.getByText(/HeadlessChrome|Mozilla/i).first().waitFor({ timeout: 10000 });
+      const approve = page.getByRole('button', { name: 'Approve', exact: true });
+      await expect(approve).toBeEnabled({ timeout: 20000 });
+      await approve.click();
+
+      await pageB.getByText('Select an entry or create a new one').waitFor({ timeout: 30000 });
 
       // The transferred key must decrypt the entry.
       await pageB.getByText('Transfer', { exact: false }).click();

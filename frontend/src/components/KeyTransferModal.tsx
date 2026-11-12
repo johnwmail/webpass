@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'preact/hooks';
 import QRCode from 'qrcode';
 import { session } from '../lib/session';
 import { getAccount } from '../lib/storage';
-import { encryptKeyTransfer } from '../lib/keyTransfer';
+import { encryptKeyTransfer, computePairingProof } from '../lib/keyTransfer';
 
 interface Props {
   onClose: () => void;
@@ -14,25 +14,44 @@ interface TransferInfo {
   link: string;
 }
 
-type TransferStatus = 'waiting' | 'redeemed' | 'expired';
+interface TransferStatus {
+  active: boolean;
+  requested: boolean;
+  requested_at: string | null;
+  requested_ip: string;
+  requested_user_agent: string;
+  requested_proof: string;
+  challenge: string;
+  approved: boolean;
+  denied: boolean;
+  redeemed: boolean;
+  expires_at: string | null;
+}
+
+type ProofState = 'idle' | 'checking' | 'verified' | 'invalid';
 
 export function KeyTransferModal({ onClose }: Props) {
   const [code, setCode] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [approvalLoading, setApprovalLoading] = useState(false);
   const [transfer, setTransfer] = useState<TransferInfo | null>(null);
+  const [statusInfo, setStatusInfo] = useState<TransferStatus | null>(null);
+  const [proofState, setProofState] = useState<ProofState>('idle');
   const [remaining, setRemaining] = useState(0);
-  const [status, setStatus] = useState<TransferStatus>('waiting');
   const [copied, setCopied] = useState(false);
   const qrRef = useRef<HTMLCanvasElement>(null);
+  const pairingCodeRef = useRef('');
+  const envelopeSaltRef = useRef('');
+  const challengeRef = useRef('');
+  const lastProofRef = useRef('');
 
   useEffect(() => {
     if (!transfer) return;
     const update = () => {
       const left = Math.max(0, Math.round((transfer.expiresAt - Date.now()) / 1000));
       setRemaining(left);
-      if (left === 0) setStatus((s) => (s === 'waiting' ? 'expired' : s));
     };
     update();
     const timer = setInterval(update, 1000);
@@ -40,25 +59,46 @@ export function KeyTransferModal({ onClose }: Props) {
   }, [transfer]);
 
   useEffect(() => {
-    if (transfer && qrRef.current) {
-      QRCode.toCanvas(qrRef.current, transfer.link, { width: 260, margin: 1 }).catch(() => {});
-    }
-  }, [transfer]);
-
-  useEffect(() => {
-    if (!transfer || status !== 'waiting') return;
+    if (!transfer) return;
     const timer = setInterval(async () => {
       try {
         const st = await session.api?.keyTransferStatus();
-        if (!st) return;
-        if (st.redeemed) setStatus('redeemed');
-        else if (!st.active) setStatus('expired');
+        if (st) setStatusInfo(st);
       } catch {
-        // Ignore transient status errors; the countdown still expires locally.
+        // Keep the countdown; transient status errors are non-fatal.
       }
-    }, 2500);
+    }, 2000);
     return () => clearInterval(timer);
-  }, [transfer, status]);
+  }, [transfer]);
+
+  useEffect(() => {
+    const st = statusInfo;
+    if (!st || !st.requested || st.approved || st.denied) return;
+    if (!st.requested_proof || lastProofRef.current === st.requested_proof) return;
+    lastProofRef.current = st.requested_proof;
+    setProofState('checking');
+    (async () => {
+      try {
+        const fp = session.fingerprint;
+        if (!fp) throw new Error('Not logged in');
+        const expected = await computePairingProof(
+          pairingCodeRef.current,
+          envelopeSaltRef.current,
+          st.challenge || challengeRef.current,
+          fp
+        );
+        setProofState(expected === st.requested_proof ? 'verified' : 'invalid');
+      } catch {
+        setProofState('invalid');
+      }
+    })();
+  }, [statusInfo]);
+
+  useEffect(() => {
+    if (transfer && !statusInfo?.requested && qrRef.current) {
+      QRCode.toCanvas(qrRef.current, transfer.link, { width: 260, margin: 1 }).catch(() => {});
+    }
+  }, [transfer, statusInfo?.requested]);
 
   const createTransfer = async () => {
     setError('');
@@ -83,18 +123,49 @@ export function KeyTransferModal({ onClose }: Props) {
       const res = await session.api.createKeyTransfer(envelope);
       const link = `${window.location.origin}/#/transfer?api=${encodeURIComponent(session.api.baseUrl)}&fp=${encodeURIComponent(fp)}&t=${encodeURIComponent(res.token)}`;
       const parsed = Date.parse(res.expires_at);
+      // Keep the pairing code in memory only; it is used to verify the
+      // target device's proof. It is never displayed or sent to the server.
+      pairingCodeRef.current = code;
+      envelopeSaltRef.current = envelope.salt;
+      challengeRef.current = res.challenge;
+      lastProofRef.current = '';
       setTransfer({
         token: res.token,
         expiresAt: Number.isFinite(parsed) ? parsed : Date.now() + 15 * 60 * 1000,
         link,
       });
-      // The pairing code is never displayed or sent to the server.
+      setStatusInfo(null);
+      setProofState('idle');
       setCode('');
       setConfirm('');
     } catch (e: any) {
       setError(e.message || 'Failed to create transfer');
     }
     setLoading(false);
+  };
+
+  const approve = async () => {
+    if (proofState !== 'verified') return;
+    setApprovalLoading(true);
+    setError('');
+    try {
+      await session.api?.approveKeyTransfer();
+    } catch (e: any) {
+      setError(e.message || 'Approve failed');
+    }
+    setApprovalLoading(false);
+  };
+
+  const deny = async () => {
+    setApprovalLoading(true);
+    setError('');
+    try {
+      await session.api?.denyKeyTransfer();
+      setStatusInfo((s) => (s ? { ...s, denied: true, active: false } : s));
+    } catch (e: any) {
+      setError(e.message || 'Deny failed');
+    }
+    setApprovalLoading(false);
   };
 
   const revoke = async () => {
@@ -119,10 +190,18 @@ export function KeyTransferModal({ onClose }: Props) {
 
   const reset = () => {
     setTransfer(null);
-    setStatus('waiting');
+    setStatusInfo(null);
+    setProofState('idle');
     setRemaining(0);
     setError('');
+    pairingCodeRef.current = '';
+    envelopeSaltRef.current = '';
+    challengeRef.current = '';
+    lastProofRef.current = '';
   };
+
+  const requested = !!statusInfo?.requested && !statusInfo.approved && !statusInfo.denied;
+  const expired = !!transfer && remaining === 0 && !statusInfo?.redeemed && !statusInfo?.approved;
 
   return (
     <div class="modal-overlay" onClick={onClose}>
@@ -140,8 +219,7 @@ export function KeyTransferModal({ onClose }: Props) {
               <p class="help-text" style="margin-bottom: 16px;">
                 Choose a temporary pairing code. The encrypted PGP key is uploaded for
                 15 minutes; the server never sees this code or your PGP passphrase.
-                You will type the same code on the new device. It is not shown again,
-                so remember it until the new device finishes restoring.
+                The new device must enter the same code before you can approve it.
               </p>
               <div class="field">
                 <label class="label">Pairing code</label>
@@ -189,13 +267,59 @@ export function KeyTransferModal({ onClose }: Props) {
                 {loading ? <><span class="spinner" /> Creating...</> : 'Create 15-minute link'}
               </button>
             </>
-          ) : status === 'redeemed' ? (
+          ) : statusInfo?.redeemed ? (
             <div style="text-align: center; padding: 12px 0;">
               <p style="font-size: 16px; margin-bottom: 8px;">✓ Key transferred</p>
               <p class="help-text">The new device has the encrypted key. You can close this window.</p>
               <button class="btn btn-primary" style="margin-top: 16px;" onClick={onClose}>Done</button>
             </div>
-          ) : status === 'expired' ? (
+          ) : statusInfo?.denied ? (
+            <div style="text-align: center; padding: 12px 0;">
+              <p style="font-size: 16px; margin-bottom: 8px;">Transfer denied</p>
+              <p class="help-text">The link is no longer valid.</p>
+              <button class="btn btn-primary" style="margin-top: 16px;" onClick={reset}>Create another link</button>
+            </div>
+          ) : requested ? (
+            <>
+              <p style="font-size: 15px; font-weight: 600; margin-bottom: 12px;">
+                A new device is requesting your key
+              </p>
+              <div class="settings-section" style="margin: 0 0 12px; padding: 12px;">
+                <div class="version-row"><span class="version-meta-label">IP:</span><span class="version-value">{statusInfo?.requested_ip || 'unknown'}</span></div>
+                <div class="version-row"><span class="version-meta-label">Requested:</span><span class="version-value">{statusInfo?.requested_at ? new Date(statusInfo.requested_at).toLocaleString() : ''}</span></div>
+                <div class="version-row" style="align-items: flex-start;">
+                  <span class="version-meta-label">Device:</span>
+                  <span class="version-value" style="word-break: break-all; font-size: 11px;">{statusInfo?.requested_user_agent || 'unknown'}</span>
+                </div>
+              </div>
+              <p class="help-text" style="margin-bottom: 12px;">
+                Only approve if you started this transfer on the new device.
+              </p>
+              <p style="font-size: 13px; margin-bottom: 12px;">
+                {proofState === 'checking' && <><span class="spinner" /> Verifying pairing code...</>}
+                {proofState === 'verified' && <span style="color: var(--success);">✓ Pairing code verified</span>}
+                {proofState === 'invalid' && <span style="color: var(--danger);">✗ Pairing code does not match</span>}
+              </p>
+              {error && <p class="error-msg">{error}</p>}
+              <div style="display: flex; gap: 10px;">
+                <button
+                  class="btn btn-primary"
+                  style="flex: 1;"
+                  onClick={approve}
+                  disabled={proofState !== 'verified' || approvalLoading}
+                >
+                  {approvalLoading ? <><span class="spinner" /> Approving...</> : 'Approve'}
+                </button>
+                <button class="btn" onClick={deny} disabled={approvalLoading}>Deny</button>
+              </div>
+            </>
+          ) : statusInfo?.approved ? (
+            <div style="text-align: center; padding: 12px 0;">
+              <p style="font-size: 16px; margin-bottom: 8px;">Approved ✓</p>
+              <p class="help-text">Waiting for the new device to finish restoring...</p>
+              <p style="margin-top: 12px; font-size: 13px;">Expires in <strong>{remaining}s</strong></p>
+            </div>
+          ) : expired ? (
             <div style="text-align: center; padding: 12px 0;">
               <p style="font-size: 16px; margin-bottom: 8px;">Link expired</p>
               <p class="help-text">The 15-minute window has passed. Create a new link to try again.</p>
@@ -205,7 +329,8 @@ export function KeyTransferModal({ onClose }: Props) {
             <>
               <p class="help-text" style="margin-bottom: 12px;">
                 Scan this QR code, or open the link on the new device. Then log in and
-                enter the pairing code you chose. The code is not shown here.
+                enter the pairing code you chose. It is not shown here. You will be
+                asked to approve the new device after it verifies the code.
               </p>
               <div style="display: flex; justify-content: center; margin-bottom: 12px;">
                 <canvas ref={qrRef} aria-label="Key transfer QR code" />

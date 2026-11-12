@@ -219,6 +219,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/{fingerprint}/webauthn/credentials/{id}", s.requireAuth(s.handleDeleteWebAuthnCredential))
 	// Temporary, client-encrypted key transfer between devices.
 	mux.HandleFunc("POST /api/{fingerprint}/key-transfer", s.rateLimitMiddleware(s.requireAuth(s.handleCreateKeyTransfer)))
+	mux.HandleFunc("GET /api/{fingerprint}/key-transfer/envelope", s.requireAuth(s.handleFetchKeyTransferEnvelope))
+	mux.HandleFunc("POST /api/{fingerprint}/key-transfer/request", s.rateLimitMiddleware(s.requireAuth(s.handleRequestKeyTransfer)))
+	mux.HandleFunc("POST /api/{fingerprint}/key-transfer/approve", s.rateLimitMiddleware(s.requireAuth(s.handleApproveKeyTransfer)))
+	mux.HandleFunc("POST /api/{fingerprint}/key-transfer/deny", s.rateLimitMiddleware(s.requireAuth(s.handleDenyKeyTransfer)))
 	mux.HandleFunc("POST /api/{fingerprint}/key-transfer/redeem", s.rateLimitMiddleware(s.requireAuth(s.handleRedeemKeyTransfer)))
 	mux.HandleFunc("DELETE /api/{fingerprint}/key-transfer", s.requireAuth(s.handleRevokeKeyTransfer))
 	mux.HandleFunc("GET /api/{fingerprint}/key-transfer/status", s.requireAuth(s.handleKeyTransferStatus))
@@ -757,6 +761,12 @@ func rateLimitScope(path string) string {
 		return "login2fa"
 	case strings.HasSuffix(path, "/login/recovery"):
 		return "recovery"
+	case strings.HasSuffix(path, "/key-transfer/request"):
+		return "keytransferrequest"
+	case strings.HasSuffix(path, "/key-transfer/approve"):
+		return "keytransferapprove"
+	case strings.HasSuffix(path, "/key-transfer/deny"):
+		return "keytransferdeny"
 	case strings.HasSuffix(path, "/key-transfer/redeem"):
 		return "keytransferredeem"
 	case strings.HasSuffix(path, "/key-transfer"):

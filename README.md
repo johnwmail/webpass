@@ -156,16 +156,21 @@ tar -czf passstore.tar.gz -C ~/.password-store .
 1. On the old device open **Settings → Device Transfer**, enter a temporary
    pairing code twice and press **Create 15-minute link**.
 2. On the new device scan the QR code or open the displayed link, log in, and
-   enter the **same pairing code**.
-3. The encrypted private key is imported. You will be asked for your PGP
+   enter the **same pairing code**. The client downloads the ciphertext and
+   verifies the pairing code locally; it then sends a pairing-code proof.
+3. The old device shows the requesting device's **IP and User-Agent** and only
+   enables **Approve** after verifying the proof locally. Press **Approve** (or
+   **Deny**).
+4. The encrypted private key is imported. You will be asked for your PGP
    passphrase only when you unlock an entry on the new device.
 
 The pairing code is chosen by you and **never sent to the server**. The client
 encrypts the already passphrase-protected private key with a PBKDF2/AES-GCM
 outer layer, and the server stores the ciphertext for 15 minutes (single-use,
-fingerprint-bound). The server never sees the pairing code or the PGP
-passphrase. Treat the link as sensitive: it is single-use and expires after 15
-minutes.
+fingerprint-bound). The new device proves it knows the pairing code with an
+HMAC proof; the old device verifies it and decides whether to approve. The
+server never sees the pairing code or the PGP passphrase. Treat the link as
+sensitive: it is single-use and expires after 15 minutes.
 
 ##  Deployment
 
@@ -306,12 +311,16 @@ All endpoints require JWT authentication except where noted.
 
 ### Device Transfer
 
-| Method | Path                                   | Auth | Description                                      |
-| ------ | -------------------------------------- | ---- | ------------------------------------------------ |
-| POST   | `/api/{fingerprint}/key-transfer`      | JWT  | Create a 15-minute, single-use key transfer      |
-| POST   | `/api/{fingerprint}/key-transfer/redeem` | JWT | Redeem the transfer (same account)             |
-| DELETE | `/api/{fingerprint}/key-transfer`      | JWT  | Revoke the active transfer                       |
-| GET    | `/api/{fingerprint}/key-transfer/status` | JWT | Status for the source device                   |
+| Method | Path                                        | Auth | Description                                      |
+| ------ | ------------------------------------------- | ---- | ------------------------------------------------ |
+| POST   | `/api/{fingerprint}/key-transfer`           | JWT  | Create a 15-minute, single-use key transfer      |
+| GET    | `/api/{fingerprint}/key-transfer/envelope`  | JWT  | Fetch ciphertext to verify the pairing code      |
+| POST   | `/api/{fingerprint}/key-transfer/request`   | JWT  | Send the pairing-code proof and request approval |
+| POST   | `/api/{fingerprint}/key-transfer/approve`   | JWT  | Approve the requesting device                    |
+| POST   | `/api/{fingerprint}/key-transfer/deny`      | JWT  | Deny the requesting device                       |
+| POST   | `/api/{fingerprint}/key-transfer/redeem`    | JWT  | Redeem after approval (single-use)               |
+| DELETE | `/api/{fingerprint}/key-transfer`           | JWT  | Revoke the active transfer                       |
+| GET    | `/api/{fingerprint}/key-transfer/status`    | JWT  | Status, requesting IP/User-Agent and proof       |
 
 ### Registration (TOTP-based)
 
@@ -378,7 +387,7 @@ All endpoints require JWT authentication except where noted.
 - **Security audit log** — login/2FA/password/session/git events with IP and user agent (`GET /api/{fp}/audit`); account deletion purges prior entries
 - **2FA recovery codes** — 10 one-time codes generated when 2FA is enabled; hashes stored, reusable codes consumed atomically
 - **Passkeys / WebAuthn** — Face ID, Touch ID and security keys as a second factor; password is still required first, TOTP and recovery codes remain as fallback
-- **Encrypted device transfer** — temporary pairing code (client-side only) wraps the passphrase-protected key; 15-minute single-use link/QR; the server never sees the pairing code or PGP passphrase
+- **Encrypted device transfer** — temporary pairing code (client-side only) wraps the passphrase-protected key; 15-minute single-use link/QR; the target device proves the code with an HMAC proof; the source device verifies it and shows the requesting IP/User-Agent before enabling Approve; the server never sees the pairing code or PGP passphrase
 - **TOTP secrets encrypted at rest** — AES-256-GCM via `DATA_ENCRYPTION_KEY` (or an auto-generated key file), with replay protection
 - **Password policy** — minimum 12 characters, max 72 bytes (bcrypt limit), enforced server-side
 - **Local key derivation** — PBKDF2-HMAC-SHA256 with 600k iterations; legacy 100k records are transparently upgraded on login

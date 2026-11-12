@@ -402,7 +402,7 @@ export class ApiClient {
   }
 
   /** POST /api/:fp/key-transfer — create a short-lived key transfer */
-  async createKeyTransfer(envelope: KeyTransferEnvelope): Promise<{ token: string; expires_at: string }> {
+  async createKeyTransfer(envelope: KeyTransferEnvelope): Promise<{ token: string; challenge: string; expires_at: string }> {
     const res = await this.guardedFetch(this.url(`/api/${this.fingerprint}/key-transfer`), {
       method: 'POST',
       headers: this.headers(),
@@ -412,6 +412,62 @@ export class ApiClient {
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: `Key transfer failed (${res.status})` }));
       throw new Error(err.error || `Key transfer failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  /** GET /api/:fp/key-transfer/envelope — fetch ciphertext to verify the pairing code */
+  async fetchKeyTransferEnvelope(): Promise<{ envelope: KeyTransferEnvelope; challenge: string }> {
+    const res = await this.guardedFetch(this.url(`/api/${this.fingerprint}/key-transfer/envelope`), {
+      headers: this.headers(),
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `Key transfer fetch failed (${res.status})` }));
+      throw new Error(err.error || `Key transfer fetch failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  /** POST /api/:fp/key-transfer/request — prove the pairing code and request approval */
+  async requestKeyTransfer(token: string, proof: string): Promise<{ status: string }> {
+    const res = await this.guardedFetch(this.url(`/api/${this.fingerprint}/key-transfer/request`), {
+      method: 'POST',
+      headers: this.headers(),
+      credentials: 'include',
+      body: JSON.stringify({ token, proof }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `Key transfer request failed (${res.status})` }));
+      throw new Error(err.error || `Key transfer request failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  /** POST /api/:fp/key-transfer/approve — source device approval */
+  async approveKeyTransfer(): Promise<{ status: string }> {
+    const res = await this.guardedFetch(this.url(`/api/${this.fingerprint}/key-transfer/approve`), {
+      method: 'POST',
+      headers: this.headers(),
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `Approve failed (${res.status})` }));
+      throw new Error(err.error || `Approve failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  /** POST /api/:fp/key-transfer/deny — source device rejection */
+  async denyKeyTransfer(): Promise<{ status: string }> {
+    const res = await this.guardedFetch(this.url(`/api/${this.fingerprint}/key-transfer/deny`), {
+      method: 'POST',
+      headers: this.headers(),
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `Deny failed (${res.status})` }));
+      throw new Error(err.error || `Deny failed (${res.status})`);
     }
     return res.json();
   }
@@ -444,7 +500,19 @@ export class ApiClient {
   }
 
   /** GET /api/:fp/key-transfer/status */
-  async keyTransferStatus(): Promise<{ active: boolean; redeemed: boolean; expires_at: string | null }> {
+  async keyTransferStatus(): Promise<{
+    active: boolean;
+    requested: boolean;
+    requested_at: string | null;
+    requested_ip: string;
+    requested_user_agent: string;
+    requested_proof: string;
+    challenge: string;
+    approved: boolean;
+    denied: boolean;
+    redeemed: boolean;
+    expires_at: string | null;
+  }> {
     const res = await this.guardedFetch(this.url(`/api/${this.fingerprint}/key-transfer/status`), {
       headers: this.headers(),
       credentials: 'include',

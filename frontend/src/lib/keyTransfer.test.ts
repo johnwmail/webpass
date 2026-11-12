@@ -4,6 +4,7 @@ import {
   encryptKeyTransfer,
   decryptKeyTransfer,
   inspectPrivateKey,
+  computePairingProof,
   KEY_TRANSFER_ITERATIONS,
 } from './keyTransfer';
 
@@ -65,4 +66,21 @@ describe('key transfer envelope', () => {
       decryptKeyTransfer({ ...envelope, iterations: 1000 }, pairingCode, fingerprint)
     ).rejects.toThrow();
   });
+});
+
+describe('pairing proof', () => {
+  it('is deterministic and depends on the code and challenge', async () => {
+    const kp = await generateKeyPair('test-pgp-passphrase');
+    const envelope = await encryptKeyTransfer(kp.privateKey, 'pairing-code', kp.fingerprint);
+    const first = await computePairingProof('pairing-code', envelope.salt, 'challenge-1', kp.fingerprint);
+    const second = await computePairingProof('pairing-code', envelope.salt, 'challenge-1', kp.fingerprint);
+    expect(first).toBe(second);
+    expect(first).toMatch(/^[A-Za-z0-9+/]+=*$/);
+    expect(atob(first).length).toBe(32);
+
+    const wrongCode = await computePairingProof('other-code', envelope.salt, 'challenge-1', kp.fingerprint);
+    const wrongChallenge = await computePairingProof('pairing-code', envelope.salt, 'challenge-2', kp.fingerprint);
+    expect(wrongCode).not.toBe(first);
+    expect(wrongChallenge).not.toBe(first);
+  }, 60000);
 });

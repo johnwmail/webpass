@@ -201,11 +201,21 @@ Temporary, client-encrypted PGP key transfer between devices:
   or the PGP passphrase.
 - The source device displays a QR code **and** the link (for desktops without a
   camera). The target device logs in, enters the same pairing code, downloads
-  the envelope, decrypts the outer layer client-side and imports the key.
-- The PGP passphrase is only requested when unlocking entries on the new device.
+  the envelope and **verifies the code locally**.
+- The target device sends an HMAC **pairing proof**; the source device verifies
+  it locally, shows the requesting **IP / User-Agent / time**, and only then
+  enables **Approve**. The source can **Deny**.
+- After approval the target device redeems (single-use) and imports the key.
+  The PGP passphrase is only requested when unlocking entries.
 
-Endpoints: `POST /api/{fp}/key-transfer`, `POST /api/{fp}/key-transfer/redeem`,
-`DELETE /api/{fp}/key-transfer`, `GET /api/{fp}/key-transfer/status`.
+Endpoints: `POST /api/{fp}/key-transfer`,
+`GET /api/{fp}/key-transfer/envelope`,
+`POST /api/{fp}/key-transfer/request`,
+`POST /api/{fp}/key-transfer/approve`,
+`POST /api/{fp}/key-transfer/deny`,
+`POST /api/{fp}/key-transfer/redeem`,
+`DELETE /api/{fp}/key-transfer`,
+`GET /api/{fp}/key-transfer/status`.
 
 ## Security Rules
 
