@@ -167,8 +167,8 @@ tar -czf passstore.tar.gz -C ~/.password-store .
 The pairing code is chosen by you and **never sent to the server**. The client
 encrypts the already passphrase-protected private key with a PBKDF2/AES-GCM
 outer layer, and the server keeps the ciphertext **in memory only** for 15
-minutes (single-use, fingerprint-bound). It is **never written to the
-database**; a server restart invalidates active transfers, so generate a new
+minutes (single-use, fingerprint-bound). It is **never written to
+disk**; a server restart invalidates active transfers, so generate a new
 link if that happens. The new device proves it knows the pairing code with an
 HMAC proof; the old device verifies it and decides whether to approve. The
 server never sees the pairing code or the PGP passphrase. Treat the link as

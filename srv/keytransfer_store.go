@@ -7,7 +7,7 @@ import (
 )
 
 // keyTransferStore keeps temporary, client-encrypted key transfers in memory
-// only. Nothing is written to the database: a server restart invalidates any
+// only. Nothing is written to disk: a server restart invalidates any
 // in-flight transfer, which is the intended trade-off for this feature.
 type keyTransferStore struct {
 	mu            sync.Mutex

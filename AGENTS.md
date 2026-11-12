@@ -198,7 +198,7 @@ Temporary, client-encrypted PGP key transfer between devices:
   uploads the envelope.
 - The server keeps the ciphertext **in memory only** for **15 minutes**, bound
   to the account fingerprint, and clears it on redeem/expiry/deny. It is never
-  written to the database; a server restart invalidates active transfers.
+  written to disk; a server restart invalidates active transfers.
   (Migration 015 drops the old `key_transfers` table.) It never sees the pairing
   code or the PGP passphrase.
 - The source device displays a QR code **and** the link (for desktops without a

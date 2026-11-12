@@ -365,7 +365,7 @@ func TestKeyTransferMemoryOnly(t *testing.T) {
 		t.Fatalf("check key_transfers table: %v", err)
 	}
 	if count != 0 {
-		t.Fatalf("key_transfers must not exist in the database, found %d", count)
+		t.Fatalf("key_transfers must not be persisted, found %d", count)
 	}
 }
 
