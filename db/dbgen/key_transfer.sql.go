@@ -10,11 +10,32 @@ import (
 	"time"
 )
 
+const approveKeyTransfer = `-- name: ApproveKeyTransfer :one
+UPDATE key_transfers
+SET approved_at = CURRENT_TIMESTAMP
+WHERE fingerprint = ?
+  AND used_at IS NULL
+  AND denied_at IS NULL
+  AND requested_at IS NOT NULL
+  AND requested_proof != ''
+  AND expires_at > CURRENT_TIMESTAMP
+RETURNING id
+`
+
+func (q *Queries) ApproveKeyTransfer(ctx context.Context, fingerprint string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, approveKeyTransfer, fingerprint)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const claimKeyTransfer = `-- name: ClaimKeyTransfer :one
 UPDATE key_transfers
 SET used_at = CURRENT_TIMESTAMP
 WHERE token_hash = ? AND fingerprint = ?
   AND used_at IS NULL
+  AND approved_at IS NOT NULL
+  AND denied_at IS NULL
   AND expires_at > CURRENT_TIMESTAMP
 RETURNING id, envelope
 `
@@ -65,8 +86,48 @@ func (q *Queries) DeleteKeyTransfersForUser(ctx context.Context, fingerprint str
 	return err
 }
 
+const denyKeyTransfer = `-- name: DenyKeyTransfer :one
+UPDATE key_transfers
+SET denied_at = CURRENT_TIMESTAMP, envelope = X''
+WHERE fingerprint = ?
+  AND used_at IS NULL
+  AND expires_at > CURRENT_TIMESTAMP
+RETURNING id
+`
+
+func (q *Queries) DenyKeyTransfer(ctx context.Context, fingerprint string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, denyKeyTransfer, fingerprint)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const getKeyTransferEnvelope = `-- name: GetKeyTransferEnvelope :one
+SELECT envelope, challenge
+FROM key_transfers
+WHERE fingerprint = ?
+  AND used_at IS NULL
+  AND denied_at IS NULL
+  AND expires_at > CURRENT_TIMESTAMP
+ORDER BY id DESC
+LIMIT 1
+`
+
+type GetKeyTransferEnvelopeRow struct {
+	Envelope  []byte `json:"envelope"`
+	Challenge string `json:"challenge"`
+}
+
+func (q *Queries) GetKeyTransferEnvelope(ctx context.Context, fingerprint string) (GetKeyTransferEnvelopeRow, error) {
+	row := q.db.QueryRowContext(ctx, getKeyTransferEnvelope, fingerprint)
+	var i GetKeyTransferEnvelopeRow
+	err := row.Scan(&i.Envelope, &i.Challenge)
+	return i, err
+}
+
 const getKeyTransferStatus = `-- name: GetKeyTransferStatus :one
-SELECT id, expires_at, used_at
+SELECT id, expires_at, used_at, requested_at, requested_ip, requested_user_agent,
+       requested_proof, challenge, approved_at, denied_at
 FROM key_transfers
 WHERE fingerprint = ?
 ORDER BY id DESC
@@ -74,27 +135,46 @@ LIMIT 1
 `
 
 type GetKeyTransferStatusRow struct {
-	ID        int64      `json:"id"`
-	ExpiresAt time.Time  `json:"expires_at"`
-	UsedAt    *time.Time `json:"used_at"`
+	ID                 int64      `json:"id"`
+	ExpiresAt          time.Time  `json:"expires_at"`
+	UsedAt             *time.Time `json:"used_at"`
+	RequestedAt        *time.Time `json:"requested_at"`
+	RequestedIp        string     `json:"requested_ip"`
+	RequestedUserAgent string     `json:"requested_user_agent"`
+	RequestedProof     string     `json:"requested_proof"`
+	Challenge          string     `json:"challenge"`
+	ApprovedAt         *time.Time `json:"approved_at"`
+	DeniedAt           *time.Time `json:"denied_at"`
 }
 
 func (q *Queries) GetKeyTransferStatus(ctx context.Context, fingerprint string) (GetKeyTransferStatusRow, error) {
 	row := q.db.QueryRowContext(ctx, getKeyTransferStatus, fingerprint)
 	var i GetKeyTransferStatusRow
-	err := row.Scan(&i.ID, &i.ExpiresAt, &i.UsedAt)
+	err := row.Scan(
+		&i.ID,
+		&i.ExpiresAt,
+		&i.UsedAt,
+		&i.RequestedAt,
+		&i.RequestedIp,
+		&i.RequestedUserAgent,
+		&i.RequestedProof,
+		&i.Challenge,
+		&i.ApprovedAt,
+		&i.DeniedAt,
+	)
 	return i, err
 }
 
 const insertKeyTransfer = `-- name: InsertKeyTransfer :exec
-INSERT INTO key_transfers (fingerprint, token_hash, envelope, expires_at, created_ip, user_agent)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO key_transfers (fingerprint, token_hash, envelope, challenge, expires_at, created_ip, user_agent)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertKeyTransferParams struct {
 	Fingerprint string    `json:"fingerprint"`
 	TokenHash   []byte    `json:"token_hash"`
 	Envelope    []byte    `json:"envelope"`
+	Challenge   string    `json:"challenge"`
 	ExpiresAt   time.Time `json:"expires_at"`
 	CreatedIp   string    `json:"created_ip"`
 	UserAgent   string    `json:"user_agent"`
@@ -105,9 +185,45 @@ func (q *Queries) InsertKeyTransfer(ctx context.Context, arg InsertKeyTransferPa
 		arg.Fingerprint,
 		arg.TokenHash,
 		arg.Envelope,
+		arg.Challenge,
 		arg.ExpiresAt,
 		arg.CreatedIp,
 		arg.UserAgent,
 	)
 	return err
+}
+
+const requestKeyTransfer = `-- name: RequestKeyTransfer :one
+UPDATE key_transfers
+SET requested_at = CURRENT_TIMESTAMP,
+    requested_ip = ?,
+    requested_user_agent = ?,
+    requested_proof = ?
+WHERE token_hash = ? AND fingerprint = ?
+  AND used_at IS NULL
+  AND approved_at IS NULL
+  AND denied_at IS NULL
+  AND expires_at > CURRENT_TIMESTAMP
+RETURNING id
+`
+
+type RequestKeyTransferParams struct {
+	RequestedIp        string `json:"requested_ip"`
+	RequestedUserAgent string `json:"requested_user_agent"`
+	RequestedProof     string `json:"requested_proof"`
+	TokenHash          []byte `json:"token_hash"`
+	Fingerprint        string `json:"fingerprint"`
+}
+
+func (q *Queries) RequestKeyTransfer(ctx context.Context, arg RequestKeyTransferParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, requestKeyTransfer,
+		arg.RequestedIp,
+		arg.RequestedUserAgent,
+		arg.RequestedProof,
+		arg.TokenHash,
+		arg.Fingerprint,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }

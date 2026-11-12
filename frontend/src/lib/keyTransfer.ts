@@ -139,3 +139,48 @@ export async function inspectPrivateKey(
 ): Promise<{ fingerprint: string; publicKey: string }> {
   return getPrivateKeyInfo(armoredPrivateKey);
 }
+
+/**
+ * Compute the pairing-code proof. The target device sends it with the approval
+ * request; the source device verifies it locally with the same pairing code.
+ * The server only relays the proof and never learns the pairing code.
+ */
+export async function computePairingProof(
+  pairingCode: string,
+  saltBase64: string,
+  challenge: string,
+  fingerprint: string
+): Promise<string> {
+  const salt = fromBase64(saltBase64);
+  if (salt.length !== SALT_BYTES) throw new Error('Invalid pairing salt');
+  const material = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(pairingCode),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: salt.buffer as ArrayBuffer,
+      iterations: KEY_TRANSFER_ITERATIONS,
+      hash: 'SHA-256',
+    },
+    material,
+    256
+  );
+  const hmacKey = await crypto.subtle.importKey(
+    'raw',
+    bits,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    hmacKey,
+    new TextEncoder().encode(`${challenge}:${fingerprint}`)
+  );
+  return toBase64(new Uint8Array(signature));
+}

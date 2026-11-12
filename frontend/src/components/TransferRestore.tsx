@@ -1,8 +1,8 @@
-import { useState } from 'preact/hooks';
+import { useState, useEffect, useRef } from 'preact/hooks';
 import { ApiClient } from '../lib/api';
 import { session } from '../lib/session';
 import { saveAccount, aesEncrypt } from '../lib/storage';
-import { decryptKeyTransfer, inspectPrivateKey, type KeyTransferEnvelope } from '../lib/keyTransfer';
+import { decryptKeyTransfer, inspectPrivateKey, computePairingProof } from '../lib/keyTransfer';
 import { Footer } from './Footer';
 import { Key, Shield, Lock } from 'lucide-preact';
 
@@ -15,6 +15,7 @@ interface Props {
 }
 
 type LoginResult = { token?: string; expires_at?: number };
+type Approval = 'idle' | 'pending' | 'approved' | 'denied' | 'expired';
 
 export function TransferRestore({ apiUrl, fingerprint, token, onComplete, onCancel }: Props) {
   const [password, setPassword] = useState('');
@@ -27,9 +28,11 @@ export function TransferRestore({ apiUrl, fingerprint, token, onComplete, onCanc
   const [loginResult, setLoginResult] = useState<LoginResult | null>(null);
   const [step, setStep] = useState<'login' | 'pairing'>('login');
   const [pairingCode, setPairingCode] = useState('');
-  const [envelope, setEnvelope] = useState<KeyTransferEnvelope | null>(null);
+  const [armoredKey, setArmoredKey] = useState('');
+  const [approval, setApproval] = useState<Approval>('idle');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const restoringRef = useRef(false);
 
   const finishLogin = (api: ApiClient, result: LoginResult) => {
     api.token = result.token || null;
@@ -81,58 +84,99 @@ export function TransferRestore({ apiUrl, fingerprint, token, onComplete, onCanc
     setLoading(false);
   };
 
-  const handleRestore = async (e: Event) => {
+  // Verify the pairing code locally, then ask the source device for approval.
+  const handleVerifyAndRequest = async (e: Event) => {
     e.preventDefault();
     if (!client) return;
     setError('');
     setLoading(true);
     try {
-      // Make sure the CSRF cookie exists before a state-changing request.
       await fetch(`${apiUrl.replace(/\/+$/, '')}/api/health`, { credentials: 'include' }).catch(() => {});
-
-      let env = envelope;
-      if (!env) {
-        const result = await client.redeemKeyTransfer(token);
-        env = result.envelope;
-        // Keep the envelope so a wrong pairing code can be retried locally.
-        setEnvelope(env);
-      }
-
-      const armoredPrivateKey = await decryptKeyTransfer(env, pairingCode, fingerprint);
-      const info = await inspectPrivateKey(armoredPrivateKey);
-      const encryptedUrl = await aesEncrypt(apiUrl, password);
-
-      await saveAccount({
-        fingerprint,
-        privateKey: armoredPrivateKey,
-        publicKey: info.publicKey,
-        apiUrlEncrypted: encryptedUrl.encrypted,
-        apiUrlSalt: encryptedUrl.salt,
-        apiUrlIv: encryptedUrl.iv,
-      });
-
-      session.activate({
-        fingerprint,
-        token: loginResult?.token || '',
-        apiUrl,
-        publicKey: info.publicKey,
-        expiresAt: loginResult?.expires_at ?? null,
-      });
-
-      window.history.replaceState(null, '', window.location.pathname + window.location.search);
-      onComplete();
+      const fetched = await client.fetchKeyTransferEnvelope();
+      const armored = await decryptKeyTransfer(fetched.envelope, pairingCode, fingerprint);
+      const proof = await computePairingProof(
+        pairingCode,
+        fetched.envelope.salt,
+        fetched.challenge,
+        fingerprint
+      );
+      await client.requestKeyTransfer(token, proof);
+      setArmoredKey(armored);
+      setApproval('pending');
     } catch (e: any) {
-      const msg = e?.message || 'Restore failed';
+      const msg = e?.message || 'Verification failed';
       setError(
         /not found or expired/i.test(msg)
           ? 'This link has expired or was already used. Create a new link on the other device.'
-          : /wrong|decrypt|operation/i.test(msg)
-            ? 'Wrong pairing code or corrupted transfer. Check the code and try again.'
+          : /wrong|decrypt|operation|authenticate/i.test(msg)
+            ? 'Wrong pairing code. Check the code and try again.'
             : msg
       );
     }
     setLoading(false);
   };
+
+  // Wait for the source device to approve.
+  useEffect(() => {
+    if (approval !== 'pending' || !client) return;
+    let cancelled = false;
+    const timer = setInterval(async () => {
+      try {
+        const st = await client.keyTransferStatus();
+        if (cancelled) return;
+        if (st.approved) {
+          setApproval('approved');
+        } else if (st.denied) {
+          setApproval('denied');
+          setError('The other device denied this transfer.');
+        } else if (!st.active) {
+          setApproval('expired');
+          setError('This link has expired. Create a new link on the other device.');
+        }
+      } catch {
+        // Keep polling; a transient error should not abort the transfer.
+      }
+    }, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [approval, client]);
+
+  // After approval, redeem (single-use) and import the already decrypted key.
+  useEffect(() => {
+    if (approval !== 'approved' || !client || restoringRef.current) return;
+    restoringRef.current = true;
+    (async () => {
+      setLoading(true);
+      try {
+        await client.redeemKeyTransfer(token);
+        const info = await inspectPrivateKey(armoredKey);
+        const encryptedUrl = await aesEncrypt(apiUrl, password);
+        await saveAccount({
+          fingerprint,
+          privateKey: armoredKey,
+          publicKey: info.publicKey,
+          apiUrlEncrypted: encryptedUrl.encrypted,
+          apiUrlSalt: encryptedUrl.salt,
+          apiUrlIv: encryptedUrl.iv,
+        });
+        session.activate({
+          fingerprint,
+          token: loginResult?.token || '',
+          apiUrl,
+          publicKey: info.publicKey,
+          expiresAt: loginResult?.expires_at ?? null,
+        });
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        onComplete();
+      } catch (e: any) {
+        setError(e?.message || 'Restore failed');
+        setApproval('expired');
+      }
+      setLoading(false);
+    })();
+  }, [approval, client, armoredKey, password, apiUrl, fingerprint, token, loginResult, onComplete]);
 
   const cancel = async () => {
     try {
@@ -140,9 +184,25 @@ export function TransferRestore({ apiUrl, fingerprint, token, onComplete, onCanc
     } catch {
       // Best effort.
     }
+    session.clear();
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
     onCancel();
   };
+
+  const approvalLabel = (() => {
+    switch (approval) {
+      case 'pending':
+        return 'Waiting for approval on the other device...';
+      case 'approved':
+        return 'Approved — restoring...';
+      case 'denied':
+        return 'The other device denied this transfer.';
+      case 'expired':
+        return 'This link has expired or was already used.';
+      default:
+        return '';
+    }
+  })();
 
   return (
     <div class="welcome-page">
@@ -235,9 +295,10 @@ export function TransferRestore({ apiUrl, fingerprint, token, onComplete, onCanc
               </div>
             </form>
           ) : (
-            <form onSubmit={handleRestore}>
+            <form onSubmit={handleVerifyAndRequest}>
               <p class="help-text" style="margin-bottom: 12px;">
-                Enter the pairing code shown on the other device. It is never sent to the server.
+                Enter the pairing code shown on the other device. It is verified locally;
+                the other device must then approve this transfer.
               </p>
               <div class="field">
                 <label class="label"><Lock size={14} style={{ marginRight: 6, verticalAlign: -2 }} />Pairing code</label>
@@ -254,15 +315,26 @@ export function TransferRestore({ apiUrl, fingerprint, token, onComplete, onCanc
                   data-lpignore="true"
                   data-bwignore="true"
                   data-1p-ignore="true"
-                  disabled={loading}
+                  disabled={loading || approval !== 'idle'}
                 />
               </div>
 
+              {approvalLabel && (
+                <p class="help-text" style="margin-bottom: 12px;">
+                  {approval === 'pending' && <span class="spinner" style="margin-right: 6px;" />}
+                  {approvalLabel}
+                </p>
+              )}
               {error && <p class="error-msg">{error}</p>}
 
               <div style="display: flex; gap: 10px; margin-top: 12px;">
-                <button type="submit" class="btn btn-primary" style="flex: 1;" disabled={loading || !pairingCode}>
-                  {loading ? <><span class="spinner" /> Restoring...</> : 'Restore key'}
+                <button
+                  type="submit"
+                  class="btn btn-primary"
+                  style="flex: 1;"
+                  disabled={loading || approval !== 'idle' || !pairingCode}
+                >
+                  {loading ? <><span class="spinner" /> Verifying...</> : 'Verify & request approval'}
                 </button>
                 <button type="button" class="btn" onClick={cancel} disabled={loading}>Cancel</button>
               </div>
