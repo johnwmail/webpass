@@ -41,6 +41,24 @@ export async function getFingerprint(armoredPublicKey: string): Promise<string> 
   return key.getFingerprint().toUpperCase();
 }
 
+/**
+ * Read a private key's fingerprint and public key without decrypting it.
+ * Used by the device-transfer import, which must not ask for the PGP passphrase.
+ */
+export async function getPrivateKeyInfo(
+  keyData: string | Uint8Array
+): Promise<{ fingerprint: string; publicKey: string }> {
+  const openpgp = await getOpenPGP();
+  const key =
+    typeof keyData === 'string'
+      ? await openpgp.readPrivateKey({ armoredKey: keyData })
+      : await openpgp.readPrivateKey({ binaryKey: keyData });
+  return {
+    fingerprint: key.getFingerprint().toUpperCase(),
+    publicKey: key.toPublic().armor(),
+  };
+}
+
 /** Decrypt private key with passphrase */
 export async function decryptPrivateKey(
   keyData: string | Uint8Array,

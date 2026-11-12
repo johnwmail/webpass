@@ -217,6 +217,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/{fingerprint}/webauthn/register/finish", s.requireAuth(s.handleWebAuthnRegisterFinish))
 	mux.HandleFunc("GET /api/{fingerprint}/webauthn/credentials", s.requireAuth(s.handleListWebAuthnCredentials))
 	mux.HandleFunc("DELETE /api/{fingerprint}/webauthn/credentials/{id}", s.requireAuth(s.handleDeleteWebAuthnCredential))
+	// Temporary, client-encrypted key transfer between devices.
+	mux.HandleFunc("POST /api/{fingerprint}/key-transfer", s.rateLimitMiddleware(s.requireAuth(s.handleCreateKeyTransfer)))
+	mux.HandleFunc("POST /api/{fingerprint}/key-transfer/redeem", s.rateLimitMiddleware(s.requireAuth(s.handleRedeemKeyTransfer)))
+	mux.HandleFunc("DELETE /api/{fingerprint}/key-transfer", s.requireAuth(s.handleRevokeKeyTransfer))
+	mux.HandleFunc("GET /api/{fingerprint}/key-transfer/status", s.requireAuth(s.handleKeyTransferStatus))
 	mux.HandleFunc("GET /api/{fingerprint}/entries", s.requireAuth(s.handleListEntries))
 	mux.HandleFunc("POST /api/{fingerprint}/entries/move", s.requireAuth(s.handleMoveEntry))
 	mux.HandleFunc("GET /api/{fingerprint}/export", s.requireAuth(s.handleExport))
@@ -752,6 +757,10 @@ func rateLimitScope(path string) string {
 		return "login2fa"
 	case strings.HasSuffix(path, "/login/recovery"):
 		return "recovery"
+	case strings.HasSuffix(path, "/key-transfer/redeem"):
+		return "keytransferredeem"
+	case strings.HasSuffix(path, "/key-transfer"):
+		return "keytransfer"
 	case strings.HasSuffix(path, "/login/webauthn/begin"), strings.HasSuffix(path, "/login/webauthn/finish"):
 		return "webauthn"
 	case strings.HasSuffix(path, "/login"):
@@ -1863,6 +1872,12 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	if err := qtx.DeleteWebAuthnChallengesForUser(ctx, fp); err != nil {
 		_ = tx.Rollback()
 		slog.Error("delete account: purge webauthn challenges", "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := qtx.DeleteKeyTransfersForUser(ctx, fp); err != nil {
+		_ = tx.Rollback()
+		slog.Error("delete account: purge key transfers", "error", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
