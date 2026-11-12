@@ -7,6 +7,7 @@ import {
   generateKeyPair,
   getFingerprint,
   decryptPrivateKey,
+  changePrivateKeyPassphrase,
   importPrivateKey,
   clearSensitiveData,
   encryptText,
@@ -296,4 +297,41 @@ describe('encryptPAT / decryptPAT', () => {
 
     expect(decrypted).toBe(pat);
   });
+});
+
+describe('changePrivateKeyPassphrase', () => {
+  it('re-wraps the key without changing the fingerprint', async () => {
+    const oldPassphrase = 'old-passphrase-123';
+    const newPassphrase = 'new-passphrase-456';
+    const kp = await generateKeyPair(oldPassphrase);
+
+    const newKey = await changePrivateKeyPassphrase(kp.privateKey, oldPassphrase, newPassphrase);
+    expect(newKey).toContain('-----BEGIN PGP PRIVATE KEY BLOCK-----');
+    expect(newKey).not.toBe(kp.privateKey);
+
+    // The original blob is untouched and still uses the old passphrase.
+    const original = await decryptPrivateKey(kp.privateKey, oldPassphrase);
+    expect(original.getFingerprint().toUpperCase()).toBe(kp.fingerprint);
+
+    // The new blob decrypts with the new passphrase and keeps the fingerprint.
+    const rewrapped = await decryptPrivateKey(newKey, newPassphrase);
+    expect(rewrapped.getFingerprint().toUpperCase()).toBe(kp.fingerprint);
+
+    // The old passphrase no longer works on the new blob.
+    await expect(decryptPrivateKey(newKey, oldPassphrase)).rejects.toThrow();
+  }, 60000);
+
+  it('rejects a wrong current passphrase', async () => {
+    const kp = await generateKeyPair('old-passphrase-123');
+    await expect(
+      changePrivateKeyPassphrase(kp.privateKey, 'wrong-passphrase', 'new-passphrase-456')
+    ).rejects.toThrow();
+  }, 60000);
+
+  it('rejects a short new passphrase', async () => {
+    const kp = await generateKeyPair('old-passphrase-123');
+    await expect(
+      changePrivateKeyPassphrase(kp.privateKey, 'old-passphrase-123', 'short')
+    ).rejects.toThrow(/at least 12/);
+  }, 60000);
 });

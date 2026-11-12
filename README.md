@@ -151,6 +151,19 @@ account key. Create the archive with:
 tar -czf passstore.tar.gz -C ~/.password-store .
 ```
 
+### Change the PGP passphrase
+
+Open **Settings → PGP Key Management → Change PGP Passphrase**. The client
+decrypts the private key with the current passphrase and re-encrypts it with
+the new one; the key, fingerprint, public key and all entries stay the same,
+and the server is not involved.
+
+- The **login password is separate** and is not changed.
+- **Other devices** and previously exported `.asc` backups still use the old
+  passphrase. Re-export the private key and update them, or use device transfer.
+- Cancel any active device transfer first.
+- The key is locked after the change; unlock it again with the new passphrase.
+
 ### Transfer an account to a new device
 
 1. On the old device open **Settings → Device Transfer**, enter a temporary
@@ -389,6 +402,7 @@ All endpoints require JWT authentication except where noted.
 - **Security audit log** — login/2FA/password/session/git events with IP and user agent (`GET /api/{fp}/audit`); account deletion purges prior entries
 - **2FA recovery codes** — 10 one-time codes generated when 2FA is enabled; hashes stored, reusable codes consumed atomically
 - **Passkeys / WebAuthn** — Face ID, Touch ID and security keys as a second factor; password is still required first, TOTP and recovery codes remain as fallback
+- **PGP passphrase rotation** — client-side re-wrap of the same key; fingerprint/entries/server unchanged; other devices and exported backups must be updated
 - **Encrypted device transfer** — temporary pairing code (client-side only) wraps the passphrase-protected key; the ciphertext is held **in server memory only** for 15 minutes (never written to disk); single-use link/QR; the target device proves the code with an HMAC proof; the source device verifies it and shows the requesting IP/User-Agent before enabling Approve; the server never sees the pairing code or PGP passphrase
 - **TOTP secrets encrypted at rest** — AES-256-GCM via `DATA_ENCRYPTION_KEY` (or an auto-generated key file), with replay protection
 - **Password policy** — minimum 12 characters, max 72 bytes (bcrypt limit), enforced server-side

@@ -80,6 +80,46 @@ export async function decryptPrivateKey(
 }
 
 /**
+ * Re-wrap a passphrase-protected private key with a new passphrase.
+ *
+ * The key material, fingerprint and public key stay the same; only the
+ * at-rest encryption of the private key changes. The server is not involved.
+ */
+export async function changePrivateKeyPassphrase(
+  keyData: string,
+  oldPassphrase: string,
+  newPassphrase: string
+): Promise<string> {
+  if (!newPassphrase || newPassphrase.length < 12) {
+    throw new Error('New passphrase must be at least 12 characters');
+  }
+  const openpgp = await getOpenPGP();
+  const privateKey = await openpgp.readPrivateKey({ armoredKey: keyData });
+  const fingerprint = privateKey.getFingerprint().toUpperCase();
+
+  const decrypted = await openpgp.decryptKey({
+    privateKey,
+    passphrase: oldPassphrase,
+  });
+  const reencrypted = await openpgp.encryptKey({
+    privateKey: decrypted,
+    passphrase: newPassphrase,
+  });
+  const armored = reencrypted.armor();
+
+  // Verify the new blob decrypts with the new passphrase and keeps the fingerprint.
+  const check = await openpgp.readPrivateKey({ armoredKey: armored });
+  if (check.getFingerprint().toUpperCase() !== fingerprint) {
+    throw new Error('Fingerprint changed while changing passphrase');
+  }
+  const verified = await openpgp.decryptKey({ privateKey: check, passphrase: newPassphrase });
+  if (verified.getFingerprint().toUpperCase() !== fingerprint) {
+    throw new Error('Could not verify the new passphrase');
+  }
+  return armored;
+}
+
+/**
  * Import and decrypt external private key from file
  *
  * SECURITY: The decrypted key is returned but should NEVER be persisted.
