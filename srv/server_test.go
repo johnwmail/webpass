@@ -387,7 +387,7 @@ func newTestServerRaw(t *testing.T) *Server {
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
-	t.Cleanup(func() { _ = srv.DB.Close() })
+	t.Cleanup(func() { _ = srv.CloseDB() })
 	t.Cleanup(func() { srv.RateLimiter.Stop() })
 	return srv
 }

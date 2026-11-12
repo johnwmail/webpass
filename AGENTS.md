@@ -196,9 +196,11 @@ Temporary, client-encrypted PGP key transfer between devices:
   never sent to the server). The client encrypts the already
   passphrase-protected private key with PBKDF2-SHA256 (600k) + AES-256-GCM and
   uploads the envelope.
-- The server stores the ciphertext for **15 minutes**, bound to the account
-  fingerprint, and deletes it on redeem/expiry. It never sees the pairing code
-  or the PGP passphrase.
+- The server keeps the ciphertext **in memory only** for **15 minutes**, bound
+  to the account fingerprint, and clears it on redeem/expiry/deny. It is never
+  written to the database; a server restart invalidates active transfers.
+  (Migration 015 drops the old `key_transfers` table.) It never sees the pairing
+  code or the PGP passphrase.
 - The source device displays a QR code **and** the link (for desktops without a
   camera). The target device logs in, enters the same pairing code, downloads
   the envelope and **verifies the code locally**.
