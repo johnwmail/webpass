@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'preact/hooks';
 import { session } from '../lib/session';
 import { getAccount, deleteAccount as deleteAccountFromDB, saveAccount, aesDecryptWithFallback, aesEncrypt } from '../lib/storage';
-import { decryptPAT, decryptPrivateKey } from '../lib/crypto';
+import { decryptPAT, decryptPrivateKey, changePrivateKeyPassphrase } from '../lib/crypto';
 import { startRegistration } from '@simplewebauthn/browser';
 import QRCode from 'qrcode';
 import { GitSync } from './GitSync';
@@ -83,6 +83,14 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordChangeLoading, setPasswordChangeLoading] = useState(false);
+
+  // PGP passphrase change state
+  const [showPgpPassphraseChange, setShowPgpPassphraseChange] = useState(false);
+  const [currentPgpPassphrase, setCurrentPgpPassphrase] = useState('');
+  const [newPgpPassphrase, setNewPgpPassphrase] = useState('');
+  const [confirmPgpPassphrase, setConfirmPgpPassphrase] = useState('');
+  const [pgpPassphraseLoading, setPgpPassphraseLoading] = useState(false);
+  const [pgpPassphraseError, setPgpPassphraseError] = useState('');
 
   const fp = session.fingerprint || '';
   const apiUrl = session.api?.baseUrl || '';
@@ -339,6 +347,53 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
       setPasskeyError(e.message || 'Failed to remove passkey');
     }
     setPasskeyLoading(false);
+  };
+
+  const handleChangePgpPassphrase = async () => {
+    setPgpPassphraseError('');
+    if (!currentPgpPassphrase || !newPgpPassphrase || !confirmPgpPassphrase) {
+      setPgpPassphraseError('All passphrase fields are required');
+      return;
+    }
+    if (newPgpPassphrase.length < 12) {
+      setPgpPassphraseError('New passphrase must be at least 12 characters');
+      return;
+    }
+    if (newPgpPassphrase !== confirmPgpPassphrase) {
+      setPgpPassphraseError('New passphrases do not match');
+      return;
+    }
+    const fp = session.fingerprint;
+    if (!fp) {
+      setPgpPassphraseError('Not logged in');
+      return;
+    }
+    setPgpPassphraseLoading(true);
+    try {
+      const account = await getAccount(fp);
+      if (!account) throw new Error('Account not found');
+      const newKey = await changePrivateKeyPassphrase(
+        account.privateKey,
+        currentPgpPassphrase,
+        newPgpPassphrase
+      );
+      await saveAccount({ ...account, privateKey: newKey });
+      session.clearPrivateKey();
+      setShowPgpPassphraseChange(false);
+      setCurrentPgpPassphrase('');
+      setNewPgpPassphrase('');
+      setConfirmPgpPassphrase('');
+      setSuccess('PGP passphrase changed. Other devices and exported backups still use the old passphrase — re-export and update them.');
+      setTimeout(() => setSuccess(''), 8000);
+    } catch (e: any) {
+      const msg = e?.message || 'Failed to change PGP passphrase';
+      setPgpPassphraseError(
+        /decrypt|passphrase|session key|armor/i.test(msg)
+          ? 'Invalid current PGP passphrase'
+          : msg
+      );
+    }
+    setPgpPassphraseLoading(false);
   };
 
   // Change password
@@ -665,7 +720,99 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
               <button class="btn btn-sm" onClick={exportPrivateKey}>
                 📤 Export Private Key (encrypted)
               </button>
+              {!showPgpPassphraseChange && (
+                <button
+                  class="btn btn-sm"
+                  onClick={() => {
+                    setShowPgpPassphraseChange(true);
+                    setPgpPassphraseError('');
+                    setCurrentPgpPassphrase('');
+                    setNewPgpPassphrase('');
+                    setConfirmPgpPassphrase('');
+                  }}
+                >
+                  🔑 Change PGP Passphrase
+                </button>
+              )}
             </div>
+
+            {showPgpPassphraseChange && (
+              <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 12px;">
+                <p class="help-text" style="font-size: 12px; margin: 0;">
+                  The key and fingerprint stay the same. Other devices and exported
+                  backups still use the old passphrase — re-export and update them.
+                  Cancel any active device transfer first.
+                </p>
+                <div class="field">
+                  <label class="label">Current PGP Passphrase</label>
+                  <input
+                    class="input"
+                    type="password"
+                    value={currentPgpPassphrase}
+                    onInput={(e) => { setCurrentPgpPassphrase((e.target as HTMLInputElement).value); setPgpPassphraseError(''); }}
+                    placeholder="Enter current PGP passphrase"
+                    autocomplete="off"
+                    data-lpignore="true"
+                    data-bwignore="true"
+                    data-1p-ignore="true"
+                    disabled={pgpPassphraseLoading}
+                  />
+                </div>
+                <div class="field">
+                  <label class="label">New PGP Passphrase</label>
+                  <input
+                    class="input"
+                    type="password"
+                    value={newPgpPassphrase}
+                    onInput={(e) => { setNewPgpPassphrase((e.target as HTMLInputElement).value); setPgpPassphraseError(''); }}
+                    placeholder="Enter new PGP passphrase (12+ characters)"
+                    autocomplete="off"
+                    data-lpignore="true"
+                    data-bwignore="true"
+                    data-1p-ignore="true"
+                    disabled={pgpPassphraseLoading}
+                  />
+                </div>
+                <div class="field">
+                  <label class="label">Confirm New PGP Passphrase</label>
+                  <input
+                    class="input"
+                    type="password"
+                    value={confirmPgpPassphrase}
+                    onInput={(e) => { setConfirmPgpPassphrase((e.target as HTMLInputElement).value); setPgpPassphraseError(''); }}
+                    placeholder="Confirm new PGP passphrase"
+                    autocomplete="off"
+                    data-lpignore="true"
+                    data-bwignore="true"
+                    data-1p-ignore="true"
+                    disabled={pgpPassphraseLoading}
+                  />
+                </div>
+                {pgpPassphraseError && <p class="error-msg">{pgpPassphraseError}</p>}
+                <div style="display: flex; gap: 8px;">
+                  <button
+                    class="btn btn-primary btn-sm"
+                    onClick={handleChangePgpPassphrase}
+                    disabled={pgpPassphraseLoading || !currentPgpPassphrase || !newPgpPassphrase || !confirmPgpPassphrase}
+                  >
+                    {pgpPassphraseLoading ? <><span class="spinner" /> Changing...</> : '💾 Change Passphrase'}
+                  </button>
+                  <button
+                    class="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      setShowPgpPassphraseChange(false);
+                      setCurrentPgpPassphrase('');
+                      setNewPgpPassphrase('');
+                      setConfirmPgpPassphrase('');
+                      setPgpPassphraseError('');
+                    }}
+                    disabled={pgpPassphraseLoading}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Device transfer */}

@@ -219,6 +219,22 @@ Endpoints: `POST /api/{fp}/key-transfer`,
 `DELETE /api/{fp}/key-transfer`,
 `GET /api/{fp}/key-transfer/status`.
 
+## PGP Passphrase Change
+
+Settings → PGP Key Management → Change PGP Passphrase performs a purely
+client-side re-wrap:
+
+- Decrypt the private key with the current passphrase, re-encrypt with
+  `openpgp.encryptKey(newPassphrase)`, verify the fingerprint and decrypt the
+  new blob once before saving it to IndexedDB.
+- The key material, fingerprint, public key and entries are unchanged; no
+  server call and no re-encryption of entries.
+- The login password is separate and unaffected.
+- Clear the cached private key after the change (the next unlock uses the new
+  passphrase).
+- Other devices and previously exported `.asc` backups still use the old
+  passphrase; re-export/update them. Cancel active device transfers first.
+
 ## Security Rules
 
 - Never log passwords, tokens, or encrypted content
