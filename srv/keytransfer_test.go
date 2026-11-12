@@ -289,9 +289,7 @@ func TestKeyTransferExpiry(t *testing.T) {
 	token := loginToken(t, ts, "kt1", "password1234")
 
 	transferToken, _ := createKeyTransfer(t, ts, "kt1", token, csrf)
-	if _, err := s.DB.Exec(`UPDATE key_transfers SET expires_at = datetime('now', '-1 minute') WHERE fingerprint = 'kt1'`); err != nil {
-		t.Fatalf("expire transfer: %v", err)
-	}
+	s.KeyTransfers.expireForTest("kt1")
 
 	body := fmt.Sprintf(`{"token":%q}`, transferToken)
 	resp = doReqWithCSRF(t, ts, "POST", "/api/kt1/key-transfer/redeem", body, token, csrf)
@@ -340,12 +338,34 @@ func TestKeyTransferPurgedOnAccountDelete(t *testing.T) {
 	expectStatus(t, resp, http.StatusNoContent)
 	_ = resp.Body.Close()
 
+	if s.KeyTransfers.HasForUser("kt1") {
+		t.Fatal("expected key transfers to be purged from memory")
+	}
+}
+
+func TestKeyTransferMemoryOnly(t *testing.T) {
+	t.Setenv("RATE_LIMIT_ATTEMPTS", "100")
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+	csrf := getCSRFToken(t, ts)
+
+	resp := doReq(t, ts, "POST", "/api", `{"password":"password1234","public_key":"pk","fingerprint":"kt1"}`, "")
+	expectStatus(t, resp, http.StatusCreated)
+	_ = resp.Body.Close()
+	token := loginToken(t, ts, "kt1", "password1234")
+	createKeyTransfer(t, ts, "kt1", token, csrf)
+
+	if !s.KeyTransfers.HasForUser("kt1") {
+		t.Fatal("expected the transfer to be kept in memory")
+	}
+
 	var count int
-	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM key_transfers WHERE fingerprint = 'kt1'`).Scan(&count); err != nil {
-		t.Fatalf("count transfers: %v", err)
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='key_transfers'`).Scan(&count); err != nil {
+		t.Fatalf("check key_transfers table: %v", err)
 	}
 	if count != 0 {
-		t.Fatalf("expected key transfers to be purged, found %d", count)
+		t.Fatalf("key_transfers must not be persisted, found %d", count)
 	}
 }
 

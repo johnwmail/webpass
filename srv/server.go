@@ -46,13 +46,14 @@ type Server struct {
 	StaticFS     fs.FS  // embedded frontend filesystem (optional; preferred over StaticDir)
 	GitService   *GitService
 	Registration *RegistrationService
-	RateLimiter  *RateLimiter  // rate limiter for auth endpoints
-	hardLimit    time.Duration // hard limit (max session time)
-	softLimit    time.Duration // soft limit (browser closed detection)
-	cookieAuth   bool          // whether to use httpOnly cookies instead of localStorage
-	cookieDomain string        // optional cookie domain
-	bcryptCost   int           // bcrypt cost factor for password hashing
-	maxBodyBytes int64         // maximum accepted request body size in bytes
+	RateLimiter  *RateLimiter      // rate limiter for auth endpoints
+	KeyTransfers *keyTransferStore // temporary in-memory PGP key transfers
+	hardLimit    time.Duration     // hard limit (max session time)
+	softLimit    time.Duration     // soft limit (browser closed detection)
+	cookieAuth   bool              // whether to use httpOnly cookies instead of localStorage
+	cookieDomain string            // optional cookie domain
+	bcryptCost   int               // bcrypt cost factor for password hashing
+	maxBodyBytes int64             // maximum accepted request body size in bytes
 	// PGPKeyTimeoutSeconds is the frontend PGP key auto-lock timeout.
 	PGPKeyTimeoutSeconds int
 	Secrets              *SecretBox         // encrypts secrets stored at rest (TOTP)
@@ -66,6 +67,9 @@ type Server struct {
 
 // CloseDB closes the database connection for graceful shutdown.
 func (s *Server) CloseDB() error {
+	if s.KeyTransfers != nil {
+		s.KeyTransfers.Close()
+	}
 	if s.DB != nil {
 		return s.DB.Close()
 	}
@@ -182,6 +186,9 @@ func New(dbPath string, jwtKey []byte, hardLimitMin int, softLimitMin int) (*Ser
 
 	// Initialize Rate Limiter
 	s.RateLimiter = NewRateLimiter()
+
+	// Temporary key transfers live in memory only (never written to disk).
+	s.KeyTransfers = NewKeyTransferStore()
 
 	return s, nil
 }
@@ -1885,12 +1892,6 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if err := qtx.DeleteKeyTransfersForUser(ctx, fp); err != nil {
-		_ = tx.Rollback()
-		slog.Error("delete account: purge key transfers", "error", err)
-		jsonError(w, "internal error", http.StatusInternalServerError)
-		return
-	}
 	entries, err := qtx.ListEntries(ctx, fp)
 	if err != nil {
 		_ = tx.Rollback()
@@ -1920,6 +1921,7 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	s.KeyTransfers.DeleteForUser(fp)
 
 	s.audit(r, fp, "account_delete", "")
 

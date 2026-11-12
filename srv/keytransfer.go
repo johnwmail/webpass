@@ -3,17 +3,13 @@ package srv
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/johnwmail/webpass/db/dbgen"
 )
 
 const (
@@ -113,66 +109,36 @@ func (s *Server) handleCreateKeyTransfer(w http.ResponseWriter, r *http.Request)
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	expiresAt := time.Now().Add(keyTransferTTL).UTC()
 
-	// Only one active transfer per account.
-	if err := s.Q.DeleteKeyTransfersForUser(r.Context(), fp); err != nil {
-		slog.Error("key transfer: clear previous", "error", err)
-		jsonError(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if err := s.Q.InsertKeyTransfer(r.Context(), dbgen.InsertKeyTransferParams{
-		Fingerprint: fp,
-		TokenHash:   tokenHash,
-		Envelope:    data,
-		Challenge:   challenge,
-		ExpiresAt:   expiresAt,
-		CreatedIp:   getClientIP(r),
-		UserAgent:   r.UserAgent(),
-	}); err != nil {
-		slog.Error("key transfer: insert", "error", err)
-		jsonError(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	_ = s.Q.DeleteExpiredKeyTransfers(r.Context())
-
+	t := s.KeyTransfers.Create(fp, tokenHash, data, challenge, getClientIP(r), r.UserAgent())
 	s.audit(r, fp, "key_transfer_created", "")
 	w.Header().Set("Cache-Control", "no-store")
 	jsonOK(w, map[string]any{
 		"token":      token,
 		"challenge":  challenge,
-		"expires_at": expiresAt.Format(time.RFC3339),
+		"expires_at": t.ExpiresAt.UTC().Format(time.RFC3339),
 	})
 }
 
 // GET /api/{fingerprint}/key-transfer/envelope — the target device fetches the
 // ciphertext to verify the pairing code locally BEFORE requesting approval.
-// The envelope stays encrypted; the server cannot decrypt it.
+// The envelope stays encrypted and is never written to the database.
 func (s *Server) handleFetchKeyTransferEnvelope(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
-	row, err := s.Q.GetKeyTransferEnvelope(r.Context(), fp)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			jsonError(w, "transfer not found or expired", http.StatusNotFound)
-			return
-		}
-		slog.Error("key transfer: fetch envelope", "error", err)
-		jsonError(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if len(row.Envelope) == 0 {
+	envelope, challenge, ok := s.KeyTransfers.Fetch(fp)
+	if !ok {
 		jsonError(w, "transfer not found or expired", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	jsonOK(w, map[string]any{
-		"envelope":  json.RawMessage(row.Envelope),
-		"challenge": row.Challenge,
+		"envelope":  json.RawMessage(envelope),
+		"challenge": challenge,
 	})
 }
 
 // POST /api/{fingerprint}/key-transfer/request — the target device announces
-// itself; the source device must approve it before the envelope is released.
+// itself with a pairing-code proof; the source device must approve it.
 func (s *Server) handleRequestKeyTransfer(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
 
@@ -195,20 +161,8 @@ func (s *Server) handleRequestKeyTransfer(w http.ResponseWriter, r *http.Request
 	}
 
 	sum := sha256.Sum256([]byte(body.Token))
-	_, err = s.Q.RequestKeyTransfer(r.Context(), dbgen.RequestKeyTransferParams{
-		RequestedIp:        getClientIP(r),
-		RequestedUserAgent: r.UserAgent(),
-		RequestedProof:     body.Proof,
-		TokenHash:          sum[:],
-		Fingerprint:        fp,
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			jsonError(w, "transfer not found or expired", http.StatusNotFound)
-			return
-		}
-		slog.Error("key transfer: request", "error", err)
-		jsonError(w, "internal error", http.StatusInternalServerError)
+	if !s.KeyTransfers.Request(fp, sum[:], getClientIP(r), r.UserAgent(), body.Proof) {
+		jsonError(w, "transfer not found or expired", http.StatusNotFound)
 		return
 	}
 
@@ -220,13 +174,8 @@ func (s *Server) handleRequestKeyTransfer(w http.ResponseWriter, r *http.Request
 // POST /api/{fingerprint}/key-transfer/approve — source device approval.
 func (s *Server) handleApproveKeyTransfer(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
-	if _, err := s.Q.ApproveKeyTransfer(r.Context(), fp); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			jsonError(w, "no pending transfer or pairing code not verified", http.StatusNotFound)
-			return
-		}
-		slog.Error("key transfer: approve", "error", err)
-		jsonError(w, "internal error", http.StatusInternalServerError)
+	if !s.KeyTransfers.Approve(fp) {
+		jsonError(w, "no pending transfer or pairing code not verified", http.StatusNotFound)
 		return
 	}
 	s.audit(r, fp, "key_transfer_approved", "")
@@ -237,13 +186,8 @@ func (s *Server) handleApproveKeyTransfer(w http.ResponseWriter, r *http.Request
 // POST /api/{fingerprint}/key-transfer/deny — source device rejection.
 func (s *Server) handleDenyKeyTransfer(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
-	if _, err := s.Q.DenyKeyTransfer(r.Context(), fp); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			jsonError(w, "no pending transfer", http.StatusNotFound)
-			return
-		}
-		slog.Error("key transfer: deny", "error", err)
-		jsonError(w, "internal error", http.StatusInternalServerError)
+	if !s.KeyTransfers.Deny(fp) {
+		jsonError(w, "no pending transfer", http.StatusNotFound)
 		return
 	}
 	s.audit(r, fp, "key_transfer_denied", "")
@@ -251,8 +195,8 @@ func (s *Server) handleDenyKeyTransfer(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]string{"status": "denied"})
 }
 
-// POST /api/{fingerprint}/key-transfer/redeem — atomically claim and delete the
-// envelope. The pairing code is never sent to the server.
+// POST /api/{fingerprint}/key-transfer/redeem — atomically claim and clear the
+// in-memory envelope. The pairing code is never sent to the server.
 func (s *Server) handleRedeemKeyTransfer(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
 
@@ -269,82 +213,59 @@ func (s *Server) handleRedeemKeyTransfer(w http.ResponseWriter, r *http.Request)
 	}
 
 	sum := sha256.Sum256([]byte(body.Token))
-	row, err := s.Q.ClaimKeyTransfer(r.Context(), dbgen.ClaimKeyTransferParams{
-		TokenHash:   sum[:],
-		Fingerprint: fp,
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			status, statusErr := s.Q.GetKeyTransferStatus(r.Context(), fp)
-			if statusErr != nil {
-				jsonError(w, "transfer not found or expired", http.StatusNotFound)
-				return
-			}
-			switch {
-			case status.DeniedAt != nil:
-				jsonError(w, "transfer denied", http.StatusForbidden)
-			case status.UsedAt != nil || !status.ExpiresAt.After(time.Now()):
-				jsonError(w, "transfer not found or expired", http.StatusNotFound)
-			case status.RequestedAt == nil:
-				jsonError(w, "transfer not approved", http.StatusForbidden)
-			case status.ApprovedAt == nil:
-				jsonError(w, "waiting for approval on the source device", http.StatusForbidden)
-			default:
-				jsonError(w, "transfer not approved", http.StatusForbidden)
-			}
+	envelope, ok := s.KeyTransfers.Claim(fp, sum[:])
+	if !ok {
+		st, found := s.KeyTransfers.Status(fp)
+		if !found {
+			jsonError(w, "transfer not found or expired", http.StatusNotFound)
 			return
 		}
-		slog.Error("key transfer: claim", "error", err)
-		jsonError(w, "internal error", http.StatusInternalServerError)
+		switch {
+		case st.DeniedAt != nil:
+			jsonError(w, "transfer denied", http.StatusForbidden)
+		case st.UsedAt != nil || !st.ExpiresAt.After(time.Now()):
+			jsonError(w, "transfer not found or expired", http.StatusNotFound)
+		case st.RequestedAt == nil:
+			jsonError(w, "transfer not approved", http.StatusForbidden)
+		case st.ApprovedAt == nil:
+			jsonError(w, "waiting for approval on the source device", http.StatusForbidden)
+		default:
+			jsonError(w, "transfer not approved", http.StatusForbidden)
+		}
 		return
-	}
-
-	// The ciphertext has been handed to the client; do not keep it around.
-	if err := s.Q.ClearKeyTransferEnvelope(r.Context(), row.ID); err != nil {
-		slog.Warn("key transfer: clear envelope", "error", err)
 	}
 
 	s.audit(r, fp, "key_transfer_redeemed", "")
 	w.Header().Set("Cache-Control", "no-store")
-	jsonOK(w, map[string]json.RawMessage{"envelope": json.RawMessage(row.Envelope)})
+	jsonOK(w, map[string]json.RawMessage{"envelope": json.RawMessage(envelope)})
 }
 
 // DELETE /api/{fingerprint}/key-transfer — revoke any active transfer.
 func (s *Server) handleRevokeKeyTransfer(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
-	if err := s.Q.DeleteKeyTransfersForUser(r.Context(), fp); err != nil {
-		slog.Error("key transfer: revoke", "error", err)
-		jsonError(w, "internal error", http.StatusInternalServerError)
-		return
-	}
+	s.KeyTransfers.DeleteForUser(fp)
 	s.audit(r, fp, "key_transfer_revoked", "")
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// GET /api/{fingerprint}/key-transfer/status — used by the source device to
-// show "transferred" / "expired".
+// GET /api/{fingerprint}/key-transfer/status — used by both devices.
 func (s *Server) handleKeyTransferStatus(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
-	row, err := s.Q.GetKeyTransferStatus(r.Context(), fp)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			jsonOK(w, map[string]any{
-				"active":               false,
-				"requested":            false,
-				"requested_at":         nil,
-				"requested_ip":         "",
-				"requested_user_agent": "",
-				"requested_proof":      "",
-				"challenge":            "",
-				"approved":             false,
-				"denied":               false,
-				"redeemed":             false,
-				"expires_at":           nil,
-			})
-			return
-		}
-		slog.Error("key transfer: status", "error", err)
-		jsonError(w, "internal error", http.StatusInternalServerError)
+	st, ok := s.KeyTransfers.Status(fp)
+	if !ok {
+		jsonOK(w, map[string]any{
+			"active":               false,
+			"requested":            false,
+			"requested_at":         nil,
+			"requested_ip":         "",
+			"requested_user_agent": "",
+			"requested_proof":      "",
+			"challenge":            "",
+			"approved":             false,
+			"denied":               false,
+			"redeemed":             false,
+			"expires_at":           nil,
+		})
 		return
 	}
 	formatTime := func(t *time.Time) any {
@@ -354,16 +275,16 @@ func (s *Server) handleKeyTransferStatus(w http.ResponseWriter, r *http.Request)
 		return t.UTC().Format(time.RFC3339)
 	}
 	jsonOK(w, map[string]any{
-		"active":               row.UsedAt == nil && row.DeniedAt == nil && row.ExpiresAt.After(time.Now()),
-		"requested":            row.RequestedAt != nil,
-		"requested_at":         formatTime(row.RequestedAt),
-		"requested_ip":         row.RequestedIp,
-		"requested_user_agent": row.RequestedUserAgent,
-		"requested_proof":      row.RequestedProof,
-		"challenge":            row.Challenge,
-		"approved":             row.ApprovedAt != nil,
-		"denied":               row.DeniedAt != nil,
-		"redeemed":             row.UsedAt != nil,
-		"expires_at":           row.ExpiresAt.UTC().Format(time.RFC3339),
+		"active":               st.UsedAt == nil && st.DeniedAt == nil && st.ExpiresAt.After(time.Now()),
+		"requested":            st.RequestedAt != nil,
+		"requested_at":         formatTime(st.RequestedAt),
+		"requested_ip":         st.RequestedIP,
+		"requested_user_agent": st.RequestedUserAgent,
+		"requested_proof":      st.RequestedProof,
+		"challenge":            st.Challenge,
+		"approved":             st.ApprovedAt != nil,
+		"denied":               st.DeniedAt != nil,
+		"redeemed":             st.UsedAt != nil,
+		"expires_at":           st.ExpiresAt.UTC().Format(time.RFC3339),
 	})
 }
