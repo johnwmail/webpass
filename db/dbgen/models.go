@@ -55,6 +55,18 @@ type GitSyncLog struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
+type KeyTransfer struct {
+	ID          int64      `json:"id"`
+	Fingerprint string     `json:"fingerprint"`
+	TokenHash   []byte     `json:"token_hash"`
+	Envelope    []byte     `json:"envelope"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ExpiresAt   time.Time  `json:"expires_at"`
+	UsedAt      *time.Time `json:"used_at"`
+	CreatedIp   string     `json:"created_ip"`
+	UserAgent   string     `json:"user_agent"`
+}
+
 type Migration struct {
 	MigrationNumber int64     `json:"migration_number"`
 	MigrationName   string    `json:"migration_name"`

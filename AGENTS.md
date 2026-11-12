@@ -16,6 +16,7 @@ WebPass is a zero-knowledge password manager with:
 ├── srv/
 │   ├── server.go        # HTTP handlers + auth middleware
 │   ├── git.go           # Git sync service (push, pull, reset)
+│   ├── keytransfer.go   # Temporary client-encrypted key transfer
 │   └── registration.go  # TOTP-based registration code validation
 ├── db/
 │   ├── db.go           # SQLite connection + migrations
@@ -24,6 +25,9 @@ WebPass is a zero-knowledge password manager with:
 │   └── dbgen/          # Generated Go code (sqlc output)
 ├── frontend/
 │   ├── src/            # Preact components + logic
+│   │   ├── lib/keyTransfer.ts        # Pairing-code envelope crypto
+│   │   ├── components/KeyTransferModal.tsx  # Source device transfer UI
+│   │   └── components/TransferRestore.tsx   # New device restore UI
 │   ├── index.html
 │   ├── embed.go        # //go:embed all:dist — embeds built SPA into the binary
 │   ├── dist/           # Vite build output (gitignored; .gitkeep placeholder committed)
@@ -183,6 +187,25 @@ Manual push/pull sync to any Git repository (GitHub, GitLab, Gitea):
 - **Simplified conflict handling**: Git errors guide users ("pull first" / "push first")
 
 See [GITSYNC.md](GITSYNC.md) for full documentation.
+
+## Device Transfer (encrypted key handoff)
+
+Temporary, client-encrypted PGP key transfer between devices:
+
+- Source device: the user enters a **pairing code** (masked, never displayed,
+  never sent to the server). The client encrypts the already
+  passphrase-protected private key with PBKDF2-SHA256 (600k) + AES-256-GCM and
+  uploads the envelope.
+- The server stores the ciphertext for **15 minutes**, bound to the account
+  fingerprint, and deletes it on redeem/expiry. It never sees the pairing code
+  or the PGP passphrase.
+- The source device displays a QR code **and** the link (for desktops without a
+  camera). The target device logs in, enters the same pairing code, downloads
+  the envelope, decrypts the outer layer client-side and imports the key.
+- The PGP passphrase is only requested when unlocking entries on the new device.
+
+Endpoints: `POST /api/{fp}/key-transfer`, `POST /api/{fp}/key-transfer/redeem`,
+`DELETE /api/{fp}/key-transfer`, `GET /api/{fp}/key-transfer/status`.
 
 ## Security Rules
 

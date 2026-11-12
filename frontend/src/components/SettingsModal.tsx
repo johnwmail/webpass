@@ -6,6 +6,7 @@ import { startRegistration } from '@simplewebauthn/browser';
 import QRCode from 'qrcode';
 import { GitSync } from './GitSync';
 import { ImportDialog } from './ImportDialog';
+import { KeyTransferModal } from './KeyTransferModal';
 import { VERSION as FRONTEND_VERSION, COMMIT as FRONTEND_COMMIT, BUILD_TIME as FRONTEND_BUILD_TIME } from '../lib/version';
 
 interface Props {
@@ -61,6 +62,7 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
 
   // Import state
   const [showImport, setShowImport] = useState(false);
+  const [showKeyTransfer, setShowKeyTransfer] = useState(false);
 
   // Git sync state
   const [showGitSync, setShowGitSync] = useState(false);
@@ -666,6 +668,18 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
             </div>
           </div>
 
+          {/* Device transfer */}
+          <div class="settings-section">
+            <h3>📱 Device Transfer</h3>
+            <p class="help-text" style="margin-bottom: 12px; font-size: 12px;">
+              Move this account's encrypted PGP key to a new device with a 15-minute link.
+              The server never sees your pairing code or PGP passphrase.
+            </p>
+            <button class="btn btn-sm" onClick={() => setShowKeyTransfer(true)}>
+              Transfer to new device
+            </button>
+          </div>
+
           {/* Data */}
           <div class="settings-section">
             <h3>Data</h3>
@@ -1139,6 +1153,9 @@ export function SettingsModal({ onClose, onLock, onEntriesChanged }: Props) {
           onSuccess={handleImportSuccess}
         />
       )}
+
+      {/* Device transfer */}
+      {showKeyTransfer && <KeyTransferModal onClose={() => setShowKeyTransfer(false)} />}
     </div>
   );
 }

@@ -151,6 +151,22 @@ account key. Create the archive with:
 tar -czf passstore.tar.gz -C ~/.password-store .
 ```
 
+### Transfer an account to a new device
+
+1. On the old device open **Settings → Device Transfer**, enter a temporary
+   pairing code twice and press **Create 15-minute link**.
+2. On the new device scan the QR code or open the displayed link, log in, and
+   enter the **same pairing code**.
+3. The encrypted private key is imported. You will be asked for your PGP
+   passphrase only when you unlock an entry on the new device.
+
+The pairing code is chosen by you and **never sent to the server**. The client
+encrypts the already passphrase-protected private key with a PBKDF2/AES-GCM
+outer layer, and the server stores the ciphertext for 15 minutes (single-use,
+fingerprint-bound). The server never sees the pairing code or the PGP
+passphrase. Treat the link as sensitive: it is single-use and expires after 15
+minutes.
+
 ##  Deployment
 
 ### Docker
@@ -288,6 +304,15 @@ All endpoints require JWT authentication except where noted.
 | POST   | `/api/{fingerprint}/sessions/revoke` | JWT | Revoke all sessions (log out everywhere)        |
 | GET    | `/api/{fingerprint}/audit`       | JWT   | Recent security events for the account           |
 
+### Device Transfer
+
+| Method | Path                                   | Auth | Description                                      |
+| ------ | -------------------------------------- | ---- | ------------------------------------------------ |
+| POST   | `/api/{fingerprint}/key-transfer`      | JWT  | Create a 15-minute, single-use key transfer      |
+| POST   | `/api/{fingerprint}/key-transfer/redeem` | JWT | Redeem the transfer (same account)             |
+| DELETE | `/api/{fingerprint}/key-transfer`      | JWT  | Revoke the active transfer                       |
+| GET    | `/api/{fingerprint}/key-transfer/status` | JWT | Status for the source device                   |
+
 ### Registration (TOTP-based)
 
 | Method | Path                              | Auth  | Description                                      |
@@ -353,6 +378,7 @@ All endpoints require JWT authentication except where noted.
 - **Security audit log** — login/2FA/password/session/git events with IP and user agent (`GET /api/{fp}/audit`); account deletion purges prior entries
 - **2FA recovery codes** — 10 one-time codes generated when 2FA is enabled; hashes stored, reusable codes consumed atomically
 - **Passkeys / WebAuthn** — Face ID, Touch ID and security keys as a second factor; password is still required first, TOTP and recovery codes remain as fallback
+- **Encrypted device transfer** — temporary pairing code (client-side only) wraps the passphrase-protected key; 15-minute single-use link/QR; the server never sees the pairing code or PGP passphrase
 - **TOTP secrets encrypted at rest** — AES-256-GCM via `DATA_ENCRYPTION_KEY` (or an auto-generated key file), with replay protection
 - **Password policy** — minimum 12 characters, max 72 bytes (bcrypt limit), enforced server-side
 - **Local key derivation** — PBKDF2-HMAC-SHA256 with 600k iterations; legacy 100k records are transparently upgraded on login

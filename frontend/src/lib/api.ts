@@ -1,4 +1,5 @@
 import type { EntryMeta } from '../types';
+import type { KeyTransferEnvelope } from './keyTransfer';
 
 export class ApiClient {
   baseUrl: string;
@@ -398,6 +399,60 @@ export class ApiClient {
       const err = await res.json().catch(() => ({ error: `Remove passkey failed (${res.status})` }));
       throw new Error(err.error || `Remove passkey failed (${res.status})`);
     }
+  }
+
+  /** POST /api/:fp/key-transfer — create a short-lived key transfer */
+  async createKeyTransfer(envelope: KeyTransferEnvelope): Promise<{ token: string; expires_at: string }> {
+    const res = await this.guardedFetch(this.url(`/api/${this.fingerprint}/key-transfer`), {
+      method: 'POST',
+      headers: this.headers(),
+      credentials: 'include',
+      body: JSON.stringify(envelope),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `Key transfer failed (${res.status})` }));
+      throw new Error(err.error || `Key transfer failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  /** POST /api/:fp/key-transfer/redeem — claim the encrypted key envelope */
+  async redeemKeyTransfer(token: string): Promise<{ envelope: KeyTransferEnvelope }> {
+    const res = await this.guardedFetch(this.url(`/api/${this.fingerprint}/key-transfer/redeem`), {
+      method: 'POST',
+      headers: this.headers(),
+      credentials: 'include',
+      body: JSON.stringify({ token }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `Key transfer failed (${res.status})` }));
+      throw new Error(err.error || `Key transfer failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  /** DELETE /api/:fp/key-transfer — revoke the active transfer */
+  async revokeKeyTransfer(): Promise<void> {
+    const res = await this.guardedFetch(this.url(`/api/${this.fingerprint}/key-transfer`), {
+      method: 'DELETE',
+      headers: this.headers(),
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      throw new Error(`Revoke key transfer failed (${res.status})`);
+    }
+  }
+
+  /** GET /api/:fp/key-transfer/status */
+  async keyTransferStatus(): Promise<{ active: boolean; redeemed: boolean; expires_at: string | null }> {
+    const res = await this.guardedFetch(this.url(`/api/${this.fingerprint}/key-transfer/status`), {
+      headers: this.headers(),
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      throw new Error(`Key transfer status failed (${res.status})`);
+    }
+    return res.json();
   }
 
   /** POST /api/logout — clear auth cookie */
