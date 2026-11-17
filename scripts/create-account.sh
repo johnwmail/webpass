@@ -198,9 +198,23 @@ export_keys() {
 
 	gpg "${args[@]}" --batch --armor --export "$fpr" >"$workdir/public.asc"
 	if [[ -n "$PGP_PASSPHRASE" ]]; then
-		gpg "${args[@]}" --batch --pinentry-mode loopback --passphrase-fd 3 \
-			--armor --export-secret-keys "$fpr" >"$workdir/private.asc" \
-			3<<<"$PGP_PASSPHRASE"
+		# gpg-agent can transiently fail to unlock a freshly imported or
+		# generated key ("Bad passphrase - skipped"). With set -e that would
+		# abort the whole script, so retry a few times before giving up.
+		local attempt ok=0
+		for attempt in 1 2 3; do
+			if gpg "${args[@]}" --batch --yes --pinentry-mode loopback --passphrase-fd 3 \
+				--armor --export-secret-keys "$fpr" >"$workdir/private.asc" \
+				3<<<"$PGP_PASSPHRASE" && [[ -s "$workdir/private.asc" ]]; then
+				ok=1
+				break
+			fi
+			if [[ -n "$homedir" ]] && command -v gpgconf >/dev/null 2>&1; then
+				gpgconf --homedir "$homedir" --kill gpg-agent >/dev/null 2>&1 || true
+			fi
+			sleep 1
+		done
+		(( ok )) || die "key export failed (for a protected key, pass --pgp-passphrase)"
 	else
 		gpg "${args[@]}" --batch --armor --export-secret-keys "$fpr" >"$workdir/private.asc"
 	fi
