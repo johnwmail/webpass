@@ -38,6 +38,18 @@ The `Release` CI workflow publishes prebuilt binaries to the GitHub Releases
 page on every version tag: `webpass-server-openbsd-amd64` (plus Linux
 `amd64`/`arm64`), so you can download it and skip local compilation.
 
+Each release also publishes `SHA256SUMS`. To download (and verify) the latest
+binary on the target host:
+
+```sh
+./scripts/download-latest.sh --os openbsd --arch amd64
+```
+
+The script uses only base tools (`curl`/`wget`/`ftp` and `sha256`/`sha256sum`),
+writes to a temporary file, and refuses to keep a binary whose checksum does not
+match `SHA256SUMS`. Checksums protect against corrupted or truncated downloads;
+they do not protect against a compromised GitHub repository.
+
 ## 2. Create the service user and directories
 
 As `root`:
