@@ -25,7 +25,7 @@ jobs:
           cache: true
 
       - name: Syntax check
-        run: bash -n scripts/create-account.sh scripts/import-passstore.sh scripts/test-scripts.sh
+        run: bash -n scripts/create-account.sh scripts/import-passstore.sh scripts/test-scripts.sh scripts/download-latest.sh
 
       - name: Check tools
         run: |
@@ -35,3 +35,35 @@ jobs:
 
       - name: Run E2E
         run: bash scripts/test-scripts.sh
+
+      - name: Test download-latest.sh
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          port=18093
+          python3 -m http.server "$port" --bind 127.0.0.1 --directory "$work/releases" \
+            >/dev/null 2>&1 &
+          http_pid=$!
+          trap 'kill "$http_pid" 2>/dev/null || true; rm -rf "$work"' EXIT
+
+          asset="$work/releases/download/v9.9.9/webpass-server-linux-amd64"
+          mkdir -p "$(dirname "$asset")"
+          printf '#!/bin/sh\necho fake-binary\n' >"$asset"
+          chmod +x "$asset"
+          (cd "$(dirname "$asset")" && sha256sum webpass-server-linux-amd64 >SHA256SUMS)
+
+          sleep 1
+          base="http://127.0.0.1:${port}"
+          WEBPASS_RELEASES="$base" scripts/download-latest.sh \
+            --version v9.9.9 --os linux --arch amd64 -o "$work/out"
+          test -x "$work/out"
+          grep -q 'fake-binary' "$work/out"
+
+          # A mismatched checksum must fail and must not leave a binary behind.
+          printf '%064d  webpass-server-linux-amd64\n' 0 >"$(dirname "$asset")/SHA256SUMS"
+          if WEBPASS_RELEASES="$base" scripts/download-latest.sh \
+            --version v9.9.9 --os linux --arch amd64 -o "$work/bad"; then
+            echo "corrupted checksum was accepted" >&2
+            exit 1
+          fi
+          test ! -e "$work/bad"
