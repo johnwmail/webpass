@@ -52,6 +52,9 @@ updates:
     # allowed; only the next minor/major bump is blocked (Go 1.27, Node 25).
     ignore:
       - dependency-name: "golang"
-        update-types: ["minor", "major"]
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
       - dependency-name: "node"
-        update-types: ["major"]
+        update-types:
+          - "version-update:semver-major"
