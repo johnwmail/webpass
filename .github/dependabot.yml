@@ -48,3 +48,13 @@ updates:
     groups:
       docker:
         patterns: ["*"]
+    # Stay on the pinned Go 1.26 and Node 24 lines. Patch releases are still
+    # allowed; only the next minor/major bump is blocked (Go 1.27, Node 25).
+    ignore:
+      - dependency-name: "golang"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
+      - dependency-name: "node"
+        update-types:
+          - "version-update:semver-major"
