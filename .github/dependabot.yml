@@ -48,3 +48,8 @@ updates:
     groups:
       docker:
         patterns: ["*"]
+    # The Go toolchain and Node runtime are pinned deliberately. They are
+    # upgraded with a dedicated change and a full CI run, not by Dependabot.
+    ignore:
+      - dependency-name: "golang"
+      - dependency-name: "node"
