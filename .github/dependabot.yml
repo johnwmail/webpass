@@ -48,8 +48,10 @@ updates:
     groups:
       docker:
         patterns: ["*"]
-    # The Go toolchain and Node runtime are pinned deliberately. They are
-    # upgraded with a dedicated change and a full CI run, not by Dependabot.
+    # Stay on the pinned Go 1.26 and Node 24 lines. Patch releases are still
+    # allowed; only the next minor/major bump is blocked (Go 1.27, Node 25).
     ignore:
       - dependency-name: "golang"
+        update-types: ["minor", "major"]
       - dependency-name: "node"
+        update-types: ["major"]
