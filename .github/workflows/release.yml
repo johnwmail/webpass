@@ -73,11 +73,19 @@ jobs:
       - name: Verify binaries
         run: file webpass-server-*
 
+      - name: Generate checksums
+        run: |
+          set -euo pipefail
+          sha256sum webpass-server-* > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v7
         with:
           name: webpass-server-binaries
-          path: webpass-server-*
+          path: |
+            webpass-server-*
+            SHA256SUMS
           retention-days: 30
 
       - name: Publish to GitHub Release
@@ -88,9 +96,9 @@ jobs:
           set -e
           TAG="${{ github.ref_name }}"
           if gh release view "${TAG}" >/dev/null 2>&1; then
-            gh release upload "${TAG}" webpass-server-* --clobber
+            gh release upload "${TAG}" webpass-server-* SHA256SUMS --clobber
           else
-            gh release create "${TAG}" webpass-server-* \
+            gh release create "${TAG}" webpass-server-* SHA256SUMS \
               --title "${TAG}" \
               --generate-notes
           fi
