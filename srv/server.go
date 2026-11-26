@@ -276,9 +276,20 @@ func (s *Server) Handler() http.Handler {
 	// Version info
 	mux.HandleFunc("GET /api/version", s.handleVersion)
 
-	// Serve frontend SPA if an embedded or on-disk filesystem is configured.
+	// Unknown API paths must not fall through to the frontend. These are less
+	// specific than the routes above, so registered endpoints still win.
+	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		jsonError(w, "not found", http.StatusNotFound)
+	})
+	mux.HandleFunc("/api", func(w http.ResponseWriter, r *http.Request) {
+		jsonError(w, "not found", http.StatusNotFound)
+	})
+
+	// Serve frontend files if an embedded or on-disk filesystem is configured.
 	// StaticFS (embedded assets) is used when set; otherwise StaticDir (an
 	// on-disk override for local development and E2E tests) is used.
+	// The UI is one page at / and uses hash routes (for example /#/transfer),
+	// so missing paths are 404 rather than index.html.
 	staticFS := s.StaticFS
 	if staticFS == nil && s.StaticDir != "" {
 		staticFS = os.DirFS(s.StaticDir)
@@ -286,24 +297,32 @@ func (s *Server) Handler() http.Handler {
 	if staticFS != nil {
 		fileServer := http.FileServerFS(staticFS)
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
-			if name == "" {
-				name = "index.html"
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				http.NotFound(w, r)
+				return
 			}
+			cleaned := path.Clean("/" + r.URL.Path)
+			// Reject non-canonical paths (trailing slash, dot segments) and
+			// directories so the file server cannot list them.
+			if r.URL.Path != cleaned {
+				http.NotFound(w, r)
+				return
+			}
+			if cleaned == "/" || cleaned == "/index.html" {
+				s.serveIndexHTML(w, r, staticFS)
+				return
+			}
+			name := strings.TrimPrefix(cleaned, "/")
 			if !fs.ValidPath(name) {
 				http.NotFound(w, r)
 				return
 			}
-			if name == "index.html" {
-				s.serveIndexHTML(w, r, staticFS)
+			info, err := fs.Stat(staticFS, name)
+			if err != nil || info.IsDir() {
+				http.NotFound(w, r)
 				return
 			}
-			if _, err := fs.Stat(staticFS, name); err == nil {
-				fileServer.ServeHTTP(w, r)
-				return
-			}
-			// SPA fallback for client-side routes.
-			s.serveIndexHTML(w, r, staticFS)
+			fileServer.ServeHTTP(w, r)
 		})
 	}
 
