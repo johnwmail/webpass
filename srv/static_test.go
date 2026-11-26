@@ -23,7 +23,7 @@ func TestStaticFilesDoNotFallbackToIndex(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		body, _ := io.ReadAll(resp.Body)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("status = %d, want 200", resp.StatusCode)
@@ -41,7 +41,7 @@ func TestStaticFilesDoNotFallbackToIndex(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		body, _ := io.ReadAll(resp.Body)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("status = %d, want 200", resp.StatusCode)
@@ -60,7 +60,7 @@ func TestStaticFilesDoNotFallbackToIndex(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 			body, _ := io.ReadAll(resp.Body)
 			if resp.StatusCode != http.StatusNotFound {
 				t.Fatalf("status = %d, want 404; body=%q", resp.StatusCode, body)
@@ -78,7 +78,7 @@ func TestStaticFilesDoNotFallbackToIndex(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		body, _ := io.ReadAll(resp.Body)
 		if resp.StatusCode != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404; body=%q", resp.StatusCode, body)
@@ -96,7 +96,7 @@ func TestStaticFilesDoNotFallbackToIndex(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusNotFound {
 			body, _ := io.ReadAll(resp.Body)
 			t.Fatalf("status = %d, want 404; body=%q", resp.StatusCode, body)
@@ -108,7 +108,7 @@ func TestStaticFilesDoNotFallbackToIndex(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("status = %d, want 200", resp.StatusCode)
 		}
