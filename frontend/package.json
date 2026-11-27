@@ -36,9 +36,9 @@
     "esbuild": "^0.28.2",
     "fake-indexeddb": "^6.2.8",
     "jsdom": "^31.0.1",
-    "tar-stream": "^3.2.2",
+    "tar-stream": "^3.3.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.8",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.1"
   }
 }
