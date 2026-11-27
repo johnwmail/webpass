@@ -21,8 +21,8 @@
   "dependencies": {
     "@simplewebauthn/browser": "^14.0.0",
     "fflate": "^0.8.3",
-    "lucide-preact": "^1.74.0",
-    "openpgp": "^6.3.2",
+    "lucide-preact": "^1.79.0",
+    "openpgp": "^6.3.3",
     "otpauth": "^9.6.0",
     "preact": "^11.2.0",
     "qrcode": "^1.5.4"
